@@ -1062,14 +1062,37 @@ def urlgenius_create_link():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/urlgenius/links')
-def urlgenius_list_links():
+@app.route('/urlgenius/sync_registry')
+def urlgenius_sync_registry():
+    """
+    Page through all URLGenius links via the API and rebuild the local registry.
+    Handles 20K+ links. Can take 30–60s on a cold pull.
+    """
     from product_api import URLGeniusAPI
     ug = URLGeniusAPI()
     if not ug.api_key:
         return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
     try:
-        return jsonify(ug.list_links())
+        n = ug.seed_registry()
+        return jsonify({'status': 'ok', 'links_synced': n, 'registry_size': len(ug._registry)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/urlgenius/links')
+def urlgenius_list_links():
+    """
+    Return URLGenius links.
+    No params → all links in one shot.
+    ?page=N   → paginated mode (~50/page) with meta.pagination.
+    """
+    from product_api import URLGeniusAPI
+    ug = URLGeniusAPI()
+    if not ug.api_key:
+        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
+    try:
+        page = request.args.get('page')
+        return jsonify(ug.list_links(page=int(page) if page else None))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1088,6 +1111,21 @@ def levanta_generate_link():
     try:
         result = lv.create_product_link(asin, source_id=label)
         return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/levanta/refresh_cache')
+def levanta_refresh_cache():
+    """Rebuild network_cache_levanta.json from live API (brand names + images included)."""
+    from product_api import LevantaNetworkMatcher
+    try:
+        matcher = LevantaNetworkMatcher()
+        asin_map = matcher.get_asin_data()
+        if not asin_map:
+            return jsonify({'error': 'No data returned — check LEVANTA_API_KEY'}), 500
+        brands = len({v.get('brand') for v in asin_map.values() if v.get('brand')})
+        return jsonify({'status': 'ok', 'asins': len(asin_map), 'brands': brands})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
