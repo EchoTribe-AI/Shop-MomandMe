@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mommy & Me Collective — AI Agent Strategy Plan</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Fredoka+One&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --coral: #FF6B6B;
+    --teal: #4ECDC4;
+    --gold: #F9A825;
+    --cream: #FFF8F3;
+    --charcoal: #3D3535;
+    --mid: #7B6B6B;
+    --light: #F2ECE9;
+    --white: #FFFFFF;
+    --green: #4CAF50;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Nunito', sans-serif;
+    background: var(--cream);
+    color: var(--charcoal);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+
+  /* COVER */
+  .cover {
+    background: linear-gradient(135deg, var(--coral) 0%, #FF8E53 60%, var(--gold) 100%);
+    color: white;
+    padding: 60px 48px 52px;
+  }
+  .cover-eyebrow {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    opacity: 0.85;
+    margin-bottom: 14px;
+  }
+  .cover-title {
+    font-family: 'Fredoka One', cursive;
+    font-size: 42px;
+    line-height: 1.1;
+    margin-bottom: 12px;
+  }
+  .cover-sub {
+    font-size: 18px;
+    font-weight: 600;
+    opacity: 0.9;
+    margin-bottom: 32px;
+  }
+  .cover-stats {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  .stat-box {
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 12px;
+    padding: 14px 20px;
+    min-width: 130px;
+  }
+  .stat-num {
+    font-family: 'Fredoka One', cursive;
+    font-size: 28px;
+    display: block;
+  }
+  .stat-label {
+    font-size: 11px;
+    font-weight: 700;
+    opacity: 0.85;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  /* BODY LAYOUT */
+  .page { max-width: 900px; margin: 0 auto; padding: 48px 36px; }
+
+  /* SECTION HEADERS */
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--coral);
+    margin-bottom: 6px;
+  }
+  .section-label::before {
+    content: '';
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: var(--coral);
+    border-radius: 2px;
+  }
+  h2 {
+    font-family: 'Fredoka One', cursive;
+    font-size: 28px;
+    color: var(--charcoal);
+    margin-bottom: 20px;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--charcoal);
+    margin-bottom: 10px;
+  }
+  p { margin-bottom: 14px; color: var(--mid); font-weight: 500; }
+
+  /* DIVIDER */
+  .divider {
+    border: none;
+    border-top: 2px dashed #E8DDD8;
+    margin: 48px 0;
+  }
+
+  /* DATA SOURCES GRID */
+  .data-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .data-card {
+    background: white;
+    border-radius: 14px;
+    padding: 18px;
+    border: 2px solid var(--light);
+    position: relative;
+  }
+  .data-card-icon {
+    font-size: 26px;
+    margin-bottom: 8px;
+  }
+  .data-card-title {
+    font-weight: 800;
+    font-size: 14px;
+    margin-bottom: 4px;
+    color: var(--charcoal);
+  }
+  .data-card-rows {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--coral);
+    margin-bottom: 8px;
+  }
+  .data-card-desc {
+    font-size: 12px;
+    color: var(--mid);
+    font-weight: 600;
+    line-height: 1.5;
+  }
+  .signal-tag {
+    display: inline-block;
+    background: var(--light);
+    color: var(--mid);
+    font-size: 10px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 8px;
+    margin-top: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .signal-tag.click { background: #FFF0F0; color: var(--coral); }
+  .signal-tag.rev { background: #F0FFF4; color: #2E7D32; }
+  .signal-tag.engage { background: #FFF8E1; color: #F57F17; }
+  .signal-tag.convert { background: #E3F2FD; color: #1565C0; }
+
+  /* INSIGHT BOX */
+  .insight-box {
+    background: white;
+    border-left: 4px solid var(--coral);
+    border-radius: 0 12px 12px 0;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+  }
+  .insight-box.teal { border-left-color: var(--teal); }
+  .insight-box.gold { border-left-color: var(--gold); }
+  .insight-box.green { border-left-color: var(--green); }
+  .insight-label {
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--coral);
+    margin-bottom: 4px;
+  }
+  .insight-box.teal .insight-label { color: var(--teal); }
+  .insight-box.gold .insight-label { color: #D4881A; }
+  .insight-box.green .insight-label { color: var(--green); }
+  .insight-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--charcoal);
+  }
+  .insight-sub {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--mid);
+    margin-top: 3px;
+  }
+
+  /* CONTENT TYPES */
+  .content-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .content-card {
+    background: white;
+    border-radius: 14px;
+    padding: 20px;
+    border: 2px solid var(--light);
+  }
+  .content-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .content-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .content-icon.c1 { background: #FFF0F0; }
+  .content-icon.c2 { background: #E8F8F7; }
+  .content-icon.c3 { background: #FFF8E1; }
+  .content-icon.c4 { background: #F3E5F5; }
+  .content-icon.c5 { background: #E8F5E9; }
+  .content-icon.c6 { background: #E3F2FD; }
+  .content-card h3 { margin-bottom: 6px; font-size: 15px; }
+  .content-card p { font-size: 12px; margin-bottom: 8px; }
+  .data-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 4px;
+  }
+  .pill {
+    background: var(--light);
+    color: var(--mid);
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .pill.amazon { background: #FFF3E0; color: #E65100; }
+  .pill.meta { background: #E8EAF6; color: #283593; }
+  .pill.walmart { background: #E8F5E9; color: #1B5E20; }
+  .pill.urlgenius { background: #FCE4EC; color: #880E4F; }
+  .pill.syl { background: #E0F7FA; color: #006064; }
+
+  /* EXAMPLE OUTPUT */
+  .example-output {
+    background: linear-gradient(135deg, #2D2D2D, #1A1A1A);
+    color: white;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    font-family: monospace;
+    font-size: 13px;
+  }
+  .example-output-title {
+    font-family: 'Nunito', sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #FF6B6B;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .ex-line { line-height: 1.8; }
+  .ex-highlight { color: #FFD54F; }
+  .ex-link { color: #80CBC4; }
+  .ex-emoji { font-style: normal; }
+
+  /* ARCHITECTURE */
+  .arch-flow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+    margin-bottom: 24px;
+  }
+  .arch-step {
+    background: white;
+    border: 2px solid var(--light);
+    border-radius: 12px;
+    padding: 14px 18px;
+    min-width: 130px;
+    text-align: center;
+    flex: 1;
+  }
+  .arch-step-icon { font-size: 22px; margin-bottom: 4px; }
+  .arch-step-name { font-size: 13px; font-weight: 800; color: var(--charcoal); }
+  .arch-step-sub { font-size: 11px; color: var(--mid); font-weight: 600; margin-top: 2px; }
+  .arch-arrow {
+    font-size: 20px;
+    color: var(--coral);
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+
+  /* PHASES */
+  .phase-list { display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px; }
+  .phase-item {
+    background: white;
+    border-radius: 14px;
+    padding: 20px 22px;
+    border: 2px solid var(--light);
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+  }
+  .phase-num {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Fredoka One', cursive;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+  .phase-num.p1 { background: #FFF0F0; color: var(--coral); }
+  .phase-num.p2 { background: #E8F8F7; color: var(--teal); }
+  .phase-num.p3 { background: #FFF8E1; color: #D4881A; }
+  .phase-content h3 { font-size: 16px; margin-bottom: 4px; }
+  .phase-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 9px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .phase-tag.now { background: #FFF0F0; color: var(--coral); }
+  .phase-tag.next { background: #E8F8F7; color: var(--teal); }
+  .phase-tag.later { background: #FFF8E1; color: #D4881A; }
+  .phase-content p { font-size: 13px; margin-bottom: 0; }
+  ul.feature-list { list-style: none; padding: 0; margin-top: 8px; }
+  ul.feature-list li {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--mid);
+    padding-left: 18px;
+    position: relative;
+    margin-bottom: 4px;
+  }
+  ul.feature-list li::before { content: '→'; position: absolute; left: 0; color: var(--coral); font-weight: 700; }
+
+  /* SUMMARY TABLE */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  th {
+    background: var(--charcoal);
+    color: white;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 10px 14px;
+    text-align: left;
+  }
+  th:first-child { border-radius: 8px 0 0 0; }
+  th:last-child { border-radius: 0 8px 0 0; }
+  td {
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--light);
+    color: var(--mid);
+  }
+  tr:nth-child(even) td { background: #FAFAFA; }
+  td.highlight { color: var(--charcoal); font-weight: 700; }
+  td.money { color: #2E7D32; font-weight: 800; }
+
+  @media (max-width: 640px) {
+    .cover { padding: 36px 24px; }
+    .cover-title { font-size: 30px; }
+    .data-grid { grid-template-columns: 1fr 1fr; }
+    .content-grid { grid-template-columns: 1fr; }
+    .arch-flow { flex-direction: column; align-items: flex-start; }
+    .page { padding: 32px 20px; }
+  }
+  .tab-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--charcoal);
+    display: flex;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  .tab-nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 28px;
+    font-family: 'Nunito', sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+    text-decoration: none;
+    color: rgba(255,255,255,0.6);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.2s ease;
+    border-bottom: 3px solid transparent;
+  }
+  .tab-nav a:hover {
+    color: white;
+    background: rgba(255,255,255,0.05);
+  }
+  .tab-nav a.active {
+    color: white;
+    border-bottom-color: var(--coral);
+  }
+  .tab-nav .home-btn {
+    color: rgba(255,255,255,0.45);
+    border-right: 1px solid rgba(255,255,255,0.12);
+    margin-right: 4px;
+    letter-spacing: 0.5px;
+  }
+  .tab-nav .home-btn:hover {
+    color: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.06);
+    border-bottom-color: transparent;
+  }
+  @media (max-width: 640px) {
+    .tab-nav a { padding: 10px 12px; font-size: 11px; letter-spacing: 0.5px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="tab-nav">
+  <a href="/" class="home-btn">← Home</a>
+  <a href="/plan" class="active">Build Plan</a>
+  <a href="/architecture">Architecture</a>
+  <a href="/connections">Connections</a>
+</nav>
+
+<!-- COVER -->
+<div class="cover">
+  <div class="cover-eyebrow">AI Agent Strategy · Confidential</div>
+  <div class="cover-title">Mommy & Me Collective<br/>AI Agent — Full Build Plan</div>
+  <div class="cover-sub">From chatbot to data-driven content engine 💕</div>
+  <div class="cover-stats">
+    <div class="stat-box">
+      <span class="stat-num">6</span>
+      <span class="stat-label">Live Data Sources</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-num">$766K</span>
+      <span class="stat-label">Amazon Rev (YTD)</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-num">$1.75M</span>
+      <span class="stat-label">Walmart Sales (YTD)</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-num">52K+</span>
+      <span class="stat-label">Amazon Items Shipped</span>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- DATA SOURCES -->
+  <div class="section-label">What We're Working With</div>
+  <h2>Your 6 Data Sources — Decoded</h2>
+
+  <div class="data-grid">
+    <div class="data-card">
+      <div class="data-card-icon">🔗</div>
+      <div class="data-card-title">URLGenius</div>
+      <div class="data-card-rows">1,347 links tracked</div>
+      <div class="data-card-desc">Every product link posted with its click count and product image. This is your <strong>demand signal</strong> — what people actually want.</div>
+      <span class="signal-tag click">Click Intent</span>
+    </div>
+    <div class="data-card">
+      <div class="data-card-icon">📦</div>
+      <div class="data-card-title">Amazon Earnings</div>
+      <div class="data-card-rows">52,585 items shipped</div>
+      <div class="data-card-desc">Every product that actually sold — category, product name, price, units, revenue. Jan–Mar 2026 so far.</div>
+      <span class="signal-tag rev">Revenue Signal</span>
+    </div>
+    <div class="data-card">
+      <div class="data-card-icon">🏪</div>
+      <div class="data-card-title">Walmart (Impact)</div>
+      <div class="data-card-rows">$1.75M in sales</div>
+      <div class="data-card-desc">149K clicks, 24K actions, 16.7% conversion rate. Walmart is your highest-volume retail channel by far.</div>
+      <span class="signal-tag convert">Conversion</span>
+    </div>
+    <div class="data-card">
+      <div class="data-card-icon">📱</div>
+      <div class="data-card-title">Meta Content</div>
+      <div class="data-card-rows">4,170 posts analyzed</div>
+      <div class="data-card-desc">Views, reach, reactions, link clicks per post. Top post: 158K views. Tells us what content hooks work.</div>
+      <span class="signal-tag engage">Engagement</span>
+    </div>
+    <div class="data-card">
+      <div class="data-card-icon">🛍️</div>
+      <div class="data-card-title">SYL (Shop Your Links)</div>
+      <div class="data-card-rows">461 URL-level records</div>
+      <div class="data-card-desc">Per-URL performance across 15+ retailers: Wayfair, Ulta, Kohl's, Kids Foot Locker, etc. CVR + earnings per click.</div>
+      <span class="signal-tag convert">Cross-Retailer</span>
+    </div>
+    <div class="data-card">
+      <div class="data-card-icon">🎯</div>
+      <div class="data-card-title">LTK Links</div>
+      <div class="data-card-rows">shopltk.com/EverydaywithSteph</div>
+      <div class="data-card-desc">Curated affiliate storefront. The destination we drive all chatbot recommendations to. Real-time inventory source.</div>
+      <span class="signal-tag click">Storefront</span>
+    </div>
+  </div>
+
+  <!-- WHAT THE DATA TELLS US -->
+  <div class="section-label">What The Data Already Tells Us</div>
+  <h2>Key Insights — Right Now</h2>
+
+  <div class="insight-box">
+    <div class="insight-label">🔥 #1 Clicked Product</div>
+    <div class="insight-text">Barbie Dreamhouse Pool Party — 37,199 clicks via URLGenius</div>
+    <div class="insight-sub">The AI should know this and proactively mention it when anyone asks about toys or gifts</div>
+  </div>
+  <div class="insight-box teal">
+    <div class="insight-label">💰 Top Amazon Category</div>
+    <div class="insight-text">Toys & Games: $96,663 in revenue YTD — #1 by far, followed by Health & Household ($80K) and Home ($80K)</div>
+    <div class="insight-sub">Confirms the core audience and what content should dominate</div>
+  </div>
+  <div class="insight-box gold">
+    <div class="insight-label">📱 Best-Performing Post Type</div>
+    <div class="insight-text">Walmart partner ad with "$1 clearance" hook → 158K views, 7,816 clicks. Price-shock content wins.</div>
+    <div class="insight-sub">The AI's content generation should mirror this formula: specific price + deal urgency</div>
+  </div>
+  <div class="insight-box green">
+    <div class="insight-label">🏪 Walmart vs. Everyone</div>
+    <div class="insight-text">Walmart: 16.7% CVR, $1.75M sales. Target: 2% CVR, $101K. Walmart converts 8x better.</div>
+    <div class="insight-sub">AI should surface Walmart deals first when recommending budget-conscious options</div>
+  </div>
+
+  <hr class="divider"/>
+
+  <!-- AI CONTENT TYPES -->
+  <div class="section-label">What The Agent Can Generate</div>
+  <h2>7 AI Content Formats</h2>
+  <p>The agent doesn't just respond to questions — it actively creates content by cross-referencing all 6 data sources.</p>
+
+  <div class="content-grid">
+    <div class="content-card">
+      <div class="content-card-header">
+        <div class="content-icon c1">🏆</div>
+        <h3>Top 5 Products This Week</h3>
+      </div>
+      <p>Ranks products by combined click velocity (URLGenius) + units shipped (Amazon) + post engagement (Meta). Auto-refreshed weekly.</p>
+      <div class="data-pills">
+        <span class="pill urlgenius">URLGenius</span>
+        <span class="pill amazon">Amazon</span>
+        <span class="pill meta">Meta</span>
+      </div>
+    </div>
+
+    <div class="content-card">
+      <div class="content-card-header">
+        <div class="content-icon c2">⚡</div>
+        <h3>Deal Alerts: "Trending Now"</h3>
+      </div>
+      <p>Detects when a product's click count spikes vs. its 7-day average. Flags it as "everyone's grabbing this right now."</p>
+      <div class="data-pills">
+        <span class="pill urlgenius">URLGenius Velocity</span>
+        <span class="pill amazon">Amazon Rank</span>
+      </div>
+    </div>
+
+    <div class="content-card">
+      <div class="content-card-header">
+        <div class="content-icon c3">📊</div>
+        <h3>Category Deep Dive</h3>
+      </div>
+      <p>When someone says "I need baby stuff," the AI pulls the actual top-selling baby products from Amazon earnings data, not guesses.</p>
+      <div class="data-pills">
+        <span class="pill amazon">Amazon Categories</span>
+        <span class="pill syl">SYL Earnings</span>
+      </div>
+    </div>
+
+    <div class="content-card">
+      <div class="content-card-header">
+        <div class="content-icon c4">🏪</div>
+        <h3>Retailer Smart Routing</h3>
+      </div>
+      <p>For any product, the AI checks which retailer has the best conversion rate and earnings, then recommends the right store.</p>
+      <div class="data-pills">
+        <span class="pill walmart">Walmart Impact</span>
+        <span class="pill syl">SYL CVR</span>
+      </div>
+    </div>
+
+    <div class="content-card">
+      <div class="content-card-header">
+        <div class="content-icon c5">🎁</div>
+        <h3>Gift Guide Generator</h3>
+      </div>
+      <p>"Best gifts under $25 for a 4-year-old" → AI pulls from real Amazon purchase data filtered by age/price bracket. Not generic lists.</p>
+      <div class="data-pills">
+        <span class="pill amazon">Amazon Items + Price</span>
+        <span class="pill urlgenius">URLGenius Clicks</span>
+      </div>
+    </div>
+
+    <div class="content-card">
+      <div class="content-card-header">
+        <div class="content-icon c6">📝</div>
+        <h3>Caption/Post Drafts</h3>
+      </div>
+      <p>Using Meta engagement data, the AI knows what hooks work. It can draft a Facebook/IG caption for any new deal in Steph's voice.</p>
+      <div class="data-pills">
+        <span class="pill meta">Meta Engagement</span>
+        <span class="pill urlgenius">Product Image</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXAMPLE OUTPUT -->
+  <div class="section-label">Sample AI Output</div>
+  <h2>What "Top 5 This Week" Looks Like</h2>
+
+  <div class="example-output">
+    <div class="example-output-title">💬 User asks: "What should I buy this week?"</div>
+    <div class="ex-line">ok WAIT — I pulled up what's actually hot right now based on what real mamas are clicking AND buying 🔥</div>
+    <div class="ex-line">&nbsp;</div>
+    <div class="ex-line"><span class="ex-highlight">🏆 #1 — Barbie Dreamhouse Pool Party (75+ pieces)</span></div>
+    <div class="ex-line">37,000+ people clicked this link this week. That's not a coincidence lol.</div>
+    <div class="ex-line">→ <span class="ex-link">amazon.com/... | ~$179 | Check LTK for current price</span></div>
+    <div class="ex-line">&nbsp;</div>
+    <div class="ex-line"><span class="ex-highlight">🥈 #2 — Glitter Dumpling Squishy (2026 version)</span></div>
+    <div class="ex-line">Our #1 Amazon seller this year — 702 units already. Under $15. Kids are OBSESSED.</div>
+    <div class="ex-line">→ <span class="ex-link">amazon.com/... | ~$13.49</span></div>
+    <div class="ex-line">&nbsp;</div>
+    <div class="ex-line"><span class="ex-highlight">🥉 #3 — Melissa & Doug Steering Wheel Dashboard</span></div>
+    <div class="ex-line">262 clicks yesterday alone. Great for toddler road trips (omg game changer).</div>
+    <div class="ex-line">→ <span class="ex-link">shopltk.com/EverydaywithSteph</span></div>
+    <div class="ex-line">&nbsp;</div>
+    <div class="ex-line">...want me to keep going? I can filter by age, budget, or category too 💕</div>
+  </div>
+
+  <hr class="divider"/>
+
+  <!-- ARCHITECTURE -->
+  <div class="section-label">Technical Architecture</div>
+  <h2>How It All Connects</h2>
+
+  <div class="arch-flow">
+    <div class="arch-step">
+      <div class="arch-step-icon">📊</div>
+      <div class="arch-step-name">Data Sources</div>
+      <div class="arch-step-sub">Amazon, Walmart, URLGenius, Meta, SYL, LTK</div>
+    </div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-step">
+      <div class="arch-step-icon">🔄</div>
+      <div class="arch-step-name">Data Pipeline</div>
+      <div class="arch-step-sub">Weekly CSV export or API sync</div>
+    </div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-step">
+      <div class="arch-step-icon">🧠</div>
+      <div class="arch-step-name">Knowledge Base</div>
+      <div class="arch-step-sub">Processed + injected into AI context</div>
+    </div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-step">
+      <div class="arch-step-icon">🤖</div>
+      <div class="arch-step-name">Claude AI</div>
+      <div class="arch-step-sub">Responds + generates content</div>
+    </div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-step">
+      <div class="arch-step-icon">💬</div>
+      <div class="arch-step-name">Chat UI</div>
+      <div class="arch-step-sub">mommyandmecollective.com</div>
+    </div>
+  </div>
+
+  <div class="insight-box">
+    <div class="insight-label">Key Technical Decision</div>
+    <div class="insight-text">Two modes: (1) Reactive — AI answers visitor questions. (2) Proactive — A weekly Python script processes all CSVs and generates a "Top Products" knowledge block that gets injected into the AI's context automatically.</div>
+    <div class="insight-sub">No database needed for Phase 1 — the weekly CSV exports become the knowledge base. Just refresh the file.</div>
+  </div>
+
+  <hr class="divider"/>
+
+  <!-- PHASES -->
+  <div class="section-label">Build Roadmap</div>
+  <h2>3-Phase Plan</h2>
+
+  <div class="phase-list">
+    <div class="phase-item">
+      <div class="phase-num p1">1</div>
+      <div class="phase-content">
+        <h3>Phase 1 — Smart Chatbot (Done + Upgrade)</h3>
+        <span class="phase-tag now">Now — 1 Week</span>
+        <p>Take the chatbot we already built and supercharge the knowledge base with real data from all 6 sources.</p>
+        <ul class="feature-list">
+          <li>Load processed CSV data into the system prompt knowledge block</li>
+          <li>Add a weekly Python script that auto-generates "Top Products" from the data</li>
+          <li>Inject real product names, prices, links, and click counts into AI context</li>
+          <li>Add suggested questions: "What's hot this week?" "Best under $20?" "What's selling at Walmart?"</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="phase-item">
+      <div class="phase-num p2">2</div>
+      <div class="phase-content">
+        <h3>Phase 2 — Content Generator Tab</h3>
+        <span class="phase-tag next">Next — 2–3 Weeks</span>
+        <p>Add a second mode to the UI: "Generate Content" — lets Steph's team produce captions, top 5 lists, and deal alerts on-demand.</p>
+        <ul class="feature-list">
+          <li>Tab 2: "Create Content" — select format (Top 5, Caption, Deal Alert)</li>
+          <li>AI pulls from live data to draft in Steph's voice</li>
+          <li>One-click copy to clipboard for Facebook/Instagram posting</li>
+          <li>Weekly auto-generated "This Week's Hot Picks" email/post draft</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="phase-item">
+      <div class="phase-num p3">3</div>
+      <div class="phase-content">
+        <h3>Phase 3 — Live Data Pipeline + Dashboard</h3>
+        <span class="phase-tag later">Later — 1–2 Months</span>
+        <p>Connect data sources via API instead of CSV exports. Real-time trending. Performance dashboard for Steph's team.</p>
+        <ul class="feature-list">
+          <li>Amazon Product Advertising API → live product data + prices</li>
+          <li>Automated weekly report email: "Here's what sold, what clicked, what to post"</li>
+          <li>Admin dashboard: swap in new deals, toggle affiliate links, preview AI responses</li>
+          <li>Optional: visitor data collection for personalization ("you looked at toddler toys last week")</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider"/>
+
+  <!-- DATA TABLE -->
+  <div class="section-label">Data Snapshot</div>
+  <h2>Top Performers — By the Numbers</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Product / Category</th>
+        <th>Signal</th>
+        <th>Value</th>
+        <th>AI Use</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="highlight">Barbie Dreamhouse Pool Party</td>
+        <td>URLGenius Clicks</td>
+        <td class="money">37,199 clicks</td>
+        <td>Lead "Hot Right Now" recommendation</td>
+      </tr>
+      <tr>
+        <td class="highlight">Glitter Dumpling Squishy</td>
+        <td>Amazon Units + Revenue</td>
+        <td class="money">702 units / $9,442</td>
+        <td>Feature in "What Mamas Are Buying"</td>
+      </tr>
+      <tr>
+        <td class="highlight">Toys & Games (Category)</td>
+        <td>Amazon Revenue</td>
+        <td class="money">$96,663 YTD</td>
+        <td>Primary recommendation category</td>
+      </tr>
+      <tr>
+        <td class="highlight">Walmart (Retailer)</td>
+        <td>Impact CVR</td>
+        <td class="money">16.7% conversion</td>
+        <td>Always route budget deals here first</td>
+      </tr>
+      <tr>
+        <td class="highlight">"$1 Clearance" Post</td>
+        <td>Meta Views</td>
+        <td class="money">158,932 views</td>
+        <td>Caption formula: price-shock + urgency</td>
+      </tr>
+      <tr>
+        <td class="highlight">Wayfair</td>
+        <td>SYL Earnings</td>
+        <td class="money">$372 / 23 orders</td>
+        <td>Home + outdoor category recommendations</td>
+      </tr>
+      <tr>
+        <td class="highlight">Stanley Tumbler</td>
+        <td>URLGenius Clicks</td>
+        <td class="money">1,300 clicks</td>
+        <td>Mom self-care / lifestyle recommendations</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- CLOSING -->
+  <div class="insight-box green">
+    <div class="insight-label">Bottom Line</div>
+    <div class="insight-text">The data already exists. The infrastructure is already working. Phase 1 is connecting it so the AI speaks from facts, not assumptions — then Phase 2 turns that into content Steph's team can actually post.</div>
+    <div class="insight-sub">Every "Top 5" the AI generates will be backed by real click and conversion data — not a generic list any AI could spit out.</div>
+  </div>
+
+  <p style="text-align:center; margin-top: 40px; font-size: 12px; color: #B0A0A0;">
+    Mommy and Me Collective · AI Strategy Document · Prepared March 2026<br/>
+    <a href="https://mommyandmecollective.com" style="color: #FF6B6B; text-decoration: none;">mommyandmecollective.com</a>
+  </p>
+
+</div>
+</body>
+</html>

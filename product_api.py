@@ -1110,6 +1110,45 @@ class ArcherAPI:
         conn.close()
         return [dict(r) for r in rows]
 
+    def get_product(self, asin: str) -> dict:
+        """
+        Fetch a single product by ASIN. Hits Archer /get_single_product, then
+        attaches live_price from Crawlbase when final_price is absent or zero.
+        Returns a dict (empty dict on total failure).
+        """
+        result = {}
+        try:
+            r = requests.get(
+                f"{self.ARCHER_BASE}/get_single_product",
+                headers=self._headers(),
+                params={"asin": asin},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                result = r.json()
+        except Exception as e:
+            logging.warning(f"[ARCHER] get_product API call failed for {asin}: {e}")
+
+        # Crawlbase fallback when Archer has no price
+        deal = {}
+        try:
+            deal = json.loads(result.get("deal_json") or result.get("deal") or "{}")
+        except Exception:
+            pass
+        final_price = deal.get("final_price") or result.get("price")
+        needs_live = not final_price or str(final_price).strip() in ('0', '0.0', '$0', '')
+        if needs_live:
+            try:
+                from utils.crawlbase import get_live_price
+                live = get_live_price(asin)
+                if live is not None:
+                    result['live_price'] = live
+                    logging.info(f"[CRAWLBASE] Live price for {asin}: ${live}")
+            except Exception as e:
+                logging.warning(f"[CRAWLBASE] Fallback failed for {asin}: {e}")
+
+        return result
+
     # ── LINK GENERATION ──────────────────────────────────
 
     def generate_link(self, asin, label=None):

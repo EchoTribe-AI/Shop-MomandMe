@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mommy & Me — AI Agent Architecture Map</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Fredoka+One&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --coral: #FF6B6B; --coral-pale: #FFF0F0;
+  --teal: #4ECDC4; --teal-pale: #E8F8F7;
+  --gold: #F9A825; --gold-pale: #FFF8E1;
+  --purple: #9C6FDE; --purple-pale: #F3EEFF;
+  --green: #4CAF50; --green-pale: #E8F5E9;
+  --blue: #2196F3; --blue-pale: #E3F2FD;
+  --orange: #FF7043; --orange-pale: #FBE9E7;
+  --cream: #FFF8F3; --charcoal: #3D3535;
+  --mid: #7B6B6B; --light: #F2ECE9; --white: #FFFFFF;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Nunito', sans-serif; background: var(--cream); color: var(--charcoal); font-size: 14px; line-height: 1.5; }
+
+.cover {
+  background: linear-gradient(135deg, #3D3535 0%, #5C4A4A 60%, #7B5E5E 100%);
+  color: white; padding: 52px 48px 44px;
+}
+.cover-eye { font-size: 10px; font-weight: 800; letter-spacing: 2.5px; text-transform: uppercase; opacity: 0.7; margin-bottom: 10px; }
+.cover-title { font-family: 'Fredoka One', cursive; font-size: 38px; line-height: 1.1; margin-bottom: 10px; }
+.cover-sub { font-size: 16px; font-weight: 600; opacity: 0.8; margin-bottom: 28px; }
+.cover-pills { display: flex; gap: 10px; flex-wrap: wrap; }
+.cover-pill { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); border-radius: 20px; padding: 5px 14px; font-size: 12px; font-weight: 700; }
+
+.page { max-width: 960px; margin: 0 auto; padding: 44px 32px; }
+
+.section-label { display: inline-flex; align-items: center; gap: 8px; font-size: 10px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; color: var(--coral); margin-bottom: 6px; }
+.section-label::before { content: ''; display: block; width: 18px; height: 2px; background: var(--coral); border-radius: 2px; }
+h2 { font-family: 'Fredoka One', cursive; font-size: 26px; color: var(--charcoal); margin-bottom: 18px; }
+h3 { font-size: 15px; font-weight: 800; color: var(--charcoal); margin-bottom: 8px; }
+p { margin-bottom: 12px; color: var(--mid); font-weight: 500; font-size: 13px; }
+.divider { border: none; border-top: 2px dashed #E8DDD8; margin: 44px 0; }
+
+/* ── SOURCE CARDS ── */
+.sources-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 28px; }
+.source-card { background: white; border-radius: 14px; border: 2px solid var(--light); overflow: hidden; }
+.source-header { padding: 14px 16px 10px; display: flex; align-items: center; gap: 10px; }
+.source-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.source-name { font-weight: 800; font-size: 14px; }
+.source-method { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; padding: 2px 8px; border-radius: 8px; display: inline-block; margin-top: 2px; }
+.source-method.api { background: #E8F5E9; color: #2E7D32; }
+.source-method.csv { background: #FFF8E1; color: #F57F17; }
+.source-method.api-soon { background: #E3F2FD; color: #1565C0; }
+.source-body { padding: 0 16px 14px; }
+.source-stat { font-size: 11px; font-weight: 700; color: var(--coral); margin-bottom: 6px; }
+.source-provides { margin: 0; padding: 0; list-style: none; }
+.source-provides li { font-size: 12px; color: var(--mid); font-weight: 600; padding: 2px 0 2px 14px; position: relative; }
+.source-provides li::before { content: '·'; position: absolute; left: 4px; color: var(--coral); font-weight: 900; }
+.source-cadence { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--light); font-size: 11px; font-weight: 700; color: var(--mid); }
+.cadence-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cadence-dot.daily { background: var(--coral); }
+.cadence-dot.every2 { background: var(--teal); }
+.cadence-dot.weekly { background: var(--gold); }
+.cadence-dot.ondemand { background: var(--purple); }
+
+/* ── PIPELINE ── */
+.pipeline { display: flex; flex-direction: column; gap: 0; margin-bottom: 28px; }
+.pipeline-step { display: flex; gap: 16px; align-items: flex-start; position: relative; }
+.pipeline-step:not(:last-child)::before {
+  content: ''; position: absolute; left: 19px; top: 40px;
+  width: 2px; height: calc(100% + 4px); background: var(--light);
+}
+.pipeline-num {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Fredoka One', cursive; font-size: 18px; color: white;
+  flex-shrink: 0; position: relative; z-index: 1;
+}
+.pipeline-content { background: white; border-radius: 12px; border: 2px solid var(--light); padding: 16px 18px; flex: 1; margin-bottom: 8px; }
+.pipeline-content h3 { margin-bottom: 4px; }
+.pipeline-content p { margin-bottom: 0; }
+.pipeline-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.ptag { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+
+/* ── SCORE FORMULA ── */
+.formula-box {
+  background: linear-gradient(135deg, #2D2D2D, #1A1A1A);
+  border-radius: 14px; padding: 22px 24px; margin-bottom: 24px; color: white;
+}
+.formula-title { font-size: 10px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; color: var(--coral); margin-bottom: 14px; }
+.formula-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.formula-block {
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px; padding: 10px 14px; text-align: center; min-width: 130px;
+}
+.formula-pct { font-family: 'Fredoka One', cursive; font-size: 26px; }
+.formula-label { font-size: 11px; font-weight: 700; opacity: 0.75; margin-top: 2px; }
+.formula-source { font-size: 10px; opacity: 0.55; }
+.formula-op { font-family: 'Fredoka One', cursive; font-size: 24px; color: var(--coral); }
+.formula-note { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.6); margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px; }
+
+/* ── ROUTING TABLE ── */
+.routing-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 24px; }
+.routing-card { background: white; border-radius: 12px; border: 2px solid var(--light); padding: 14px 16px; }
+.routing-category { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: var(--mid); margin-bottom: 4px; }
+.routing-winner { font-size: 14px; font-weight: 800; color: var(--charcoal); margin-bottom: 4px; }
+.routing-why { font-size: 11px; color: var(--mid); font-weight: 600; }
+.routing-badge { display: inline-block; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 8px; margin-top: 6px; }
+
+/* ── KNOWLEDGE BLOCK ── */
+.kb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+.kb-card { background: white; border-radius: 12px; border: 2px solid var(--light); padding: 14px; }
+.kb-icon { font-size: 22px; margin-bottom: 6px; }
+.kb-title { font-size: 13px; font-weight: 800; color: var(--charcoal); margin-bottom: 4px; }
+.kb-desc { font-size: 11px; color: var(--mid); font-weight: 600; line-height: 1.45; }
+.kb-size { font-size: 10px; font-weight: 700; color: var(--coral); margin-top: 6px; }
+
+/* ── AI OUTPUTS ── */
+.output-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 24px; }
+.output-card { background: white; border-radius: 14px; border: 2px solid var(--light); padding: 18px; }
+.output-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.output-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.output-card h3 { font-size: 14px; margin-bottom: 0; }
+.output-trigger { font-size: 11px; font-weight: 700; color: var(--mid); margin-bottom: 8px; }
+.output-sample {
+  background: var(--cream); border-radius: 10px; padding: 10px 12px;
+  font-size: 12px; color: var(--charcoal); font-weight: 600; line-height: 1.6;
+  border-left: 3px solid var(--coral);
+}
+.output-sources { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.osrc { font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+/* ── UI WIREFRAME ── */
+.ui-tabs { display: flex; gap: 0; margin-bottom: 0; }
+.ui-tab { padding: 10px 20px; font-weight: 800; font-size: 13px; border-radius: 10px 10px 0 0; cursor: default; }
+.ui-tab.active { background: white; color: var(--coral); }
+.ui-tab.inactive { background: var(--light); color: var(--mid); }
+.ui-panel { background: white; border-radius: 0 12px 12px 12px; border: 2px solid var(--light); padding: 20px; margin-bottom: 24px; }
+.ui-panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.ui-zone { border: 2px dashed #E0D4D0; border-radius: 10px; padding: 14px; }
+.ui-zone-label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: var(--mid); margin-bottom: 8px; }
+.ui-mockrow { height: 10px; border-radius: 5px; background: var(--light); margin-bottom: 6px; }
+.ui-mockrow.short { width: 55%; }
+.ui-mockrow.med { width: 75%; }
+.ui-mockrow.full { width: 100%; }
+.ui-mockcard { background: var(--coral-pale); border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
+.ui-mockimg { width: 36px; height: 36px; border-radius: 6px; background: var(--coral); flex-shrink: 0; opacity: 0.4; }
+.ui-mocktxt { flex: 1; }
+.ui-chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.ui-chip { background: var(--light); border-radius: 16px; padding: 4px 12px; font-size: 11px; font-weight: 700; color: var(--mid); }
+
+/* ── SUMMARY TABLE ── */
+table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+th { background: var(--charcoal); color: white; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; padding: 9px 13px; text-align: left; }
+th:first-child { border-radius: 8px 0 0 0; }
+th:last-child { border-radius: 0 8px 0 0; }
+td { padding: 9px 13px; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--light); color: var(--mid); vertical-align: top; }
+tr:nth-child(even) td { background: #FAFAFA; }
+td.hl { color: var(--charcoal); font-weight: 700; }
+td.go { color: #2E7D32; font-weight: 800; }
+td.warn { color: #E65100; font-weight: 700; }
+
+/* ── CALLOUT ── */
+.callout { padding: 14px 18px; border-radius: 0 12px 12px 0; margin-bottom: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.callout.red { background: white; border-left: 4px solid var(--coral); }
+.callout.teal { background: white; border-left: 4px solid var(--teal); }
+.callout.gold { background: white; border-left: 4px solid var(--gold); }
+.callout.purple { background: white; border-left: 4px solid var(--purple); }
+.callout.green { background: white; border-left: 4px solid var(--green); }
+.callout-label { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 3px; }
+.callout.red .callout-label { color: var(--coral); }
+.callout.teal .callout-label { color: var(--teal); }
+.callout.gold .callout-label { color: #D4881A; }
+.callout.purple .callout-label { color: var(--purple); }
+.callout.green .callout-label { color: var(--green); }
+.callout-text { font-size: 13px; font-weight: 600; color: var(--charcoal); }
+.callout-sub { font-size: 12px; font-weight: 500; color: var(--mid); margin-top: 3px; }
+
+@media (max-width: 640px) {
+  .sources-grid, .kb-grid, .output-grid, .routing-grid { grid-template-columns: 1fr; }
+  .ui-panel-grid { grid-template-columns: 1fr; }
+  .cover { padding: 36px 22px; }
+  .page { padding: 32px 18px; }
+}
+.tab-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--charcoal);
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.tab-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 28px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  color: rgba(255,255,255,0.6);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.2s ease;
+  border-bottom: 3px solid transparent;
+}
+.tab-nav a:hover {
+  color: white;
+  background: rgba(255,255,255,0.05);
+}
+.tab-nav a.active {
+  color: white;
+  border-bottom-color: var(--coral);
+}
+.tab-nav .home-btn {
+  color: rgba(255,255,255,0.45);
+  border-right: 1px solid rgba(255,255,255,0.12);
+  margin-right: 4px;
+  letter-spacing: 0.5px;
+}
+.tab-nav .home-btn:hover {
+  color: rgba(255,255,255,0.85);
+  background: rgba(255,255,255,0.06);
+  border-bottom-color: transparent;
+}
+@media (max-width: 640px) {
+  .tab-nav a { padding: 10px 12px; font-size: 11px; letter-spacing: 0.5px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="tab-nav">
+  <a href="/" class="home-btn">← Home</a>
+  <a href="/plan">Build Plan</a>
+  <a href="/architecture" class="active">Architecture</a>
+  <a href="/connections">Connections</a>
+</nav>
+
+<!-- COVER -->
+<div class="cover">
+  <div class="cover-eye">System Architecture · Confidential</div>
+  <div class="cover-title">Mommy & Me Collective<br/>Data → AI → Content Engine</div>
+  <div class="cover-sub">Full connection map: every source, every signal, every output</div>
+  <div class="cover-pills">
+    <span class="cover-pill">6 Data Sources</span>
+    <span class="cover-pill">3 APIs + 3 CSV feeds</span>
+    <span class="cover-pill">Every-2-Day Refresh</span>
+    <span class="cover-pill">7 AI Output Formats</span>
+    <span class="cover-pill">2 UI Modes</span>
+  </div>
+</div>
+
+<div class="page">
+
+<!-- ══════════════════════════════════════════
+     LAYER 1 — DATA SOURCES
+══════════════════════════════════════════ -->
+<div class="section-label">Layer 1 — Data Ingestion</div>
+<h2>Every Source, What It Gives Us, How We Get It</h2>
+
+<div class="sources-grid">
+
+  <!-- Impact.com -->
+  <div class="source-card">
+    <div class="source-header">
+      <div class="source-icon" style="background:#E8F5E9">📊</div>
+      <div>
+        <div class="source-name">Impact.com</div>
+        <span class="source-method api">Live API ✓</span>
+      </div>
+    </div>
+    <div class="source-body">
+      <div class="source-stat">Covers: Walmart + Target</div>
+      <ul class="source-provides">
+        <li>Clicks, actions, CVR per program</li>
+        <li>Sale amount + earnings per click</li>
+        <li>Target product feed (not yet pursued)</li>
+        <li>Walmart Creator program data</li>
+        <li>Generate affiliate links via API</li>
+      </ul>
+      <div class="source-cadence">
+        <div class="cadence-dot every2"></div>
+        Pull every 2 days · store delta only
+      </div>
+    </div>
+  </div>
+
+  <!-- Walmart Direct API -->
+  <div class="source-card">
+    <div class="source-header">
+      <div class="source-icon" style="background:#E8F5E9">🏪</div>
+      <div>
+        <div class="source-name">Walmart Direct API</div>
+        <span class="source-method api">Live API ✓</span>
+      </div>
+    </div>
+    <div class="source-body">
+      <div class="source-stat">Product catalog + affiliate links</div>
+      <ul class="source-provides">
+        <li>Product name, image, current price</li>
+        <li>Availability / in-stock status</li>
+        <li>Affiliate link generation per product</li>
+        <li>Walmart Storefront product feed</li>
+        <li>Category + subcategory hierarchy</li>
+      </ul>
+      <div class="source-cadence">
+        <div class="cadence-dot ondemand"></div>
+        On-demand lookups · no scheduled pull
+      </div>
+    </div>
+  </div>
+
+  <!-- Amazon -->
+  <div class="source-card">
+    <div class="source-header">
+      <div class="source-icon" style="background:#FFF3E0">📦</div>
+      <div>
+        <div class="source-name">Amazon</div>
+        <span class="source-method csv">CSV Daily</span>
+      </div>
+    </div>
+    <div class="source-body">
+      <div class="source-stat">52,585 items · 35,929 ASINs · 68 categories</div>
+      <ul class="source-provides">
+        <li>CSV: category, ASIN, units, revenue</li>
+        <li>Crawlfeeder: product name, image, price by ASIN</li>
+        <li>Amazon Storefront as second destination</li>
+        <li>Affiliate tag: mommymedeals-20</li>
+      </ul>
+      <div class="source-cadence">
+        <div class="cadence-dot every2"></div>
+        CSV ingested every 2 days · Crawlfeeder on-demand
+      </div>
+    </div>
+  </div>
+
+  <!-- URLGenius -->
+  <div class="source-card">
+    <div class="source-header">
+      <div class="source-icon" style="background:#FCE4EC">🔗</div>
+      <div>
+        <div class="source-name">URLGenius</div>
+        <span class="source-method api-soon">CSV now · API soon</span>
+      </div>
+    </div>
+    <div class="source-body">
+      <div class="source-stat">1,347 links · 474K total clicks</div>
+      <ul class="source-provides">
+        <li>Clicks per product link (demand signal)</li>
+        <li>Product image URL per link</li>
+        <li>Short affiliate link (amzn/xxxxx)</li>
+        <li>Date last tracked</li>
+      </ul>
+      <div class="source-cadence">
+        <div class="cadence-dot every2"></div>
+        CSV every 2 days → switch to API when open
+      </div>
+    </div>
+  </div>
+
+  <!-- SYL -->
+  <div class="source-card">
+    <div class="source-header">
+      <div class="source-icon" style="background:#E0F7FA">🛍️</div>
+      <div>
+        <div class="source-name">SYL (Shop Your Links)</div>
+        <span class="source-method csv">CSV Export</span>
+      </div>
+    </div>
+    <div class="source-body">
+      <div class="source-stat">117 URLs · 28 retailers · CVR per URL</div>
+      <ul class="source-provides">
+        <li>Earnings + orders per URL per day</li>
+        <li>CVR by retailer (routing signal)</li>
+        <li>Wayfair, Ulta, Kohl's, Kids Foot Locker…</li>
+        <li>AOV + CPC per link</li>
+      </ul>
+      <div class="source-cadence">
+        <div class="cadence-dot weekly"></div>
+        Weekly CSV · less time-sensitive
+      </div>
+    </div>
+  </div>
+
+  <!-- Meta -->
+  <div class="source-card">
+    <div class="source-header">
+      <div class="source-icon" style="background:#E8EAF6">📱</div>
+      <div>
+        <div class="source-name">Meta Content</div>
+        <span class="source-method csv">CSV Export</span>
+      </div>
+    </div>
+    <div class="source-body">
+      <div class="source-stat">1,249 posts · avg 628 views · max 158K</div>
+      <ul class="source-provides">
+        <li>Views, reach, reactions per post</li>
+        <li>Link clicks vs. other clicks</li>
+        <li>Post type: Photo (96%) / Video / Text</li>
+        <li>Caption text (hook pattern analysis)</li>
+      </ul>
+      <div class="source-cadence">
+        <div class="cadence-dot weekly"></div>
+        Weekly CSV · used for content pattern learning
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="callout gold">
+  <div class="callout-label">⏱ Refresh Strategy — Every 2 Days</div>
+  <div class="callout-text">Impact API + Amazon CSV + URLGenius CSV all pull on the same 48-hour scheduler. One cron job, one processing script, one new knowledge block injected into the AI. Meta + SYL refresh weekly since they inform <em>patterns</em> not current deals. Walmart Direct API + Crawlfeeder are on-demand only — triggered when a specific product lookup is needed.</div>
+</div>
+
+<hr class="divider"/>
+
+<!-- ══════════════════════════════════════════
+     LAYER 2 — PROCESSING PIPELINE
+══════════════════════════════════════════ -->
+<div class="section-label">Layer 2 — Processing Pipeline</div>
+<h2>What Happens to the Data Before the AI Sees It</h2>
+
+<div class="pipeline">
+
+  <div class="pipeline-step">
+    <div class="pipeline-num" style="background:var(--coral)">1</div>
+    <div class="pipeline-content">
+      <h3>Ingest + Normalize</h3>
+      <p>Python script reads all CSVs and API responses. Strips duplicates, normalizes product names, maps ASINs to product details via Crawlfeeder. Assigns a <strong>source tag</strong> to every record (urlgenius / amazon / walmart / syl).</p>
+      <div class="pipeline-tags">
+        <span class="ptag" style="background:#FFF0F0;color:var(--coral)">URLGenius CSV</span>
+        <span class="ptag" style="background:#FFF3E0;color:#E65100">Amazon CSV</span>
+        <span class="ptag" style="background:#E8F5E9;color:#2E7D32">Impact API</span>
+        <span class="ptag" style="background:#E0F7FA;color:#006064">SYL CSV</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="pipeline-num" style="background:var(--teal)">2</div>
+    <div class="pipeline-content">
+      <h3>Score Every Product — Composite Hot Score</h3>
+      <p>Each product gets a weighted score combining click intent, purchase proof, and revenue signal. This score determines what the AI leads with in "Top Products" responses.</p>
+      <div class="formula-box">
+        <div class="formula-title">🔢 Hot Score Formula</div>
+        <div class="formula-row">
+          <div class="formula-block">
+            <div class="formula-pct" style="color:#FF6B6B">40%</div>
+            <div class="formula-label">URLGenius Clicks</div>
+            <div class="formula-source">Demand intent</div>
+          </div>
+          <div class="formula-op">+</div>
+          <div class="formula-block">
+            <div class="formula-pct" style="color:#4ECDC4">35%</div>
+            <div class="formula-label">Amazon Units Shipped</div>
+            <div class="formula-source">Purchase proof</div>
+          </div>
+          <div class="formula-op">+</div>
+          <div class="formula-block">
+            <div class="formula-pct" style="color:#F9A825">25%</div>
+            <div class="formula-label">Meta Link Clicks</div>
+            <div class="formula-source">Content resonance</div>
+          </div>
+        </div>
+        <div class="formula-note">Scores normalized 0–100. Refreshed every 2 days. Products with zero Amazon data get scored on URLGenius + Meta only. Walmart products scored separately using Impact CVR × sale amount.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="pipeline-num" style="background:var(--gold)">3</div>
+    <div class="pipeline-content">
+      <h3>Build Retailer Routing Table</h3>
+      <p>For each product category, determine which retailer to route to based on actual CVR + earnings data from Impact and SYL. This table tells the AI "when someone asks for baby gear, send them to Walmart first."</p>
+      <div class="routing-grid" style="margin-top:12px;margin-bottom:0">
+        <div class="routing-card">
+          <div class="routing-category">🧸 Toys / Kids / Baby</div>
+          <div class="routing-winner">→ Walmart first</div>
+          <div class="routing-why">16.7% CVR · $1.75M in sales · beats Target 8x</div>
+          <span class="routing-badge" style="background:#E8F5E9;color:#2E7D32">Impact data</span>
+        </div>
+        <div class="routing-card">
+          <div class="routing-category">💄 Beauty / Skincare</div>
+          <div class="routing-winner">→ Ulta first</div>
+          <div class="routing-why">$270 from Sol de Janeiro alone · 44 orders</div>
+          <span class="routing-badge" style="background:#FCE4EC;color:#880E4F">SYL data</span>
+        </div>
+        <div class="routing-card">
+          <div class="routing-category">🏠 Home / Outdoor</div>
+          <div class="routing-winner">→ Wayfair first</div>
+          <div class="routing-why">$372 earnings · 23 orders · highest non-Walmart AOV</div>
+          <span class="routing-badge" style="background:#E0F7FA;color:#006064">SYL data</span>
+        </div>
+        <div class="routing-card">
+          <div class="routing-category">👟 Kids Shoes / Clothing</div>
+          <div class="routing-winner">→ Kids Foot Locker / Kohl's</div>
+          <div class="routing-why">$66 + $80 top SYL earners · strong order count</div>
+          <span class="routing-badge" style="background:#FFF8E1;color:#F57F17">SYL data</span>
+        </div>
+        <div class="routing-card">
+          <div class="routing-category">📦 Everyday Household</div>
+          <div class="routing-winner">→ Amazon first</div>
+          <div class="routing-why">$80K Health & Household YTD · 5,796 units shipped</div>
+          <span class="routing-badge" style="background:#FFF3E0;color:#E65100">Amazon data</span>
+        </div>
+        <div class="routing-card">
+          <div class="routing-category">🍎 Grocery / Food</div>
+          <div class="routing-winner">→ Amazon first</div>
+          <div class="routing-why">#1 by units (7,236) · $43K revenue YTD</div>
+          <span class="routing-badge" style="background:#FFF3E0;color:#E65100">Amazon data</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="pipeline-num" style="background:var(--purple)">4</div>
+    <div class="pipeline-content">
+      <h3>Generate AI Knowledge Block</h3>
+      <p>The script writes a structured text file (~3,000–4,000 tokens) containing: Top 20 scored products with name + affiliate link + price + source stats. Retailer routing table. Content hook patterns from Meta. This file is injected as the AI's knowledge base on each refresh.</p>
+      <div class="pipeline-tags">
+        <span class="ptag" style="background:var(--purple-pale);color:var(--purple)">Top 20 Products</span>
+        <span class="ptag" style="background:var(--purple-pale);color:var(--purple)">Routing Table</span>
+        <span class="ptag" style="background:var(--purple-pale);color:var(--purple)">Hook Patterns</span>
+        <span class="ptag" style="background:var(--purple-pale);color:var(--purple)">Category Leaders</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="pipeline-num" style="background:var(--green)">5</div>
+    <div class="pipeline-content">
+      <h3>Affiliate Link Resolution</h3>
+      <p>Every product in the knowledge block needs a working affiliate link. Resolution order: <strong>(1)</strong> Use URLGenius short link if it exists (already tracked, has image). <strong>(2)</strong> Generate via Walmart Direct API for Walmart products. <strong>(3)</strong> Build Amazon link using ASIN + mommymedeals-20 tag. <strong>(4)</strong> Fall back to Impact-generated link for Target. <strong>(5)</strong> Use SYL URL for other retailers.</p>
+    </div>
+  </div>
+
+</div>
+
+<hr class="divider"/>
+
+<!-- ══════════════════════════════════════════
+     LAYER 3 — AI KNOWLEDGE BASE STRUCTURE
+══════════════════════════════════════════ -->
+<div class="section-label">Layer 3 — AI Knowledge Base</div>
+<h2>What the AI Actually Knows</h2>
+<p>The knowledge base is a structured text block injected into the Claude system prompt every 2 days. It's organized into 6 sections so the AI can find the right signal for any question type.</p>
+
+<div class="kb-grid">
+  <div class="kb-card">
+    <div class="kb-icon">🔥</div>
+    <div class="kb-title">Hot Products Right Now</div>
+    <div class="kb-desc">Top 20 products by composite Hot Score. Includes name, price, affiliate link, click count, units sold, and a 1-line "why it's hot" note.</div>
+    <div class="kb-size">~800 tokens · refreshed every 2 days</div>
+  </div>
+  <div class="kb-card">
+    <div class="kb-icon">🏆</div>
+    <div class="kb-title">Category Champions</div>
+    <div class="kb-desc">Top 3 products per major category (Toys, Baby, Beauty, Home, Grocery, Clothing). Used when someone asks "what's the best [X]?"</div>
+    <div class="kb-size">~600 tokens · refreshed every 2 days</div>
+  </div>
+  <div class="kb-card">
+    <div class="kb-icon">🏪</div>
+    <div class="kb-title">Retailer Routing Rules</div>
+    <div class="kb-desc">For each category: which store to recommend first, why, and what the CVR/earnings data says. AI uses this to give smart retailer advice.</div>
+    <div class="kb-size">~300 tokens · refreshed weekly</div>
+  </div>
+  <div class="kb-card">
+    <div class="kb-icon">📝</div>
+    <div class="kb-title">Content Hook Patterns</div>
+    <div class="kb-desc">What works on Meta: price-shock formula ($1 clearance = 158K views), brand partner format, urgency triggers. AI uses these when drafting captions.</div>
+    <div class="kb-size">~400 tokens · refreshed weekly</div>
+  </div>
+  <div class="kb-card">
+    <div class="kb-icon">💕</div>
+    <div class="kb-title">Steph's Voice + Context</div>
+    <div class="kb-desc">Who she is, her storefronts, her community, her tone. Affiliate disclosure. Community links. Never changes — baked into system prompt permanently.</div>
+    <div class="kb-size">~500 tokens · static</div>
+  </div>
+  <div class="kb-card">
+    <div class="kb-icon">⚡</div>
+    <div class="kb-title">Current Deal Alerts</div>
+    <div class="kb-desc">Manually curated section Steph's team updates. "This week: Target has extra 20% off kids clothing." Fast-moving deals that don't wait for the pipeline.</div>
+    <div class="kb-size">~200 tokens · manually updated anytime</div>
+  </div>
+</div>
+
+<div class="callout teal">
+  <div class="callout-label">💡 Why This Fits in a Prompt (No Database Needed Yet)</div>
+  <div class="callout-text">Top 20 products × ~40 words each = ~800 tokens. Full knowledge base = ~2,800 tokens. Claude's context window is 200,000 tokens. We have massive headroom — no vector database or RAG needed until Phase 3 when the catalog grows into the tens of thousands of active products. This means Phase 1 and 2 are buildable with just Python + Flask, no backend database required.</div>
+</div>
+
+<hr class="divider"/>
+
+<!-- ══════════════════════════════════════════
+     LAYER 4 — AI AGENT OUTPUTS
+══════════════════════════════════════════ -->
+<div class="section-label">Layer 4 — AI Agent Outputs</div>
+<h2>7 Things the Agent Can Generate</h2>
+
+<div class="output-grid">
+
+  <div class="output-card">
+    <div class="output-header">
+      <div class="output-icon" style="background:#FFF0F0">🏆</div>
+      <h3>Top 5 This Week</h3>
+    </div>
+    <div class="output-trigger">Trigger: "What's hot?" / "What should I buy?" / weekly auto-post</div>
+    <div class="output-sample">
+      ok WAIT — pulled what's actually trending based on what real mamas are clicking AND buying 🔥<br/><br/>
+      🥇 Barbie Dreamhouse Pool Party — 37K clicks this week, my #1 right now → [link]<br/>
+      🥈 Glitter Dumpling Squishy — 702 already sold, under $15 → [link]
+    </div>
+    <div class="output-sources">
+      <span class="osrc" style="background:#FCE4EC;color:#880E4F">URLGenius</span>
+      <span class="osrc" style="background:#FFF3E0;color:#E65100">Amazon</span>
+      <span class="osrc" style="background:#E8EAF6;color:#283593">Meta</span>
+    </div>
+  </div>
+
+  <div class="output-card">
+    <div class="output-header">
+      <div class="output-icon" style="background:#E8F8F7">📝</div>
+      <h3>Facebook / IG Caption Draft</h3>
+    </div>
+    <div class="output-trigger">Trigger: "Write a caption for [product]" / team content tab</div>
+    <div class="output-sample">
+      STOP SCROLLING 🚨 ok I cannot believe this price...<br/>
+      [product name] is down to $[price] right now at Walmart 😱<br/>
+      I just grabbed one — link in bio or comment "DEAL" and I'll send it 💕<br/>
+      #walmartfinds #momsoftiktok #dealoftheday
+    </div>
+    <div class="output-sources">
+      <span class="osrc" style="background:#E8EAF6;color:#283593">Meta patterns</span>
+      <span class="osrc" style="background:#E8F5E9;color:#2E7D32">Walmart API</span>
+    </div>
+  </div>
+
+  <div class="output-card">
+    <div class="output-header">
+      <div class="output-icon" style="background:#FFF8E1">🎁</div>
+      <h3>Gift Guide Generator</h3>
+    </div>
+    <div class="output-trigger">Trigger: "Best gifts for a 5-year-old under $30"</div>
+    <div class="output-sample">
+      ok so for a 5-year-old under $30, based on what's actually selling right now:<br/>
+      → Kinetic Sand ($14.88 at Walmart — clearance!)<br/>
+      → Bluey Coloring Kit ($12 on Amazon)<br/>
+      → Video Walkie Talkies ($24 — 3,940 people clicked this week)
+    </div>
+    <div class="output-sources">
+      <span class="osrc" style="background:#FFF3E0;color:#E65100">Amazon price</span>
+      <span class="osrc" style="background:#FCE4EC;color:#880E4F">URLGenius</span>
+      <span class="osrc" style="background:#E8F5E9;color:#2E7D32">Walmart API</span>
+    </div>
+  </div>
+
+  <div class="output-card">
+    <div class="output-header">
+      <div class="output-icon" style="background:#F3EEFF">⚡</div>
+      <h3>Deal Alert: Trending Now</h3>
+    </div>
+    <div class="output-trigger">Trigger: "Anything trending?" / spike detection in pipeline</div>
+    <div class="output-sample">
+      EVERYONE is looking at this right now — the Melissa & Doug Steering Wheel Toy got 262 clicks YESTERDAY alone 👀<br/>
+      That kind of spike usually means it's going viral somewhere. It's $28 on Amazon → [link]
+    </div>
+    <div class="output-sources">
+      <span class="osrc" style="background:#FCE4EC;color:#880E4F">URLGenius velocity</span>
+      <span class="osrc" style="background:#FFF3E0;color:#E65100">Amazon ASIN</span>
+    </div>
+  </div>
+
+  <div class="output-card">
+    <div class="output-header">
+      <div class="output-icon" style="background:#E8F5E9">🏪</div>
+      <h3>Retailer Smart Rec</h3>
+    </div>
+    <div class="output-trigger">Trigger: "Is this cheaper at Walmart or Amazon?" / any budget ask</div>
+    <div class="output-sample">
+      honestly for baby stuff I almost always check Walmart first — their conversion rate is insane and they run $1 baby clothing deals that go CRAZY on our page.<br/>
+      For shoes I'd go Kids Foot Locker, and for beauty definitely Ulta.
+    </div>
+    <div class="output-sources">
+      <span class="osrc" style="background:#E8F5E9;color:#2E7D32">Impact CVR</span>
+      <span class="osrc" style="background:#E0F7FA;color:#006064">SYL earnings</span>
+    </div>
+  </div>
+
+  <div class="output-card">
+    <div class="output-header">
+      <div class="output-icon" style="background:#E3F2FD">📊</div>
+      <h3>Category Deep Dive</h3>
+    </div>
+    <div class="output-trigger">Trigger: "What are your best home finds?" / "Baby must-haves?"</div>
+    <div class="output-sample">
+      For home stuff right now, I love anything from Wayfair — that's where we get the most actual orders. Top picks:<br/>
+      → Keter Storage (bestseller, $39)<br/>
+      → Honeyparty Sandbox ($30 — big summer hit)<br/>
+      All linked at shopltk.com/EverydaywithSteph 💕
+    </div>
+    <div class="output-sources">
+      <span class="osrc" style="background:#FFF3E0;color:#E65100">Amazon category</span>
+      <span class="osrc" style="background:#E0F7FA;color:#006064">SYL by retailer</span>
+    </div>
+  </div>
+
+  <div class="output-card" style="grid-column: span 2;">
+    <div class="output-header">
+      <div class="output-icon" style="background:#FFF0F0">📧</div>
+      <h3>Weekly Summary Post / Email Draft (Team Tool — Phase 2)</h3>
+    </div>
+    <div class="output-trigger">Trigger: Steph's team clicks "Generate This Week's Content" in the Content Tab</div>
+    <div class="output-sample">
+      This week's hot picks (auto-generated from data):<br/>
+      🔥 TRENDING: Barbie Dreamhouse Pool Party — 37K clicks, $179 → [affiliate link]<br/>
+      💰 BEST VALUE: Kinetic Sand at Walmart — $14.88 clearance → [walmart link]<br/>
+      🏆 TOP SELLER: Glitter Dumpling Squishy — 702 units sold, $13.49 → [amazon link]<br/>
+      ✨ HIDDEN GEM: Melissa & Doug Steering Wheel — 262 clicks yesterday, toddler road trip essential → [link]<br/><br/>
+      Caption ready to copy · links pre-filled · just review + post
+    </div>
+    <div class="output-sources">
+      <span class="osrc" style="background:#FCE4EC;color:#880E4F">All URLGenius</span>
+      <span class="osrc" style="background:#FFF3E0;color:#E65100">All Amazon</span>
+      <span class="osrc" style="background:#E8F5E9;color:#2E7D32">Walmart API</span>
+      <span class="osrc" style="background:#E8EAF6;color:#283593">Meta hooks</span>
+    </div>
+  </div>
+
+</div>
+
+<hr class="divider"/>
+
+<!-- ══════════════════════════════════════════
+     LAYER 5 — UI
+══════════════════════════════════════════ -->
+<div class="section-label">Layer 5 — App Interface</div>
+<h2>Two Modes, One App</h2>
+
+<div class="ui-tabs">
+  <div class="ui-tab active">💬 Chat Mode (Visitors)</div>
+  <div class="ui-tab inactive">✏️ Content Mode (Steph's Team)</div>
+</div>
+
+<div class="ui-panel">
+  <div class="ui-panel-grid">
+    <div>
+      <div class="ui-zone">
+        <div class="ui-zone-label">Header — Steph's identity</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+          <div style="width:40px;height:40px;border-radius:50%;background:var(--coral);opacity:0.5"></div>
+          <div>
+            <div class="ui-mockrow short" style="width:100px;height:9px;margin-bottom:4px"></div>
+            <div class="ui-mockrow" style="width:160px;height:7px;background:#E0D4D0"></div>
+          </div>
+        </div>
+      </div>
+      <div class="ui-zone" style="margin-top:10px">
+        <div class="ui-zone-label">Chat messages — scrollable</div>
+        <div class="ui-mockcard">
+          <div class="ui-mockimg"></div>
+          <div class="ui-mocktxt">
+            <div class="ui-mockrow full" style="height:8px;margin-bottom:4px;background:#FFD0D0"></div>
+            <div class="ui-mockrow med" style="height:8px;background:#FFD0D0"></div>
+          </div>
+        </div>
+        <div class="ui-mockcard" style="background:#E8F8F7;justify-content:flex-end">
+          <div class="ui-mocktxt">
+            <div class="ui-mockrow short" style="height:8px;margin-bottom:4px;background:#B2EBE8"></div>
+          </div>
+        </div>
+        <div class="ui-mockcard">
+          <div class="ui-mockimg"></div>
+          <div class="ui-mocktxt">
+            <div class="ui-mockrow full" style="height:8px;margin-bottom:4px;background:#FFD0D0"></div>
+            <div class="ui-mockrow med" style="height:8px;margin-bottom:4px;background:#FFD0D0"></div>
+            <div style="font-size:10px;color:var(--teal);font-weight:800">→ shopltk.com/EverydaywithSteph</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="ui-zone">
+        <div class="ui-zone-label">Suggested chips (empty state)</div>
+        <div class="ui-chip-row">
+          <div class="ui-chip">🧸 Best toys right now?</div>
+          <div class="ui-chip">🔥 What's hot this week?</div>
+          <div class="ui-chip">💰 Best Walmart deals?</div>
+          <div class="ui-chip">🎁 Gifts under $30?</div>
+          <div class="ui-chip">👶 Baby must-haves?</div>
+          <div class="ui-chip">🏠 Home finds?</div>
+        </div>
+      </div>
+      <div class="ui-zone" style="margin-top:10px">
+        <div class="ui-zone-label">Input + send</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+          <div style="flex:1;height:36px;background:var(--light);border-radius:18px"></div>
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--coral);opacity:0.6"></div>
+        </div>
+      </div>
+      <div class="ui-zone" style="margin-top:10px">
+        <div class="ui-zone-label">Footer — affiliate disclosure + links</div>
+        <div class="ui-mockrow full" style="height:7px;margin-bottom:4px;background:#E8DDD8"></div>
+        <div class="ui-mockrow short" style="height:7px;background:#E8DDD8"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="ui-tabs">
+  <div class="ui-tab inactive">💬 Chat Mode (Visitors)</div>
+  <div class="ui-tab active" style="background:white;color:var(--teal)">✏️ Content Mode (Steph's Team)</div>
+</div>
+<div class="ui-panel">
+  <div class="ui-panel-grid">
+    <div>
+      <div class="ui-zone">
+        <div class="ui-zone-label">Format selector</div>
+        <div class="ui-chip-row" style="margin-top:4px">
+          <div class="ui-chip" style="background:var(--teal);color:white">🏆 Top 5 List</div>
+          <div class="ui-chip">📝 Caption Draft</div>
+          <div class="ui-chip">⚡ Deal Alert</div>
+          <div class="ui-chip">🎁 Gift Guide</div>
+        </div>
+      </div>
+      <div class="ui-zone" style="margin-top:10px">
+        <div class="ui-zone-label">Filters (optional)</div>
+        <div class="ui-chip-row">
+          <div class="ui-chip">Category ▾</div>
+          <div class="ui-chip">Budget ▾</div>
+          <div class="ui-chip">Retailer ▾</div>
+          <div class="ui-chip">Age range ▾</div>
+        </div>
+      </div>
+      <div class="ui-zone" style="margin-top:10px">
+        <div class="ui-zone-label">Generate button</div>
+        <div style="height:36px;background:var(--teal);border-radius:10px;margin-top:4px;opacity:0.7"></div>
+      </div>
+    </div>
+    <div>
+      <div class="ui-zone" style="height:100%">
+        <div class="ui-zone-label">Generated output — ready to copy/post</div>
+        <div class="ui-mockrow full" style="height:8px;margin-bottom:5px;background:#B2EBE8"></div>
+        <div class="ui-mockrow full" style="height:8px;margin-bottom:5px;background:#B2EBE8"></div>
+        <div class="ui-mockrow med" style="height:8px;margin-bottom:12px;background:#B2EBE8"></div>
+        <div class="ui-mockcard" style="background:var(--teal-pale)">
+          <div class="ui-mockimg" style="background:var(--teal);opacity:0.4"></div>
+          <div class="ui-mocktxt">
+            <div class="ui-mockrow full" style="height:8px;margin-bottom:4px;background:#B2EBE8"></div>
+            <div style="font-size:10px;color:var(--teal);font-weight:800">→ Affiliate link included</div>
+          </div>
+        </div>
+        <div style="height:30px;background:var(--teal);border-radius:8px;margin-top:10px;opacity:0.5;display:flex;align-items:center;justify-content:center;font-size:11px;color:white;font-weight:800">📋 Copy to Clipboard</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider"/>
+
+<!-- ══════════════════════════════════════════
+     DECISION TABLE
+══════════════════════════════════════════ -->
+<div class="section-label">Implementation Reference</div>
+<h2>Every Data Connection — Decision Table</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Source</th>
+      <th>How We Connect</th>
+      <th>What We Extract</th>
+      <th>Update Cadence</th>
+      <th>Affiliate Link Method</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="hl">Impact.com<br/>(Walmart)</td>
+      <td>REST API · OAuth</td>
+      <td>CVR, earnings, clicks, sale amount per program</td>
+      <td>Every 2 days</td>
+      <td>Impact API generates tracking link</td>
+      <td class="go">✓ API Ready</td>
+    </tr>
+    <tr>
+      <td class="hl">Impact.com<br/>(Target)</td>
+      <td>REST API · same auth</td>
+      <td>CVR, earnings, product feed (not yet used)</td>
+      <td>Every 2 days</td>
+      <td>Impact tracking link</td>
+      <td class="warn">⚠ Pursue product feed</td>
+    </tr>
+    <tr>
+      <td class="hl">Walmart<br/>Direct API</td>
+      <td>REST API · API key</td>
+      <td>Product name, image, price, in-stock</td>
+      <td>On-demand</td>
+      <td>Walmart affiliate URL + Creator tag</td>
+      <td class="go">✓ API Ready</td>
+    </tr>
+    <tr>
+      <td class="hl">Amazon<br/>Earnings</td>
+      <td>Daily CSV download</td>
+      <td>ASIN, category, units, revenue, date</td>
+      <td>Every 2 days (batched)</td>
+      <td>amazon.com/dp/[ASIN]?tag=mommymedeals-20</td>
+      <td class="go">✓ Working</td>
+    </tr>
+    <tr>
+      <td class="hl">Crawlfeeder<br/>(Amazon enrichment)</td>
+      <td>Scraper API · ASIN input</td>
+      <td>Product name, image, current price, BSR</td>
+      <td>On-demand per ASIN</td>
+      <td>Same Amazon affiliate tag above</td>
+      <td class="go">✓ Ready to connect</td>
+    </tr>
+    <tr>
+      <td class="hl">URLGenius</td>
+      <td>CSV now · API soon</td>
+      <td>Clicks per link, product image, short link</td>
+      <td>Every 2 days</td>
+      <td>URLGenius short link (amzn/xxxxx) — already tracked</td>
+      <td class="warn">⚠ Request API access</td>
+    </tr>
+    <tr>
+      <td class="hl">SYL</td>
+      <td>CSV export</td>
+      <td>Earnings, CVR, orders by URL + retailer</td>
+      <td>Weekly</td>
+      <td>SYL URL (already affiliate-encoded)</td>
+      <td class="go">✓ Working</td>
+    </tr>
+    <tr>
+      <td class="hl">Meta Content</td>
+      <td>CSV export</td>
+      <td>Views, link clicks, hook patterns from captions</td>
+      <td>Weekly</td>
+      <td>N/A — used for pattern learning only</td>
+      <td class="go">✓ Working</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- CLOSING CALLOUT -->
+<div class="callout green">
+  <div class="callout-label">🗺 What to Build First</div>
+  <div class="callout-text">Phase 1 is one Python script that reads the CSVs you already have, computes the Hot Score, writes the knowledge block text file, and loads it into the chatbot system prompt. That's it. Walmart Direct API + Impact API connect in Phase 2 for live price lookups and real affiliate link generation in the content tab. URLGenius API access should be requested now — it unlocks real-time click velocity which is the strongest single signal in the whole system.</div>
+  <div class="callout-sub">Current data alone — just from the CSVs — is enough to make the AI dramatically smarter than any generic chatbot. The APIs make it live and self-updating.</div>
+</div>
+
+<p style="text-align:center;margin-top:40px;font-size:12px;color:#B0A0A0">
+  Mommy and Me Collective · AI Architecture Document · March 2026<br/>
+  <a href="https://mommyandmecollective.com" style="color:#FF6B6B;text-decoration:none">mommyandmecollective.com</a>
+</p>
+
+</div>
+</body>
+</html>

@@ -1,12 +1,18 @@
 import os
+import re
 import json
 import logging
 import sqlite3
+import time
 import requests as req
 from flask import Flask, send_from_directory, request, jsonify, render_template, Response
 from dotenv import load_dotenv
 import anthropic
 from product_api import ProductResolver, detect_category
+from prompts import (
+    build_chat_prompt, build_chat_products,
+    STEPH_CAPTION_PROMPT, STEPH_AD_COPY_PROMPT,
+)
 
 load_dotenv()  # loads .env locally; Replit Secrets override in production
 
@@ -25,86 +31,29 @@ THEMES = {
 
 PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
 
-# Product catalog matching the frontend
-PRODUCTS = [
-    {'id': 0, 'name': 'Barbie Dreamhouse Pool Party 75+ Pieces', 'price': '$179', 'was': '$210', 'retailer': 'Amazon', 'emoji': '🏠', 'link': 'https://amazon.com/dp/B0C...?tag=mommymedeals-20'},
-    {'id': 1, 'name': '2026 Glitter Dumpling Squishy Toy', 'price': '$13.49', 'was': '', 'retailer': 'Amazon', 'emoji': '✨', 'link': 'https://amazon.com/dp/B0D...?tag=mommymedeals-20'},
-    {'id': 2, 'name': 'Ms. Rachel Toddler Hoodie + Jogger Set', 'price': '$7.00', 'was': '$15.98', 'retailer': 'Walmart', 'emoji': '🧸', 'link': 'https://goto.walmart.com/ZVboz1'},
-    {'id': 3, 'name': 'Melissa & Doug Steering Wheel Dashboard', 'price': '$28', 'was': '', 'retailer': 'Amazon', 'emoji': '🚗', 'link': 'https://amazon.com/dp/B0A...?tag=mommymedeals-20'},
-    {'id': 4, 'name': 'Stanley Quencher 40oz Tumbler', 'price': '$35', 'was': '$45', 'retailer': 'Amazon', 'emoji': '🥤', 'link': 'https://amazon.com/dp/B09...?tag=mommymedeals-20'},
-    {'id': 5, 'name': 'Moana 2 Kids Underwear 7-Pack', 'price': '$10', 'was': '', 'retailer': 'Amazon', 'emoji': '🌊', 'link': 'https://amazon.com/dp/B0E...?tag=mommymedeals-20'},
-    {'id': 6, 'name': 'Imaginext Jurassic World Dinosaur Set', 'price': '$35', 'was': '$49', 'retailer': 'Walmart', 'emoji': '🦕', 'link': 'https://goto.walmart.com/'},
-    {'id': 7, 'name': 'Sol de Janeiro Travel Fragrance Set', 'price': '$32', 'was': '', 'retailer': 'Ulta', 'emoji': '🌸', 'link': 'https://www.ulta.com/...?PID=1390'},
-    {'id': 8, 'name': 'Kinetic Sand Deluxe Gift Bag', 'price': '$14', 'was': '', 'retailer': 'Target', 'emoji': '⏳', 'link': 'https://target.com/'},
-    {'id': 9, 'name': 'Keter Plastic Storage Box 55-Gallon', 'price': '$39', 'was': '$55', 'retailer': 'Wayfair', 'emoji': '📦', 'link': 'https://wayfair.com/'},
-    {'id': 10, 'name': 'OXO Good Grips Silicone Utensil Set', 'price': '$18.99', 'was': '$24.99', 'retailer': 'Walmart', 'emoji': '🍳', 'link': 'https://goto.walmart.com/c/kitchen', 'category': 'home'},
-    {'id': 11, 'name': 'Instant Pot Duo Crisp 8-Quart Pressure Cooker', 'price': '$99', 'was': '$149', 'retailer': 'Amazon', 'emoji': '🍲', 'link': 'https://amazon.com/dp/B08...?tag=mommymedeals-20', 'category': 'home'},
-    {'id': 12, 'name': 'ChefJet 3-in-1 Vegetable Chopper', 'price': '$16.49', 'was': '$19.99', 'retailer': 'Walmart', 'emoji': '🥬', 'link': 'https://goto.walmart.com/c/kitchen', 'category': 'home'},
-]
+# ── Chat prompt cache (2-hour TTL) ───────────────────────────────────────────
+_CHAT_CACHE: dict = {'prompt': None, 'products': None, 'expires': 0.0}
 
-product_resolver = ProductResolver(PRODUCTS)
+def _get_chat_context():
+    """Return (system_prompt_str, chat_products_list), refreshing every 2 hours."""
+    global _CHAT_CACHE
+    if _CHAT_CACHE['prompt'] and time.time() < _CHAT_CACHE['expires']:
+        return _CHAT_CACHE['prompt'], _CHAT_CACHE['products']
 
-SYSTEM_PROMPT = """You are Steph, the creator behind @EverydaywithSteph and the Mommy & Me Collective. You talk mom-to-mom: warm, enthusiastic, concise, and occasionally use light emojis (but not excessively). You share deals and product recommendations like a trusted friend who happens to know every sale happening right now.
+    from product_api import ArcherAPI
+    archer_products = []
+    try:
+        a = ArcherAPI()
+        archer_products = a._load_matched_json()[:15]
+    except Exception as e:
+        logging.warning(f'[CHAT] Failed to load Archer products for prompt: {e}')
 
-Your current top products and data:
+    prompt = build_chat_prompt(archer_products)
+    chat_products = build_chat_products(archer_products)
+    _CHAT_CACHE = {'prompt': prompt, 'products': chat_products, 'expires': time.time() + 7200}
+    return prompt, chat_products
 
-PRODUCTS (index by ID for recommendations):
-0. Barbie Dreamhouse Pool Party | $179 (was $210) | Amazon | 37,199 clicks | score 94 | category: toys
-1. Glitter Dumpling Squishy 2026 | $13.49 | Amazon | 702 units sold | score 89 | category: toys
-2. Ms. Rachel Toddler Set | $7.00 (was $15.98) | Walmart | 56% off clearance | score 82 | category: toys
-3. Melissa & Doug Dashboard | $28 | Amazon | 262 clicks today | score 78 | category: toys
-4. Stanley Quencher 40oz | $35 (was $45) | Amazon | 1,300 clicks | score 68 | category: beauty
-5. Moana 2 Underwear 7-Pack | $10 | Amazon | 5,840 clicks | score 72 | category: baby
-6. Imaginext Jurassic Dino Set | $35 (was $49) | Walmart | Walmart storefront pick | score 65 | category: toys
-7. Sol de Janeiro Travel Set | $32 | Ulta | $270 earned, 42 orders | score 71 | category: beauty
-8. Kinetic Sand Gift Bag | $14 | Target | 4,278 clicks | score 63 | category: toys
-9. Keter Storage Box | $39 (was $55) | Wayfair | Top Wayfair earner | score 58 | category: home
-10. OXO Good Grips Silicone Utensil Set | $18.99 (was $24.99) | Walmart | kitchen essentials | score 76 | category: home
-11. Instant Pot Duo Crisp 8-Quart | $99 (was $149) | Amazon | 2,150 clicks | score 85 | category: home
-12. ChefJet 3-in-1 Vegetable Chopper | $16.49 (was $19.99) | Walmart | meal prep helper | score 74 | category: home
-
-KEY FACTS:
-- Walmart converts at 16.7% — always route budget deals there first
-- Toys & Games is your top Amazon category by clicks and revenue
-- Barbie Dreamhouse has 37K clicks — your single highest-traffic product
-- Your LTK storefront: shopltk.com/EverydaywithSteph
-
-RESPONSE RULES:
-- Keep replies to 2-4 sentences max
-- Recommend specific products with prices when relevant
-- If a budget deal exists at Walmart, mention Walmart first
-- End with a helpful nudge when natural
-- Never break character or mention Claude/AI
-
-PRODUCT RECOMMENDATION FORMAT (CRITICAL - ALWAYS FOLLOW):
-You MUST end EVERY response with either PRODUCTS: or SEARCH: line. Never end without one.
-
-**Option 1: PRODUCTS format** (when you have exact matches in the catalog above)
-End with: PRODUCTS: 0,1,2
-Example:
-User: "best toy under $30?"
-Response: "oooh I have the PERFECT picks for you! The Ms. Rachel set is only $7 at Walmart right now (56% off 😱), or the Glitter Dumpling Squishy for $13.49 — my kids are OBSESSED with it. Both are total winners!
-PRODUCTS: 2,1"
-
-**Option 2: SEARCH format** (when user asks for something NOT in your catalog)
-End with: SEARCH: category searchterm
-Example:
-User: "show me cheap kitchen gadgets"
-Response: "Let me find you some amazing kitchen gadgets that won't break the bank!
-SEARCH: home kitchen gadgets cheap"
-
-User: "what about bluetooth speakers?"
-Response: "Great question! Let me search for those!
-SEARCH: electronics bluetooth speakers"
-
-RULES:
-- If your 10 Hot Score products match the user's request → use PRODUCTS: format
-- If user asks for something OUTSIDE your catalog → ALWAYS use SEARCH: format
-- Kitchen gadgets → NOT in catalog → use SEARCH:
-- Bluetooth speakers → NOT in catalog → use SEARCH:
-- Toys under $30 → IN catalog → use PRODUCTS:
-- DO NOT respond without a final PRODUCTS: or SEARCH: line
-- SEARCH: queries should be concise (2-3 keywords max)"""
+product_resolver = ProductResolver([])
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
@@ -115,28 +64,29 @@ def chat():
         return jsonify({'error': 'message is required'}), 400
 
     try:
+        system_prompt, chat_products = _get_chat_context()
         client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
         message = client.messages.create(
             model='claude-sonnet-4-20250514',
             max_tokens=256,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             messages=[{'role': 'user', 'content': user_message}],
         )
         reply = message.content[0].text
         print(f"[REPLY] Claude response length: {len(reply)} | Contains PRODUCTS: {'PRODUCTS:' in reply} | Contains SEARCH: {'SEARCH:' in reply}")
-        
+
         # Parse product recommendations from response
         products = []
         text_reply = reply
-        
+
         if 'PRODUCTS:' in reply:
             parts = reply.split('PRODUCTS:')
             text_reply = parts[0].strip()
             product_ids_str = parts[1].strip()
-            
+
             try:
                 product_ids = [int(pid.strip()) for pid in product_ids_str.split(',')]
-                products = [PRODUCTS[pid] for pid in product_ids if 0 <= pid < len(PRODUCTS)]
+                products = [chat_products[pid] for pid in product_ids if 0 <= pid < len(chat_products)]
             except (ValueError, IndexError):
                 pass
         
@@ -186,154 +136,82 @@ def chat():
 
 @app.route('/')
 def index():
-    return send_from_directory('.', 'index.html')
+    return render_template('dashboard.html')
 
-@app.route('/plan')
-def plan():
-    return send_from_directory('.', 'steph-ai-plan.html')
+# ARCHIVED — see /archive/routes/
 
-@app.route('/architecture')
-def architecture():
-    return send_from_directory('.', 'steph-architecture.html')
+@app.route('/dashboard')
+def dashboard():
+    return render_template('dashboard.html')
 
-@app.route('/connections')
-def connections():
-    return send_from_directory('.', 'steph-connection-map.html')
+@app.route('/dashboard/upload_csv', methods=['POST'])
+def dashboard_upload_csv():
+    import csv, io
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f.filename.lower().endswith('.csv'):
+        return jsonify({'error': 'File must be a .csv'}), 400
+    try:
+        text = f.read().decode('utf-8-sig')
+        reader_io = io.StringIO(text)
+        next(reader_io)  # skip report title row
+        rows = list(csv.DictReader(reader_io))
+        products = []
+        for row in rows:
+            asin = (row.get('ASIN') or '').strip()
+            if not asin:
+                continue
+            try:
+                earnings = float(row.get('Total Earnings') or row.get('Revenue($)') or 0)
+                units    = int(float(row.get('Items Shipped') or 0))
+            except (ValueError, TypeError):
+                earnings, units = 0.0, 0
+            products.append({
+                'asin':           asin,
+                'product_name':   (row.get('Name') or row.get('Title') or asin).strip(),
+                'total_earnings': round(earnings, 2),
+                'items_shipped':  units,
+            })
+        products.sort(key=lambda p: p['total_earnings'], reverse=True)
+        return jsonify({'products': products[:10]})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/archer/products')
 def archer_products():
     return render_template('archer_products.html')
 
-@app.route('/archer/matched')
-def archer_matched():
-    """Return matched ASINs from matched_asins.json with pagination."""
-    from product_api import ArcherAPI
-    a = ArcherAPI()
-    limit  = min(int(request.args.get('limit', 20)), 100)
-    offset = int(request.args.get('offset', 0))
-    all_products = a._load_matched_json()
-    total = len(all_products)
-    page  = all_products[offset:offset + limit]
-    return jsonify({'products': page, 'total': total, 'has_more': offset + limit < total})
+# ARCHIVED — see /archive/routes/
 
 
-@app.route('/archer/upload_earnings', methods=['POST'])
-def archer_upload_earnings():
-    """
-    Accept an Amazon earnings CSV upload, save as earnings_latest.csv,
-    then immediately run the network match scan.
-    """
-    from product_api import ArcherAPI
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided — send as multipart field "file"'}), 400
-    f = request.files['file']
-    if not f.filename.lower().endswith('.csv'):
-        return jsonify({'error': 'File must be a .csv'}), 400
-
-    os.makedirs('data', exist_ok=True)
-    save_path = 'data/earnings_latest.csv'
-    f.save(save_path)
-    logging.info(f'[SCAN] Earnings CSV uploaded: {f.filename} → {save_path}')
-
-    a = ArcherAPI()
-    result = a.asin_match_scan()
-    result['uploaded_filename'] = f.filename
-    return jsonify(result)
+# ARCHIVED — see /archive/routes/
 
 
-@app.route('/archer/asin_match_scan')
-def archer_asin_match_scan():
-    """
-    Re-run network match scan against the last uploaded earnings CSV.
-    Safe to call any time — fully rewrites matched_asins.json.
-    """
-    from product_api import ArcherAPI
-    a = ArcherAPI()
-    result = a.asin_match_scan()
-    return jsonify(result)
+# ARCHIVED — see /archive/routes/
 
 
-@app.route('/archer/force_rescan')
-def archer_force_rescan():
-    """Force-regenerate matched_asins.json with current network data."""
-    from product_api import ArcherAPI
-    a = ArcherAPI()
-    result = a.asin_match_scan()
-    return jsonify(result)
+# ARCHIVED — see /archive/routes/
 
 
-@app.route('/levanta/diag')
-def levanta_diag():
-    """Diagnostic: show raw Levanta API product + brand shapes to verify field names."""
-    from product_api import LevantaAPI
-    lv = LevantaAPI()
-    if not lv.api_key:
-        return jsonify({'error': 'No LEVANTA_API_KEY set'})
-    try:
-        products_data = lv.get_products(limit=3)
-        products = products_data.get('products', [])
-        brands_data = lv.get_brands(access_only=False, limit=3)
-        brands = (brands_data.get('brands') or brands_data.get('data') or
-                  brands_data.get('items') or [])
-        return jsonify({
-            'products_sample': products[:3],
-            'products_keys': list(products[0].keys()) if products else [],
-            'brands_raw_keys': list(brands_data.keys()),
-            'brands_sample': brands[:3],
-            'brands_keys': list(brands[0].keys()) if brands else [],
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)})
+# ARCHIVED — see /archive/routes/
 
 
-@app.route('/archer/scan_status')
-def archer_scan_status():
-    """Return metadata from the last scan run (scan_meta.json)."""
-    import csv as _csv
-    meta_path = 'data/scan_meta.json'
-    earnings_path = 'data/earnings_latest.csv'
-    legacy_path = 'data/2025-Q12026 amazon asin earnings.csv'
-    archer_csv_path = 'data/Archer Full Catalog 2026.csv'
-    levanta_cache_path = 'data/network_cache_levanta.json'
-
-    status = {'never_run': not os.path.exists(meta_path)}
-    if not status['never_run']:
-        with open(meta_path) as f:
-            status.update(json.load(f))
-
-    status['csv_uploaded'] = os.path.exists(earnings_path)
-    status['csv_filename'] = (
-        'earnings_latest.csv' if os.path.exists(earnings_path)
-        else ('2025-Q12026 amazon asin earnings.csv' if os.path.exists(legacy_path) else None)
-    )
-
-    # Catalog sizes for stat bar
-    archer_size = 0
-    if os.path.exists(archer_csv_path):
-        try:
-            with open(archer_csv_path, newline='', encoding='utf-8-sig') as f:
-                archer_size = sum(1 for row in _csv.DictReader(f) if (row.get('ASIN') or '').strip())
-        except Exception:
-            pass
-    status['archer_catalog_size'] = archer_size
-
-    levanta_size = 0
-    if os.path.exists(levanta_cache_path):
-        try:
-            with open(levanta_cache_path) as f:
-                lv = json.load(f)
-            levanta_size = len(lv) if isinstance(lv, list) else len(lv.keys())
-        except Exception:
-            pass
-    status['levanta_catalog_size'] = levanta_size
-
-    return jsonify(status)
+# ARCHIVED — see /archive/routes/
 
 @app.route('/archer/search')
 def archer_search():
     """Search Archer and/or Levanta catalogs. Supports network=archer|levanta|both."""
     from product_api import ArcherAPI, LevantaAPI
+    from utils.asin import extract_asin
     q = request.args.get('q', '').strip()
+
+    # If the query looks like an ASIN or product URL, resolve to ASIN and redirect
+    resolved_asin = extract_asin(q) if q else None
+    if resolved_asin:
+        from flask import redirect, url_for
+        return redirect(url_for('archer_get_product', asin=resolved_asin))
+
     category = request.args.get('category', '')
     min_commission = int(request.args.get('min_commission', 0))
     limit = min(int(request.args.get('limit', 20)), 200)
@@ -453,96 +331,10 @@ def archer_search():
         'levanta_catalog_total': levanta_full_count,
     })
 
-@app.route('/archer/levanta_match_scan')
-def archer_levanta_match_scan():
-    """
-    Read all ASINs from Steph's Amazon earnings CSV, cross-reference
-    against accessible Levanta products, and save matches to data/levanta_matches.json.
-    """
-    import csv
-    from product_api import LevantaAPI
-
-    CSV_PATH = os.path.join(os.path.dirname(__file__), 'data', 'Amazon_Earnings_2026.csv')
-    OUT_PATH = os.path.join(os.path.dirname(__file__), 'data', 'levanta_matches.json')
-
-    if not os.path.exists(CSV_PATH):
-        return jsonify({'error': 'Amazon_Earnings_2026.csv not found in data/'}), 404
-
-    # Read CSV — row 1 is report title (skip), row 2 is headers
-    steph_asins = {}  # asin -> {revenue, units, name, category}
-    with open(CSV_PATH, newline='', encoding='utf-8-sig') as f:
-        next(f)  # skip "Fee-Earnings reports from..." title row
-        reader = csv.DictReader(f)
-        for row in reader:
-            asin = (row.get('ASIN') or '').strip()
-            if not asin:
-                continue
-            try:
-                revenue = float(row.get('Revenue($)') or 0)
-                units = int(row.get('Items Shipped') or 0)
-            except (ValueError, TypeError):
-                revenue, units = 0, 0
-            if asin in steph_asins:
-                steph_asins[asin]['revenue'] += revenue
-                steph_asins[asin]['units'] += units
-            else:
-                steph_asins[asin] = {
-                    'name': (row.get('Name') or '').strip(),
-                    'category': (row.get('Category') or '').strip(),
-                    'revenue': revenue,
-                    'units': units,
-                }
-
-    # Fetch all accessible Levanta ASINs
-    lv = LevantaAPI()
-    try:
-        levanta_map = lv.get_all_accessible_asins()
-    except Exception as e:
-        logging.error(f"[LEVANTA] get_all_accessible_asins failed: {e}")
-        return jsonify({'error': str(e)}), 500
-
-    # Find matches
-    matches = []
-    for asin, steph in steph_asins.items():
-        if asin in levanta_map:
-            lv_data = levanta_map[asin]
-            matches.append({
-                'asin': asin,
-                'name': steph['name'],
-                'category': steph['category'],
-                'steph_revenue': round(steph['revenue'], 2),
-                'steph_units': steph['units'],
-                'levanta_commission': lv_data['commission_pct'],
-                'levanta_commission_rate': lv_data['commission'],
-                'levanta_title': lv_data['title'],
-                'levanta_brand': lv_data['brand'],
-            })
-
-    # Sort by Steph's revenue descending
-    matches.sort(key=lambda x: x['steph_revenue'], reverse=True)
-
-    # Save to file
-    with open(OUT_PATH, 'w') as f:
-        json.dump(matches, f, indent=2)
-
-    return jsonify({
-        'steph_asins': len(steph_asins),
-        'levanta_asins': len(levanta_map),
-        'matches_found': len(matches),
-        'top_matches': matches[:10],
-        'saved_to': 'data/levanta_matches.json',
-    })
+# ARCHIVED — see /archive/routes/
 
 
-@app.route('/archer/backfill_images')
-def archer_backfill_images():
-    """One-time route to populate image URLs for matched ASINs."""
-    from product_api import ArcherAPI
-    a = ArcherAPI()
-    matched = a._load_matched_json()
-    asins = [p['asin'] for p in matched]
-    updated = a.backfill_images(asins)
-    return jsonify({'updated': updated, 'total': len(asins)})
+# ARCHIVED — see /archive/routes/
 
 @app.route('/archer/generate_link', methods=['POST'])
 def archer_generate_link():
@@ -566,6 +358,10 @@ def archer_collage():
 @app.route('/archer/product/<asin>')
 def archer_get_product(asin):
     from product_api import ArcherAPI
+    from utils.asin import extract_asin
+    resolved = extract_asin(asin)
+    if resolved:
+        asin = resolved
     a = ArcherAPI()
     product = a.get_by_asins([asin])
 
@@ -575,48 +371,85 @@ def archer_get_product(asin):
 
     if not product:
         try:
-            r = req.get('https://api.archeraffiliates.com/get_single_product',
-                headers={"Authorization": f"Bearer {a._get_token()}"},
-                params={"asin": asin}, timeout=10)
-            if r.status_code == 200:
-                data = r.json()
+            data = a.get_product(asin)
+            if data:
                 img = data.get("image_encoded_string", "")
                 if img:
                     conn = a._db_connect()
                     conn.execute("UPDATE products SET image_encoded_string=? WHERE asin=?", (img, asin))
                     conn.commit()
                     conn.close()
-                return jsonify({"product": {
-                    "asin": data.get("ASIN"),
+                p = {
+                    "asin": data.get("ASIN") or asin,
                     "product_name": data.get("product_name"),
                     "company_name": data.get("company_name"),
                     "price": data.get("price"),
                     "commission_payout": data.get("commission_payout_aff"),
                     "image_encoded_string": img,
-                    "product_category": data.get("product_category")
-                }})
+                    "product_category": data.get("product_category"),
+                }
+                if data.get("live_price") is not None:
+                    p["live_price"] = data["live_price"]
+                return jsonify({"product": p})
         except Exception as e:
             logging.error(f"[ARCHER] Product lookup failed for {asin}: {e}")
         return jsonify({"error": "Product not found"}), 404
-    return jsonify({"product": product[0]})
+    p = product[0]
+    if not p.get("price"):
+        try:
+            from utils.crawlbase import get_live_price
+            live = get_live_price(asin)
+            if live is not None:
+                p["live_price"] = live
+        except Exception:
+            pass
+    return jsonify({"product": p})
 
 @app.route('/archer/generate_caption', methods=['POST'])
 def archer_generate_caption():
     data = request.get_json() or {}
     products_str = data.get('products', '')
+    product_list = data.get('product_list', [])   # [{asin, product_name, brand, ...}, ...]
     try:
         client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
         message = client.messages.create(
             model='claude-sonnet-4-6',
             max_tokens=200,
-            system="""You are Steph from @EverydaywithSteph and the Mommy & Me Collective.
-Write a short, enthusiastic Facebook/Instagram caption for a product collage.
-Keep it 2-3 sentences max. Warm, mom-to-mom tone. Light emojis.
-Mention the products naturally. End with a call to action like "Links in bio!" or "Shop below! 👇"
-Return ONLY the caption text, nothing else.""",
+            system=STEPH_CAPTION_PROMPT,
             messages=[{"role": "user", "content": f"Write a caption for these products: {products_str}"}]
         )
-        return jsonify({"caption": message.content[0].text.strip()})
+        caption = message.content[0].text.strip()
+
+        # Auto-generate URLGenius organic links for each product (Task 6)
+        from datetime import datetime as _dt
+        mmdd = _dt.now().strftime('%m%d')
+        links = []
+        for p in product_list:
+            asin = (p.get('asin') or '').strip()
+            if not asin:
+                continue
+            brand_raw = (p.get('brand') or p.get('company_name') or 'brand').lower()
+            brand_short = re.sub(r'[^a-z0-9]', '', brand_raw.split()[0])[:10]
+            name_words = re.sub(r'[^a-z0-9 ]', '', (p.get('product_name') or p.get('name') or 'product').lower()).split()
+            product_short = '-'.join(name_words[:2])[:15]
+            campaign = f"{brand_short}-{product_short}-{mmdd}"
+            link_result = _make_smart_link(
+                asin=asin, network='amazon',
+                utm_source='fb-group', utm_medium='organic',
+                utm_campaign=campaign,
+            )
+            links.append({
+                'asin': asin,
+                'name': p.get('product_name') or p.get('name') or asin,
+                'genius_url': link_result['genius_url'],
+                'affiliate_url': link_result['affiliate_url'],
+                'campaign': campaign,
+            })
+
+        link_lines = '\n'.join(f"• {l['name']}: {l['genius_url']}" for l in links)
+        post_block = f"{caption}\n\n{link_lines}" if link_lines else caption
+
+        return jsonify({"caption": caption, "links": links, "post_block": post_block})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -755,17 +588,7 @@ def archer_generate_ad_copy():
         message = client.messages.create(
             model='claude-sonnet-4-6',
             max_tokens=800,
-            system="""You are writing ad copy for Steph (@EverydaywithSteph / Mommy & Me Collective).
-Steph's voice: warm, enthusiastic, mom-to-mom, like texting your best friend about a deal.
-Light emoji use. Direct and honest. Always mentions the deal or price.
-
-Return ONLY valid JSON — no preamble, no markdown, no backticks.
-Format: {"variants": [{"headline": "...", "primary_text": "...", "cta": "..."}, ...]}
-Generate exactly 3 variants. Each should have a different angle:
-- Variant A: deal/price focused
-- Variant B: product benefit focused
-- Variant C: social proof / mom recommendation angle
-Keep headlines under 40 chars. Primary text 2-3 sentences max.""",
+            system=STEPH_AD_COPY_PROMPT,
             messages=[{
                 "role": "user",
                 "content": f"Write 3 ad copy variants for a {campaign_type} linking to {routing}. Products: {products}"
@@ -776,16 +599,31 @@ Keep headlines under 40 chars. Primary text 2-3 sentences max.""",
         parsed = json.loads(raw)
         variants = parsed.get('variants', [])
 
-        # Generate attribution links using actual selected product ASINs
+        # Generate Archer attribution links and wrap in URLGenius (Task 7)
         a = ArcherAPI()
         asin = product_asins[0] if product_asins else None
+        from datetime import datetime as _dt
+        mmdd = _dt.now().strftime('%m%d')
+        var_labels = ['a', 'b', 'c']
         for i, v in enumerate(variants):
-            label = f"steph-{slug}-var{['a','b','c'][i]}"
+            var_letter = var_labels[i] if i < len(var_labels) else str(i)
+            label = f"steph-{slug}-var{var_letter}"
             if asin:
                 link = a.generate_link(asin, label=label)
                 if link:
-                    v['attribution_url'] = link.get('attribution_link') or link.get('url') or ''
+                    archer_url = link.get('attribution_link') or link.get('url') or ''
+                    v['archer_url'] = archer_url
+                    v['attribution_url'] = archer_url  # backwards-compat
                     v['label'] = label
+                    # Wrap in URLGenius
+                    campaign = f"{slug[:10]}-{asin.lower()[:6]}-{mmdd}"
+                    ug_result = _make_smart_link(
+                        asin=asin, network='archer',
+                        utm_source='fb-ad', utm_medium='dark',
+                        utm_campaign=campaign,
+                        utm_term=f'var{var_letter}',
+                    )
+                    v['genius_url'] = ug_result['genius_url']
 
         return jsonify({'variants': variants})
 
@@ -860,8 +698,12 @@ def archer_list_campaigns():
 
 AMAZON_TAG = os.environ.get('AMAZON_AFFILIATE_TAG', 'mommymedeals-20')
 
-# Valid source × medium combinations
+# Valid source × medium combinations (Task 5 — naming convention)
+# channel = utm_source | type = utm_medium
 VALID_PLACEMENTS = {
+    'fb-group': ['organic'],
+    'fb-ad':    ['dark', 'boost'],
+    # Legacy — kept for backwards-compat with existing saved links
     'facebook':  ['organic', 'paid'],
     'instagram': ['organic', 'paid'],
     'tiktok':    ['organic', 'paid'],
@@ -888,6 +730,63 @@ def _seed_urlgenius():
         logging.warning(f"[URLGENIUS] Startup seed failed: {e}")
 
 _seed_urlgenius()
+
+
+def _make_smart_link(asin: str, network: str = 'amazon', utm_source: str = 'fb-group',
+                     utm_medium: str = 'organic', utm_campaign: str = '',
+                     utm_term: str = '') -> dict:
+    """
+    Internal helper: build an affiliate URL and wrap it in URLGenius.
+    Respects 2 req/sec URLGenius limit via 500ms sleep before each API call.
+    Returns dict with genius_url, affiliate_url, label, urlgenius (bool).
+    """
+    from product_api import ArcherAPI, URLGeniusAPI
+    from datetime import datetime as _dt
+
+    amazon_tag = os.environ.get('AMAZON_AFFILIATE_TAG', 'mommymedeals-20')
+    affiliate_url = f'https://www.amazon.com/dp/{asin}?tag={amazon_tag}'
+
+    if network == 'archer':
+        try:
+            a = ArcherAPI()
+            label_archer = f'steph-archer-{asin.lower()}-{int(time.time())}'
+            result = a.generate_link(asin, label=label_archer)
+            if result:
+                affiliate_url = (result.get('attribution_link') or result.get('url')
+                                 or result.get('link') or affiliate_url)
+        except Exception as e:
+            logging.warning(f'[SMART_LINK] Archer link failed for {asin}: {e}')
+
+    mmdd = _dt.now().strftime('%m%d')
+    link_label = f'{utm_source}_{utm_medium}_{utm_campaign}_{mmdd}'
+    utm_content = NETWORK_CONTENT.get(network, network)
+
+    ug = URLGeniusAPI()
+    if not ug.api_key:
+        return {'genius_url': affiliate_url, 'affiliate_url': affiliate_url,
+                'label': link_label, 'urlgenius': False}
+    try:
+        time.sleep(0.5)  # 2 req/sec URLGenius rate limit
+        ug_result = ug.create_link(
+            destination_url=affiliate_url,
+            utm_source=utm_source,
+            utm_medium=utm_medium,
+            utm_campaign=utm_campaign,
+            utm_content=utm_content,
+            utm_term=utm_term or None,
+        )
+        link_obj = ug_result.get('link', {})
+        if isinstance(link_obj, dict) and link_obj.get('genius_url'):
+            genius_url = link_obj['genius_url']
+        else:
+            genius_url = (link_obj.get('genius_url', affiliate_url)
+                          if isinstance(link_obj, dict) else affiliate_url)
+        return {'genius_url': genius_url, 'affiliate_url': affiliate_url,
+                'label': link_label, 'urlgenius': True}
+    except Exception as e:
+        logging.warning(f'[SMART_LINK] URLGenius call failed for {asin}: {e}')
+        return {'genius_url': affiliate_url, 'affiliate_url': affiliate_url,
+                'label': link_label, 'urlgenius': False}
 
 
 @app.route('/urlgenius/smart_link', methods=['POST'])
@@ -965,7 +864,9 @@ def urlgenius_smart_link():
         return jsonify({'error': f'Unknown network: {network}'}), 400
 
     # ── Wrap in URLGenius ───────────────────────────────────────────────────
-    link_label = f"URLgenius · {utm_source}/{utm_medium} · {utm_content}"
+    from datetime import datetime as _dt
+    _mmdd = _dt.now().strftime('%m%d')
+    link_label = f"{utm_source}_{utm_medium}_{utm_campaign}_{_mmdd}"
     utm_meta = {
         'utm_source': utm_source,
         'utm_medium': utm_medium,
@@ -1022,21 +923,7 @@ def urlgenius_smart_link():
         })
 
 
-@app.route('/urlgenius/test')
-def urlgenius_test():
-    from product_api import URLGeniusAPI
-    ug = URLGeniusAPI()
-    if not ug.api_key:
-        return jsonify({'error': 'URLGENIUS_API_KEY not set. Add it to .env or Replit Secrets.'}), 400
-    try:
-        result = ug.create_link(
-            destination_url="https://www.amazon.com/dp/B0C84VRPWL",
-            utm_source="steph-ai", utm_medium="ai-agent",
-            utm_campaign="mommymeai-test", utm_content="B0C84VRPWL"
-        )
-        return jsonify({'status': 'connected', 'result': result})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# ARCHIVED — see /archive/routes/
 
 
 @app.route('/urlgenius/create_link', methods=['POST'])
