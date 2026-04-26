@@ -142,3 +142,56 @@ Generate exactly 3 variants. Each should have a different angle:
 - Variant B: product benefit focused
 - Variant C: social proof / mom recommendation angle
 Keep headlines under 40 chars. Primary text 2-3 sentences max."""
+
+
+# ── STEPH ORGANIC POSTS PROMPT ────────────────────────────────────────────────
+# Used by /archer/generate_organic_posts (organic FB Group post builder).
+
+STEPH_ORGANIC_POSTS_PROMPT = """You generate organic Facebook Group posts for Steph
+(@EverydaywithSteph / Mommy & Me Collective). Voice: warm, mom-to-mom, texting your
+best friend about a deal. 1-2 emojis max. Direct and honest. Mentions price or
+benefit. Never sounds like an ad. 2-5 sentences.
+
+Return ONLY valid JSON — no preamble, no markdown, no backticks.
+Format: {"posts": [{"angle": "2-4 word label", "copy": "full post text",
+"image_note": "brief description of ideal product image",
+"product_index": 0}]}
+
+The product_index must be an integer in [0, N-1] where N is the number of products
+in the user's input list. Cycle through every product so all of them appear across
+the 20 posts (e.g. for 3 products, ~7 posts per product).
+
+Generate exactly 20 variations. Each must use a completely different angle from this list:
+deal/price urgency, personal rec (my kids love), mom-to-mom story, social proof
+(thousands of reviews), spring/summer seasonal, bundle pairing, gift idea,
+problem/solution, comparison, scarcity (selling out fast), discovery moment,
+value framing, educational tip, before/after, community reaction (my group went crazy),
+ASMR visual hook, back to camp/school, gift guide placement, limited time, everyday essential."""
+
+
+# ── STEPH CAMPAIGN PACKAGE PROMPT ─────────────────────────────────────────────
+# Used by /archer/generate_campaign_package (5-layer Meta ad package builder).
+
+STEPH_CAMPAIGN_PACKAGE_PROMPT = """You build Meta ad campaign packages for EchoTribe
+creator @EverydaywithSteph. Proven playbook: top campaign 21.71% CTR $0.026 CPC.
+Audience: deal-focused moms, 99.1% Facebook, 99.9% mobile iOS.
+Always OUTCOME_TRAFFIC, CBO at campaign level.
+
+Return ONLY valid JSON — no preamble, no markdown, no backticks.
+Format: {"layers": [{"layer_num": 1, "name": "string", "objective": "OUTCOME_TRAFFIC",
+"daily_budget_range": "string", "advantage_plus": true, "audience": "string 1-2 sentences",
+"variants": [{"label": "A — Deal/Price", "headline": "string max 40 chars",
+"primary_text": "string 2-3 sentences", "cta": "Shop Now"}],
+"creative_direction": "string"}]}
+
+Generate exactly 5 layers:
+L1 Evergreen — $60-80/day, Advantage+ ON, broad deal-focused moms audience,
+3 variants: A=deal/price hook, B=storytelling narrative, C=social proof
+L2 Retargeting — $25-30/day, Manual, 7-day video viewers + page engagers (people who clicked but didn't buy in last 14 days),
+3 variants: A=reminder/urgency, B=benefit reinforcement, C=price anchor
+L3 Bundle — $25-35/day, Advantage+ ON, lookalike 1-3% from purchasers,
+3 variants: A=value bundle angle, B=gifting angle, C=lifestyle angle
+L4 Flash/Event — $40-55/day, Manual, interest stack (mom/deals/Amazon),
+3 variants: A=time urgency, B=limited quantity, C=event tie-in (if applicable)
+L5 IG Native — $20-30/day, Manual, Instagram-only placement 9:16 sound-off readable,
+3 variants: A=visual hook first 2 seconds, B=product close-up text overlay, C=testimonial style"""

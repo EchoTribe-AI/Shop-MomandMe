@@ -218,6 +218,8 @@
   <div class="tb-divider"></div>
   <div class="tb-page">Ads Builder</div>
   <div class="tb-right">
+    <a href="/archer/organic" class="tb-link">Organic</a>
+    <a href="/archer/ads" class="tb-link">Ads</a>
     <a href="/archer/collage" class="tb-link">Collage</a>
     <a href="/archer/products" class="tb-link">Products</a>
     <a href="/" class="tb-link">Chat</a>
@@ -427,6 +429,28 @@
             <button class="export-btn eb-outline" onclick="saveCampaign()">💾 Save campaign</button>
             <button class="export-btn eb-green" onclick="window.open('/archer/ads/campaigns','_blank')">📊 View all campaigns</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5-LAYER META CAMPAIGN PACKAGE (Ryze MCP) -->
+    <div class="section">
+      <div class="slabel">5-Layer Meta campaign package (Ryze MCP)</div>
+      <div class="export-panel">
+        <div class="ep-head">
+          <div class="ep-title">📦 Generate full L1–L5 package + paste-ready Ryze MCP prompt</div>
+          <button class="vc-copy-btn" id="pkg-toggle-btn" onclick="togglePackagePanel()" style="font-size:11px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:4px;">Show ▾</button>
+        </div>
+        <div class="ep-body" id="pkg-panel" style="display:none;">
+          <div style="font-size:12.5px;color:var(--text2);line-height:1.7;margin-bottom:14px;">
+            Generates 5 layers (Evergreen · Retargeting · Bundle · Flash · IG Native) with 3 variants each (15 total), pre-built audience targeting, daily budget ranges, and a full Ryze MCP prompt you can paste into Claude/MCP to spin up paused campaigns on <span style="font-family:var(--mono);font-size:11.5px;">act_573934886369270</span>.
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="export-btn eb-primary" id="pkg-gen-btn" onclick="generateCampaignPackage()">✨ Generate 5-layer package</button>
+            <button class="export-btn eb-outline" id="pkg-copy-ryze-btn" onclick="copyRyzePrompt()" style="display:none;">📋 Copy Ryze Prompt</button>
+            <button class="export-btn eb-outline" id="pkg-copy-pkg-btn" onclick="copyPackageText()" style="display:none;">📋 Copy package text</button>
+          </div>
+          <div id="pkg-results"></div>
         </div>
       </div>
     </div>
@@ -842,6 +866,136 @@
     setTimeout(() => t.classList.remove('show'), 2200);
   }
   function esc(s) { return (s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // ── 5-LAYER META CAMPAIGN PACKAGE (Ryze MCP) ──────────
+  let pkgState = { layers: [], ryze_prompt: '' };
+
+  function togglePackagePanel() {
+    const p = document.getElementById('pkg-panel');
+    const b = document.getElementById('pkg-toggle-btn');
+    const open = p.style.display !== 'none';
+    p.style.display = open ? 'none' : 'block';
+    b.textContent = open ? 'Show ▾' : 'Hide ▴';
+  }
+
+  async function generateCampaignPackage() {
+    if (!state.products.length) { showToast('Add products in Step 2 first'); return; }
+    const btn = document.getElementById('pkg-gen-btn');
+    const out = document.getElementById('pkg-results');
+    btn.textContent = '✨ Generating package...';
+    btn.disabled = true;
+    out.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text4);font-size:13px;">Calling Claude + URLGenius… this may take 20–40 seconds for all 5 layers.</div>';
+
+    const product_list = state.products.map(p => ({
+      asin: p.asin,
+      product_name: p.product_name || p.name || '',
+      brand: p.company_name || p.brand || '',
+      price: p.price || '',
+      commission: p.commission_payout || p.commission || '',
+    }));
+
+    try {
+      const res = await fetch('/archer/generate_campaign_package', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_list, slug: state.slug }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        out.innerHTML = `<div style="padding:20px;color:var(--red);font-size:13px;">Generation failed: ${esc(data.error || 'unknown error')}</div>`;
+        showToast('Package generation failed');
+      } else {
+        pkgState.layers = data.layers || [];
+        pkgState.ryze_prompt = data.ryze_prompt || '';
+        renderPackage();
+        document.getElementById('pkg-copy-ryze-btn').style.display = '';
+        document.getElementById('pkg-copy-pkg-btn').style.display = '';
+        showToast(`Generated ${pkgState.layers.length} layers`);
+      }
+    } catch (e) {
+      out.innerHTML = `<div style="padding:20px;color:var(--red);font-size:13px;">Generation failed — check API connection</div>`;
+      showToast('Package generation failed');
+    }
+    btn.textContent = '✨ Regenerate package';
+    btn.disabled = false;
+  }
+
+  function renderPackage() {
+    const out = document.getElementById('pkg-results');
+    if (!pkgState.layers.length) { out.innerHTML = ''; return; }
+
+    const layerColors = ['#1c5fa6', '#5a3d8a', '#0a6b52', '#8a5510', '#a02828'];
+
+    out.innerHTML = pkgState.layers.map((l, idx) => {
+      const color = layerColors[idx % 5];
+      const variants = (l.variants || []).map((v, vi) => `
+        <div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-top:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">
+            <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.8px;text-transform:uppercase;color:${color};font-weight:600;">${esc(v.label || ('Variant ' + ['A','B','C'][vi]))}</div>
+            <button class="vc-copy-btn" onclick="copyPkgVariant(${idx},${vi})" style="font-size:10px;">Copy</button>
+          </div>
+          <div style="font-size:12.5px;font-weight:600;color:var(--text);margin-bottom:4px;">${esc(v.headline || '')}</div>
+          <div style="font-size:12px;color:var(--text2);line-height:1.55;margin-bottom:6px;">${esc(v.primary_text || '')}</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span style="font-family:var(--mono);font-size:10px;color:${color};background:var(--surface);padding:2px 7px;border-radius:4px;border:0.5px solid var(--border2);">${esc(v.cta || 'Shop Now')}</span>
+            ${v.attribution_url ? `<span style="font-family:var(--mono);font-size:9.5px;color:var(--text4);word-break:break-all;">${esc(v.attribution_url)}</span>` : ''}
+          </div>
+        </div>`).join('');
+
+      return `
+        <div style="background:var(--surface);border:0.5px solid var(--border);border-radius:var(--rlg);padding:14px 16px;margin-bottom:12px;border-left:3px solid ${color};">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);">L${esc(l.layer_num || idx + 1)} — ${esc(l.name || '')}</div>
+              <div style="font-family:var(--mono);font-size:10.5px;color:var(--text3);margin-top:3px;">
+                ${esc(l.daily_budget_range || '')}/day · ${l.advantage_plus ? 'Advantage+ ON' : 'Manual'} · ${esc(l.objective || 'OUTCOME_TRAFFIC')}
+              </div>
+            </div>
+            <span style="font-family:var(--mono);font-size:9px;letter-spacing:0.8px;text-transform:uppercase;background:${color};color:#fff;padding:3px 9px;border-radius:20px;">L${esc(l.layer_num || idx + 1)}</span>
+          </div>
+          <div style="font-size:12.5px;color:var(--text2);line-height:1.55;margin-bottom:6px;"><strong style="color:var(--text);">Audience:</strong> ${esc(l.audience || '—')}</div>
+          ${l.creative_direction ? `<div style="font-size:12px;color:var(--text3);font-style:italic;line-height:1.55;margin-bottom:4px;"><strong style="color:var(--text2);font-style:normal;">Creative:</strong> ${esc(l.creative_direction)}</div>` : ''}
+          ${variants}
+        </div>`;
+    }).join('');
+  }
+
+  function copyPkgVariant(li, vi) {
+    const l = pkgState.layers[li];
+    const v = l && l.variants && l.variants[vi];
+    if (!v) return;
+    const text = `L${l.layer_num} ${l.name} — ${v.label}\n\nHeadline: ${v.headline}\nPrimary: ${v.primary_text}\nCTA: ${v.cta || 'Shop Now'}\nURL: ${v.attribution_url || ''}`;
+    copyToClipboard(text);
+    showToast('Variant copied');
+  }
+
+  function copyRyzePrompt() {
+    if (!pkgState.ryze_prompt) { showToast('Generate the package first'); return; }
+    copyToClipboard(pkgState.ryze_prompt);
+    showToast('Ryze MCP prompt copied — paste into Claude');
+  }
+
+  function copyPackageText() {
+    if (!pkgState.layers.length) return;
+    const lines = [];
+    pkgState.layers.forEach(l => {
+      lines.push(`═══ L${l.layer_num} — ${l.name} ═══`);
+      lines.push(`Budget: ${l.daily_budget_range}/day · ${l.advantage_plus ? 'Advantage+ ON' : 'Manual'}`);
+      lines.push(`Audience: ${l.audience}`);
+      if (l.creative_direction) lines.push(`Creative: ${l.creative_direction}`);
+      (l.variants || []).forEach(v => {
+        lines.push('');
+        lines.push(`  ${v.label}`);
+        lines.push(`    Headline: ${v.headline}`);
+        lines.push(`    Primary:  ${v.primary_text}`);
+        lines.push(`    CTA:      ${v.cta || 'Shop Now'}`);
+        lines.push(`    URL:      ${v.attribution_url || ''}`);
+      });
+      lines.push('');
+    });
+    copyToClipboard(lines.join('\n'));
+    showToast('Full package copied');
+  }
 </script>
 </body>
 </html>

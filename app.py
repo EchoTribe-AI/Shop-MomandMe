@@ -12,6 +12,7 @@ from product_api import ProductResolver, detect_category
 from prompts import (
     build_chat_prompt, build_chat_products,
     STEPH_CAPTION_PROMPT, STEPH_AD_COPY_PROMPT,
+    STEPH_ORGANIC_POSTS_PROMPT, STEPH_CAMPAIGN_PACKAGE_PROMPT,
 )
 
 load_dotenv()  # loads .env locally; Replit Secrets override in production
@@ -453,6 +454,268 @@ def archer_generate_caption():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route('/archer/generate_organic_posts', methods=['POST'])
+def archer_generate_organic_posts():
+    """Generate 20 organic FB Group post variations for Steph.
+
+    Patches applied:
+      - Pre-generates ONE URLGenius smart link per unique ASIN (cuts 20 API calls → 1-3).
+      - Asks Claude for product_index per post; routes use it to pick the matching link.
+      - Falls back to round-robin (i % len) if Claude omits product_index.
+      - Regex JSON extraction fallback for stray text around the JSON block.
+      - Surfaces the real link_result['label'] as urlgenius_tag (not a fake string).
+    """
+    from datetime import datetime as _dt
+    data = request.get_json() or {}
+    product_list = data.get('product_list', [])  # [{asin, product_name, brand, price, commission}, ...]
+    if not product_list:
+        return jsonify({'error': 'product_list is required'}), 400
+
+    mmdd = _dt.now().strftime('%m%d')
+    n_products = len(product_list)
+    pl = '\n'.join([
+        f"[{idx}] {p.get('product_name','')[:60]} by {p.get('brand','')} · "
+        f"{p.get('price','')} · {p.get('commission','')} commission · ASIN: {p.get('asin','')}"
+        for idx, p in enumerate(product_list)
+    ])
+
+    # ── Pre-generate one URLGenius smart link per unique ASIN (rate-limit safe) ──
+    link_cache: dict = {}
+    seen_asins = []
+    for p in product_list:
+        asin = (p.get('asin') or '').strip()
+        if not asin or asin in link_cache:
+            continue
+        seen_asins.append(asin)
+        brand_raw = (p.get('brand') or 'brand').lower()
+        brand_short = re.sub(r'[^a-z0-9]', '', brand_raw.split()[0] if brand_raw.split() else 'brand')[:10]
+        name_words = re.sub(r'[^a-z0-9 ]', '', (p.get('product_name') or 'product').lower()).split()
+        product_short = '-'.join(name_words[:2])[:15] or 'product'
+        campaign = f"{brand_short}-{product_short}-{mmdd}"
+        try:
+            link_cache[asin] = _make_smart_link(
+                asin=asin, network='amazon',
+                utm_source='fb-group', utm_medium='organic',
+                utm_campaign=campaign,
+            )
+        except Exception as e:
+            logging.warning(f'[ORGANIC] Smart link failed for {asin}: {e}')
+            link_cache[asin] = {
+                'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
+                'affiliate_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
+                'label': f'fb-group_organic_{campaign}_{mmdd}',
+                'urlgenius': False,
+            }
+
+    try:
+        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+        message = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=6000,
+            system=STEPH_ORGANIC_POSTS_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Products (use product_index 0..{n_products - 1} to reference each):\n"
+                    f"{pl}\n\nDate code: {mmdd}\n\n"
+                    f"Generate 20 organic Facebook Group post variations. "
+                    f"Cycle through every product so all {n_products} appear roughly evenly."
+                )
+            }]
+        )
+        raw = message.content[0].text.strip().replace('```json', '').replace('```', '').strip()
+
+        # Resilient JSON parse — fall back to regex extraction of the JSON object
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            if not m:
+                raise
+            parsed = json.loads(m.group(0))
+        posts_raw = parsed.get('posts', [])
+
+        posts = []
+        for i, post in enumerate(posts_raw):
+            # Map Claude's product_index → product → cached smart link
+            try:
+                pidx = int(post.get('product_index', i % n_products))
+            except (TypeError, ValueError):
+                pidx = i % n_products
+            if pidx < 0 or pidx >= n_products:
+                pidx = i % n_products
+            product = product_list[pidx]
+            asin = (product.get('asin') or '').strip()
+            link_result = link_cache.get(asin, {
+                'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}' if asin else '',
+                'affiliate_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}' if asin else '',
+                'label': '',
+                'urlgenius': False,
+            })
+
+            posts.append({
+                'angle': post.get('angle', ''),
+                'copy': post.get('copy', ''),
+                'image_note': post.get('image_note', ''),
+                'product_index': pidx,
+                'product_name': product.get('product_name') or product.get('name') or '',
+                'brand': product.get('brand') or '',
+                'asin': asin,
+                'affiliate_url': link_result.get('affiliate_url', ''),
+                'genius_url': link_result.get('genius_url', ''),
+                'urlgenius_tag': link_result.get('label', ''),
+                'urlgenius_active': link_result.get('urlgenius', False),
+            })
+
+        return jsonify({'posts': posts, 'product_count': n_products, 'unique_asins': len(seen_asins)})
+    except Exception as e:
+        logging.error(f'[ORGANIC] Post generation failed: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/archer/generate_campaign_package', methods=['POST'])
+def archer_generate_campaign_package():
+    """Generate a 5-layer Meta ad campaign package + paste-ready Ryze MCP prompt.
+
+    Same patches as /archer/generate_organic_posts:
+      - One URLGenius smart link per unique ASIN, reused across all variants.
+      - Resilient JSON parse with regex fallback.
+      - Real link labels surfaced (not fabricated strings).
+    """
+    from datetime import datetime as _dt
+    data = request.get_json() or {}
+    product_list = data.get('product_list', [])
+    layers = data.get('layers', [1, 2, 3, 4, 5])
+    slug = (data.get('slug') or '').strip()
+
+    if not product_list:
+        return jsonify({'error': 'product_list is required'}), 400
+
+    mmdd = _dt.now().strftime('%m%d')
+    pl = '\n'.join([
+        f"[{idx}] {p.get('product_name','')[:60]} by {p.get('brand','')} · "
+        f"{p.get('price','')} · {p.get('commission','')} commission · ASIN: {p.get('asin','')}"
+        for idx, p in enumerate(product_list)
+    ])
+
+    asin = (product_list[0].get('asin') or '').strip()
+    if not asin:
+        return jsonify({'error': 'product_list[0] must contain a valid ASIN'}), 400
+    brand_raw = (product_list[0].get('brand') or 'brand').lower()
+    brand_short = re.sub(r'[^a-z0-9]', '', brand_raw.split()[0] if brand_raw.split() else 'brand')[:10]
+
+    # ── Pre-generate one Archer/URLGenius link per (ASIN, layer) — bounded calls ──
+    # Variants within a layer share the same link (different utm_term per variant
+    # would multiply API calls 3×; layer-level granularity is enough for reporting).
+    link_cache: dict = {}
+
+    try:
+        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+        message = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=8000,
+            system=STEPH_CAMPAIGN_PACKAGE_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Products:\n{pl}\n\nLayers to include: {layers}\n\n"
+                    f"Generate the 5-layer campaign package."
+                )
+            }]
+        )
+        raw = message.content[0].text.strip().replace('```json', '').replace('```', '').strip()
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            if not m:
+                raise
+            parsed = json.loads(m.group(0))
+        layers_data = parsed.get('layers', [])
+
+        # Normalize layer_num: stable-sort by claimed layer_num then re-assign 1..N
+        # so we always return a clean L1..L5 sequence even if Claude duplicates,
+        # skips, or re-orders them.
+        try:
+            layers_data = sorted(layers_data, key=lambda l: int(l.get('layer_num', 99) or 99))
+        except (TypeError, ValueError):
+            pass
+        for idx, layer in enumerate(layers_data, start=1):
+            layer['layer_num'] = idx
+
+        for layer in layers_data:
+            layer_num = layer.get('layer_num', 0)
+            cache_key = (asin, layer_num)
+            if asin and cache_key not in link_cache:
+                campaign = f"{slug or brand_short}-{asin.lower()[:6]}-l{layer_num}-{mmdd}"
+                try:
+                    link_cache[cache_key] = _make_smart_link(
+                        asin=asin, network='archer',
+                        utm_source='fb-ad', utm_medium='dark',
+                        utm_campaign=campaign,
+                        utm_term=f'l{layer_num}',
+                    )
+                except Exception as e:
+                    logging.warning(f'[CAMPAIGN] Smart link failed for {asin} L{layer_num}: {e}')
+                    link_cache[cache_key] = {
+                        'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
+                        'affiliate_url': '',
+                        'label': '',
+                        'urlgenius': False,
+                    }
+
+            link_result = link_cache.get(cache_key, {
+                'genius_url': '', 'affiliate_url': '', 'label': '', 'urlgenius': False,
+            })
+            for i, variant in enumerate(layer.get('variants', [])):
+                var_letter = ['a', 'b', 'c'][i] if i < 3 else str(i)
+                variant['attribution_url'] = link_result.get('genius_url', '')
+                variant['archer_url'] = link_result.get('affiliate_url', '')
+                variant['urlgenius_tag'] = link_result.get('label', '')
+                variant['var_letter'] = var_letter
+
+        # Build paste-ready Ryze MCP prompt
+        layer_lines = []
+        for l in layers_data:
+            var_block = '\n'.join([
+                f"    Variant {v.get('label','')}: Headline: {v.get('headline','')} | "
+                f"Body: {v.get('primary_text','')} | CTA: {v.get('cta','Shop Now')} | "
+                f"URL: {v.get('attribution_url','')}"
+                for v in l.get('variants', [])
+            ])
+            layer_lines.append(
+                f"  Layer {l.get('layer_num','')}: {l.get('name','')}\n"
+                f"  Budget: {l.get('daily_budget_range','')}/day | "
+                f"Advantage+: {'ON' if l.get('advantage_plus') else 'OFF'}\n"
+                f"  Audience: {l.get('audience','')}\n{var_block}\n"
+                f"  Creative: {l.get('creative_direction','')}"
+            )
+
+        ryze_prompt = (
+            f"Using the Ryze MCP connected to Steph's Meta account (act_573934886369270), "
+            f"create the following ad campaigns for ASIN {asin} "
+            f"({product_list[0].get('brand','')} — {product_list[0].get('product_name','')}).\n\n"
+            f"For each campaign: OUTCOME_TRAFFIC objective, CBO at campaign level, "
+            f"Advantage+ as specified, mobile-first placements.\n\n"
+            f"CAMPAIGNS TO CREATE:\n\n" + '\n\n'.join(layer_lines) +
+            f"\n\nCreate all campaigns in PAUSED status for review before activating. "
+            f"Confirm each campaign ID after creation."
+        )
+
+        return jsonify({
+            'layers': layers_data,
+            'ryze_prompt': ryze_prompt,
+            'asin': asin,
+            'product': product_list[0] if product_list else {},
+            'unique_links': len(link_cache),
+        })
+    except Exception as e:
+        logging.error(f'[CAMPAIGN] Package generation failed: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/archer/collage/save', methods=['POST'])
 def archer_save_collage():
     from product_api import ArcherAPI
@@ -572,6 +835,10 @@ def archer_image_proxy():
 @app.route('/archer/ads')
 def archer_ads():
     return render_template('archer_ads.html')
+
+@app.route('/archer/organic')
+def archer_organic():
+    return render_template('organic_posts.html')
 
 @app.route('/archer/generate_ad_copy', methods=['POST'])
 def archer_generate_ad_copy():

@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Organic Posts — EchoTribe</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f7f7f5; --bg2: #efefec; --surface: #fff; --surface2: #f2f2ef;
+    --text: #1a1a17; --text2: #3c3c38; --text3: #606058; --text4: #999890;
+    --border: rgba(0,0,0,0.09); --border2: rgba(0,0,0,0.15);
+    --blue: #1c5fa6; --blue-mid: #2e7dd4; --blue-light: #e8f2fc; --blue-text: #0f4a8a;
+    --green: #27693a; --green-light: #e6f4eb; --green-mid: #34a352;
+    --amber: #8a5510; --amber-light: #fbeedd;
+    --red: #a02828; --red-light: #fbe9e9;
+    --teal: #0a6b52; --teal-light: #e2f5ee;
+    --purple: #5a3d8a; --purple-light: #f0eafa;
+    --archer: #e85d26; --archer-light: #fdf0ea;
+    --r: 8px; --rlg: 12px;
+    --sans: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    --mono: 'SF Mono', 'Fira Mono', monospace;
+    --topbar: 56px;
+  }
+  body { font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+
+  /* TOPBAR */
+  .topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--topbar); background: var(--surface); border-bottom: 0.5px solid var(--border2); display: flex; align-items: center; padding: 0 20px; gap: 16px; z-index: 100; }
+  .tb-logo { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .tb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--archer); }
+  .tb-divider { width: 0.5px; height: 20px; background: var(--border2); }
+  .tb-page { font-size: 13px; color: var(--text3); }
+  .tb-right { margin-left: auto; display: flex; gap: 8px; }
+  .tb-link { font-size: 12px; color: var(--text4); text-decoration: none; padding: 5px 10px; border: 0.5px solid var(--border2); border-radius: var(--r); background: var(--surface); transition: all 0.15s; }
+  .tb-link:hover { background: var(--bg2); color: var(--text2); }
+  .tb-link.active { background: var(--archer-light); color: var(--archer); border-color: var(--archer); }
+
+  /* PAGE */
+  .page { max-width: 1100px; margin: 0 auto; padding: calc(var(--topbar) + 24px) 24px 60px; }
+
+  .section { margin-bottom: 28px; }
+  .slabel { font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text4); margin-bottom: 10px; }
+
+  /* PRODUCT SELECTOR (mirrors archer_ads.html) */
+  .product-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
+  .ps-slot { background: var(--surface); border: 1.5px dashed var(--border2); border-radius: var(--rlg); min-height: 140px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s; position: relative; overflow: hidden; }
+  .ps-slot:hover { border-color: var(--archer); background: var(--archer-light); }
+  .ps-slot.filled { border-style: solid; border-color: var(--border); cursor: default; }
+  .ps-slot.filled:hover { border-color: var(--border2); background: var(--surface); }
+  .ps-empty { text-align: center; color: var(--text4); }
+  .ps-empty-icon { font-size: 20px; margin-bottom: 4px; }
+  .ps-empty-text { font-size: 11px; }
+  .ps-img { width: 100%; height: 90px; object-fit: cover; }
+  .ps-img-ph { width: 100%; height: 90px; background: var(--bg2); display: flex; align-items: center; justify-content: center; font-size: 24px; }
+  .ps-info { padding: 7px 9px; width: 100%; }
+  .ps-brand { font-family: var(--mono); font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text4); }
+  .ps-name { font-size: 11px; font-weight: 500; color: var(--text); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .ps-price { font-family: var(--mono); font-size: 11px; color: var(--archer); margin-top: 3px; }
+  .ps-remove { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.5); color: #fff; border: none; font-size: 11px; cursor: pointer; display: none; align-items: center; justify-content: center; }
+  .ps-slot.filled:hover .ps-remove { display: flex; }
+
+  /* SEARCH BAR (mirrors archer_ads.html) */
+  .add-bar { display: flex; gap: 8px; margin-bottom: 6px; }
+  .add-input { flex: 1; border: 0.5px solid var(--border2); border-radius: var(--r); padding: 8px 12px; font-size: 13px; font-family: var(--sans); color: var(--text); background: var(--bg); outline: none; transition: border-color 0.15s; }
+  .add-input:focus { border-color: var(--blue-mid); background: var(--surface); }
+  .add-btn { font-family: var(--sans); font-size: 12px; font-weight: 500; padding: 8px 14px; border-radius: var(--r); border: 0.5px solid; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .btn-archer { background: var(--archer); color: #fff; border-color: var(--archer); }
+  .btn-archer:hover { background: #d04d1c; }
+  .btn-outline { background: var(--surface); color: var(--text2); border-color: var(--border2); }
+  .btn-outline:hover { background: var(--bg2); }
+
+  .search-drop { background: var(--surface); border: 0.5px solid var(--border2); border-radius: var(--r); max-height: 200px; overflow-y: auto; margin-bottom: 8px; display: none; }
+  .search-drop.open { display: block; }
+  .sd-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 0.5px solid var(--border); cursor: pointer; transition: background 0.1s; }
+  .sd-item:last-child { border-bottom: none; }
+  .sd-item:hover { background: var(--bg2); }
+  .sd-img { width: 34px; height: 34px; object-fit: cover; border-radius: 4px; background: var(--bg2); flex-shrink: 0; }
+  .sd-name { font-size: 12px; font-weight: 500; color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sd-comm { font-family: var(--mono); font-size: 11px; color: var(--green); flex-shrink: 0; }
+
+  /* GENERATE BTN */
+  .gen-row { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .gen-btn { display: flex; align-items: center; gap: 8px; font-family: var(--sans); font-size: 13px; font-weight: 500; padding: 10px 20px; border-radius: var(--r); border: none; background: var(--blue-mid); color: #fff; cursor: pointer; transition: all 0.15s; }
+  .gen-btn:hover { background: var(--blue); }
+  .gen-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .gen-btn.loading { opacity: 0.7; cursor: wait; }
+  .gen-note { font-size: 12px; color: var(--text4); }
+
+  /* TOOLBAR (Copy All / Export) */
+  .results-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; padding: 12px 14px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); }
+  .rt-stats { font-size: 12px; color: var(--text3); margin-right: auto; }
+  .rt-stats strong { color: var(--text); }
+  .rt-btn { font-size: 12px; font-weight: 500; padding: 7px 14px; border-radius: var(--r); border: 0.5px solid var(--border2); background: var(--surface); color: var(--text2); cursor: pointer; transition: all 0.15s; }
+  .rt-btn:hover { background: var(--bg2); }
+  .rt-btn.primary { background: var(--archer); color: #fff; border-color: var(--archer); }
+  .rt-btn.primary:hover { background: #d04d1c; }
+  .rt-btn.green { background: var(--green-light); color: var(--green); border-color: rgba(39,105,58,0.3); }
+  .rt-btn.green:hover { background: var(--green); color: #fff; }
+
+  /* POSTS GRID */
+  .posts-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .post-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); overflow: hidden; display: flex; flex-direction: column; }
+  .pc-head { padding: 10px 14px; border-bottom: 0.5px solid var(--border); background: var(--surface2); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .pc-head-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pc-num { font-family: var(--mono); font-size: 10px; color: var(--text4); }
+  .pc-pill { font-family: var(--mono); font-size: 9px; letter-spacing: 0.8px; text-transform: uppercase; padding: 3px 9px; border-radius: 20px; background: var(--archer-light); color: var(--archer); border: 0.5px solid rgba(232,93,38,0.25); }
+  .pc-product-tag { font-family: var(--mono); font-size: 9px; color: var(--text4); padding: 2px 6px; background: var(--bg2); border-radius: 4px; }
+  .pc-copy-btn { font-size: 10px; color: var(--text4); background: none; border: 0.5px solid var(--border2); cursor: pointer; padding: 4px 9px; border-radius: 4px; transition: all 0.15s; }
+  .pc-copy-btn:hover { background: var(--blue-mid); color: #fff; border-color: var(--blue-mid); }
+  .pc-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .pc-copy { font-size: 13px; color: var(--text); line-height: 1.55; white-space: pre-wrap; user-select: text; }
+  .pc-image-note { font-size: 11.5px; color: var(--purple); font-style: italic; line-height: 1.5; padding: 7px 10px; background: var(--purple-light); border-radius: var(--r); }
+  .pc-image-note::before { content: '🖼 '; font-style: normal; }
+  .pc-link-row { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 0.5px solid var(--border); }
+  .pc-link { font-family: var(--mono); font-size: 10.5px; color: var(--blue-text); word-break: break-all; padding: 6px 8px; background: var(--bg2); border-radius: 4px; }
+  .pc-link a { color: inherit; text-decoration: none; }
+  .pc-link a:hover { text-decoration: underline; }
+  .pc-tag { font-family: var(--mono); font-size: 9.5px; color: var(--text4); }
+  .pc-amazon-link { font-size: 11px; color: var(--archer); text-decoration: none; }
+  .pc-amazon-link:hover { text-decoration: underline; }
+  .pc-status { font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 4px; display: inline-block; }
+  .pc-status.on { background: var(--green-light); color: var(--green); }
+  .pc-status.off { background: var(--amber-light); color: var(--amber); }
+
+  /* SKELETON */
+  .pc-skeleton { height: 220px; background: linear-gradient(90deg, var(--bg2) 25%, var(--bg) 50%, var(--bg2) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: var(--rlg); }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  .empty { text-align: center; padding: 40px 20px; color: var(--text4); font-size: 13px; }
+
+  /* TOAST */
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--text); color: #fff; font-size: 13px; padding: 10px 18px; border-radius: var(--r); opacity: 0; transition: all 0.25s; z-index: 200; white-space: nowrap; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .divider { border: none; border-top: 0.5px solid var(--border); margin: 24px 0; }
+
+  @media (max-width: 768px) {
+    .product-selector { grid-template-columns: 1fr; }
+    .posts-grid { grid-template-columns: 1fr; }
+    .results-toolbar { flex-direction: column; align-items: stretch; }
+    .rt-stats { margin-right: 0; margin-bottom: 4px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="tb-logo"><div class="tb-dot"></div>EchoTribe</div>
+  <div class="tb-divider"></div>
+  <div class="tb-page">Organic Posts</div>
+  <div class="tb-right">
+    <a href="/archer/organic" class="tb-link active">Organic</a>
+    <a href="/archer/ads" class="tb-link">Ads</a>
+    <a href="/archer/collage" class="tb-link">Collage</a>
+    <a href="/archer/products" class="tb-link">Products</a>
+    <a href="/" class="tb-link">Chat</a>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- ── PRODUCT SELECTION ── -->
+  <div class="section">
+    <div class="slabel">Products <span style="color:var(--text4);font-weight:400;">(1–3 — posts cycle through all selected products)</span></div>
+    <div class="product-selector" id="product-slots"></div>
+
+    <div class="add-bar" style="margin-top:10px;">
+      <input type="text" class="add-input" id="prod-search" placeholder="Search by name, brand, ASIN, or paste Amazon URL..." oninput="handleProdSearch(this.value)">
+      <button class="add-btn btn-archer" onclick="lookupFromProdInput()">Add</button>
+      <a href="/archer/products" class="add-btn btn-outline" target="_blank">Browse</a>
+    </div>
+    <div class="search-drop" id="prod-drop"></div>
+  </div>
+
+  <!-- ── GENERATE ── -->
+  <div class="section">
+    <div class="slabel">Generate organic Facebook Group posts</div>
+    <div class="gen-row">
+      <button class="gen-btn" id="gen-btn" onclick="generatePosts()">
+        ✨ Generate 20 Posts
+      </button>
+      <div class="gen-note" id="gen-note">20 unique angles in Steph's voice. Each post is paired with a URLGenius affiliate link.</div>
+    </div>
+  </div>
+
+  <!-- ── RESULTS ── -->
+  <div class="section">
+    <div id="results-area">
+      <div class="empty">Add at least one product, then click "Generate 20 Posts".</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── STATE ──────────────────────────────────────────────
+  let state = {
+    products: [],
+    posts: [],
+    searchTimer: null,
+  };
+
+  window.onload = () => { renderProductSlots(); };
+
+  // ── PRODUCT MANAGEMENT (mirrors archer_ads.html) ──────
+  function renderProductSlots() {
+    const grid = document.getElementById('product-slots');
+    const slots = Math.max(state.products.length + (state.products.length < 3 ? 1 : 0), 1);
+    let html = '';
+    for (let i = 0; i < Math.min(slots, 3); i++) {
+      const p = state.products[i];
+      if (p) {
+        html += `<div class="ps-slot filled">
+          <button class="ps-remove" onclick="removeProduct('${esc(p.asin)}')">✕</button>
+          ${p.image_encoded_string ? `<img class="ps-img" src="${esc(p.image_encoded_string)}" onerror="this.style.display='none'">` : `<div class="ps-img-ph">📦</div>`}
+          <div class="ps-info">
+            <div class="ps-brand">${esc(p.company_name || p.brand || '')}</div>
+            <div class="ps-name">${esc(p.product_name || p.name || '')}</div>
+            <div class="ps-price">${esc(p.price || '')} · ${esc(p.commission_payout || p.commission || '')}</div>
+          </div>
+        </div>`;
+      } else {
+        html += `<div class="ps-slot" onclick="document.getElementById('prod-search').focus()">
+          <div class="ps-empty">
+            <div class="ps-empty-icon">+</div>
+            <div class="ps-empty-text">Add product</div>
+          </div>
+        </div>`;
+      }
+    }
+    grid.innerHTML = html;
+  }
+
+  async function addProduct(asin) {
+    if (state.products.length >= 3) { showToast('Max 3 products per batch'); return; }
+    if (state.products.find(p => p.asin === asin)) return;
+    try {
+      const res = await fetch(`/archer/product/${asin}`);
+      const data = await res.json();
+      if (data.product) {
+        state.products.push(data.product);
+        renderProductSlots();
+      } else {
+        showToast('Product not found');
+      }
+    } catch (e) { showToast('Product lookup failed'); }
+  }
+
+  function removeProduct(asin) {
+    state.products = state.products.filter(p => p.asin !== asin);
+    renderProductSlots();
+  }
+
+  async function handleProdSearch(val) {
+    clearTimeout(state.searchTimer);
+    const drop = document.getElementById('prod-drop');
+    if (!val || val.length < 2) { drop.classList.remove('open'); return; }
+    state.searchTimer = setTimeout(async () => {
+      const asinMatch = val.match(/\b(B0[A-Z0-9]{8}|B[A-Z0-9]{9})\b/i);
+      if (asinMatch) {
+        await addProduct(asinMatch[1].toUpperCase());
+        document.getElementById('prod-search').value = '';
+        drop.classList.remove('open');
+        return;
+      }
+      try {
+        const res = await fetch(`/archer/search?q=${encodeURIComponent(val)}&limit=5`);
+        const data = await res.json();
+        if (!data.products?.length) { drop.classList.remove('open'); return; }
+        drop.innerHTML = data.products.map(p => `
+          <div class="sd-item" onclick="selectProduct('${esc(p.asin || p.ASIN)}')">
+            ${p.image_encoded_string ? `<img class="sd-img" src="${esc(p.image_encoded_string)}" onerror="this.src=''">` : '<div class="sd-img" style="display:flex;align-items:center;justify-content:center;font-size:16px;">📦</div>'}
+            <div class="sd-name">${esc(p.product_name || p.name || '')}</div>
+            <div class="sd-comm">${esc(p.commission_payout || p.commission || '')}</div>
+          </div>`).join('');
+        drop.classList.add('open');
+      } catch (e) { drop.classList.remove('open'); }
+    }, 300);
+  }
+
+  async function selectProduct(asin) {
+    document.getElementById('prod-drop').classList.remove('open');
+    document.getElementById('prod-search').value = '';
+    await addProduct(asin);
+  }
+
+  async function lookupFromProdInput() {
+    const val = document.getElementById('prod-search').value.trim();
+    const asinMatch = val.match(/\b(B0[A-Z0-9]{8}|B[A-Z0-9]{9})\b/i);
+    if (asinMatch) {
+      await addProduct(asinMatch[1].toUpperCase());
+      document.getElementById('prod-search').value = '';
+      document.getElementById('prod-drop').classList.remove('open');
+    }
+  }
+
+  // ── GENERATE POSTS ────────────────────────────────────
+  async function generatePosts() {
+    if (!state.products.length) { showToast('Add at least one product'); return; }
+    const btn = document.getElementById('gen-btn');
+    const area = document.getElementById('results-area');
+    btn.textContent = '✨ Generating 20 posts...';
+    btn.classList.add('loading');
+    btn.disabled = true;
+    area.innerHTML = `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;">
+      ${Array(6).fill(0).map(() => '<div class="pc-skeleton"></div>').join('')}
+    </div>`;
+
+    const product_list = state.products.map(p => ({
+      asin: p.asin,
+      product_name: p.product_name || p.name || '',
+      brand: p.company_name || p.brand || '',
+      price: p.price || '',
+      commission: p.commission_payout || p.commission || '',
+    }));
+
+    try {
+      const res = await fetch('/archer/generate_organic_posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_list }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        area.innerHTML = `<div class="empty" style="color:var(--red);">Generation failed: ${esc(data.error || 'unknown error')}</div>`;
+        showToast('Generation failed');
+      } else {
+        state.posts = data.posts || [];
+        renderResults();
+        showToast(`Generated ${state.posts.length} posts`);
+      }
+    } catch (e) {
+      area.innerHTML = `<div class="empty" style="color:var(--red);">Generation failed — check API connection</div>`;
+      showToast('Generation failed');
+    }
+    btn.textContent = '✨ Regenerate 20 Posts';
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+
+  function renderResults() {
+    const area = document.getElementById('results-area');
+    if (!state.posts.length) {
+      area.innerHTML = '<div class="empty">No posts to display.</div>';
+      return;
+    }
+    const cards = state.posts.map((p, i) => {
+      const productLabel = p.brand ? `${p.brand} · ${truncate(p.product_name, 28)}` : truncate(p.product_name, 38);
+      return `
+        <div class="post-card">
+          <div class="pc-head">
+            <div class="pc-head-left">
+              <span class="pc-num">#${String(i + 1).padStart(2, '0')}</span>
+              <span class="pc-pill">${esc(p.angle || 'angle')}</span>
+              <span class="pc-product-tag">${esc(productLabel)}</span>
+            </div>
+            <button class="pc-copy-btn" onclick="copyPost(${i})">Copy Post + Link</button>
+          </div>
+          <div class="pc-body">
+            <div class="pc-copy">${esc(p.copy || '')}</div>
+            ${p.image_note ? `<div class="pc-image-note">${esc(p.image_note)}</div>` : ''}
+            <div class="pc-link-row">
+              <div class="pc-link"><a href="${esc(p.genius_url)}" target="_blank" rel="noopener">${esc(p.genius_url || '')}</a></div>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span class="pc-tag">tag: ${esc(p.urlgenius_tag || '—')}</span>
+                <span class="pc-status ${p.urlgenius_active ? 'on' : 'off'}">URLGenius ${p.urlgenius_active ? 'ON' : 'fallback'}</span>
+                ${p.asin ? `<a class="pc-amazon-link" href="https://www.amazon.com/dp/${esc(p.asin)}" target="_blank" rel="noopener">View on Amazon ↗</a>` : ''}
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    area.innerHTML = `
+      <div class="results-toolbar">
+        <div class="rt-stats"><strong>${state.posts.length}</strong> posts · <strong>${state.products.length}</strong> product${state.products.length === 1 ? '' : 's'}</div>
+        <button class="rt-btn" onclick="copyAllPosts()">📋 Copy All Posts</button>
+        <button class="rt-btn green" onclick="exportForSteph()">⬇ Export for Steph</button>
+      </div>
+      <div class="posts-grid">${cards}</div>
+    `;
+  }
+
+  function copyPost(i) {
+    const p = state.posts[i];
+    if (!p) return;
+    const text = `${p.copy}\n\n${p.genius_url || ''}`;
+    copyToClipboard(text);
+    showToast(`Post #${i + 1} copied`);
+  }
+
+  function copyAllPosts() {
+    if (!state.posts.length) return;
+    const out = state.posts.map((p, i) =>
+      `─── POST #${String(i + 1).padStart(2, '0')} — ${p.angle || ''} ───\n` +
+      `${p.copy}\n\n` +
+      `Image: ${p.image_note || '—'}\n` +
+      `Link:  ${p.genius_url || ''}\n` +
+      `Tag:   ${p.urlgenius_tag || '—'}\n`
+    ).join('\n');
+    copyToClipboard(out);
+    showToast(`All ${state.posts.length} posts copied`);
+  }
+
+  // ── EXPORT FOR STEPH (standalone HTML, no JS deps, no API key) ──
+  function exportForSteph() {
+    if (!state.posts.length) return;
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10);
+    const productLine = state.products.map(p =>
+      `${p.product_name || p.name} (${p.asin})`).join(' · ');
+
+    const cardsHtml = state.posts.map((p, i) => `
+      <div class="card">
+        <div class="card-head">
+          <span class="num">#${String(i + 1).padStart(2, '0')}</span>
+          <span class="pill">${escForHtml(p.angle || '')}</span>
+          <button class="copy" onclick="copy(${i})">Copy</button>
+        </div>
+        <div class="copy-text" id="t${i}">${escForHtml(p.copy || '')}</div>
+        ${p.image_note ? `<div class="img-note">🖼 ${escForHtml(p.image_note)}</div>` : ''}
+        <div class="link"><a href="${escForHtml(p.genius_url)}" target="_blank">${escForHtml(p.genius_url || '')}</a></div>
+      </div>`).join('');
+
+    const fullHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Organic Posts for Steph — ${dateStr}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: #f7f7f5; color: #1a1a17; padding: 32px 20px; line-height: 1.55; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+  .meta { color: #606058; font-size: 13px; margin-bottom: 4px; }
+  .products { color: #606058; font-size: 12px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 0.5px solid rgba(0,0,0,0.1); }
+  .card { background: #fff; border: 0.5px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .num { font-family: 'SF Mono', monospace; font-size: 11px; color: #999890; }
+  .pill { font-family: 'SF Mono', monospace; font-size: 9px; letter-spacing: 0.8px; text-transform: uppercase; padding: 3px 9px; border-radius: 20px; background: #fdf0ea; color: #e85d26; border: 0.5px solid rgba(232,93,38,0.25); }
+  .copy { margin-left: auto; font-size: 11px; padding: 5px 12px; border-radius: 6px; border: 0.5px solid rgba(0,0,0,0.15); background: #fff; color: #3c3c38; cursor: pointer; }
+  .copy:hover { background: #2e7dd4; color: #fff; border-color: #2e7dd4; }
+  .copy.copied { background: #27693a; color: #fff; border-color: #27693a; }
+  .copy-text { font-size: 14px; color: #1a1a17; line-height: 1.6; white-space: pre-wrap; margin-bottom: 10px; }
+  .img-note { font-size: 12px; color: #5a3d8a; font-style: italic; padding: 7px 10px; background: #f0eafa; border-radius: 6px; margin-bottom: 10px; }
+  .link { font-family: 'SF Mono', monospace; font-size: 11px; word-break: break-all; padding: 7px 9px; background: #f2f2ef; border-radius: 6px; }
+  .link a { color: #0f4a8a; text-decoration: none; }
+  .link a:hover { text-decoration: underline; }
+  .footer { margin-top: 24px; padding-top: 16px; border-top: 0.5px solid rgba(0,0,0,0.1); font-size: 11px; color: #999890; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Organic posts for Steph</h1>
+  <div class="meta">Generated ${dateStr} · ${state.posts.length} posts</div>
+  <div class="products">Products: ${escForHtml(productLine)}</div>
+  ${cardsHtml}
+  <div class="footer">EchoTribe · @EverydaywithSteph · Mommy &amp; Me Collective</div>
+</div>
+<script>
+  function copy(i) {
+    var el = document.getElementById('t' + i);
+    var card = el.closest('.card');
+    var link = card.querySelector('.link a').href;
+    var text = el.textContent + '\\n\\n' + link;
+    var btn = card.querySelector('.copy');
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(function() {
+        btn.textContent = 'Copied!'; btn.classList.add('copied');
+        setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+      });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+      btn.textContent = 'Copied!'; btn.classList.add('copied');
+      setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+    }
+  }
+<\/script>
+</body>
+</html>`;
+
+    const blob = new Blob([fullHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `steph-organic-posts-${dateStr}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Export downloaded');
+  }
+
+  // ── UTILITIES ─────────────────────────────────────────
+  function copyToClipboard(text) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+    } else {
+      fallbackCopy(text);
+    }
+  }
+  function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  }
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2200);
+  }
+  function esc(s) { return (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function escForHtml(s) { return esc(s); }
+  function truncate(s, n) { s = (s || '').toString(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+</script>
+</body>
+</html>

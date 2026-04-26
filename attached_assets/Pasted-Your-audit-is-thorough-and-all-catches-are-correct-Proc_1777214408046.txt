@@ -1,0 +1,40 @@
+Your audit is thorough and all catches are correct. Proceed with the 4 tasks plus every patch you identified. Specific approvals:
+
+✅ Fix the duplicate import — extend the existing from prompts import (...) block on lines 12–15, do not add a second block.
+
+✅ Fix product rotation — use product_list[i % len(product_list)] so each post cycles through all selected products. Have Claude's JSON include a product_index field per post (0, 1, 2...) so the route can map it to the correct product for the affiliate link.
+
+✅ Fix URLGenius timeout — generate exactly ONE _make_smart_link() call per unique ASIN in the product list before the Claude call, store results in a dict keyed by ASIN, then map each post to its pre-generated link using the product_index. This keeps total URLGenius calls to 1–3 regardless of post count and keeps the route well under Replit's proxy timeout.
+
+✅ Fix JSON parsing — add the re.search(r'\{.*\}', raw, re.DOTALL) regex fallback after the backtick strip.
+
+✅ Fix link label — display link_result['label'] as the URLGenius tag, not a separately constructed string. The label returned by _make_smart_link() is what's actually registered in URLGenius.
+
+✅ Add campaign package UI hook — on the existing Ads Builder page (/archer/ads), add a collapsible section or button in Step 3 or Step 4 that calls POST /archer/generate_campaign_package and renders: the full 5-layer table (layer name, daily budget range, Advantage+ flag, audience, 3 variant copy blocks per layer), and a "Copy Ryze Prompt" button that copies the assembled ryze_prompt string to clipboard for paste-into-MCP. This does not replace the existing 3-variant flow — it adds the 5-layer view alongside it.
+
+The 5 layers are:
+
+L1 Evergreen — $60–80/day, Advantage+ ON, broad cold audience
+L2 Retargeting — $25–30/day, Manual, 7-day video viewers + page engagers
+L3 Bundle — $25–35/day, Advantage+ ON, lookalike 1–3%
+L4 Flash — $40–55/day, Manual, interest stack (mom/deals/Amazon)
+L5 IG Native — $20–30/day, Manual, Instagram-only 9:16 placement
+Meta ad account: act_573934886369270
+
+✅ Nav consistency — make the topbar identical across all builder pages: Organic · Ads · Collage · Products · Chat. Each link is a tb-link styled anchor pointing to /archer/organic, /archer/ads, /archer/collage, /archer/products, /. Match the existing styling from archer_ads.html exactly.
+
+✅ Mobile layout on organic_posts.html — mirror the @media (max-width: 768px) grid collapse rule from archer_ads.html.
+
+✅ Toast errors on new page — reuse the .toast + showToast() pattern exactly as implemented in archer_ads.html.
+
+✅ Dashboard nav — add tool cards (Organic Posts → /archer/organic, Ads Builder → /archer/ads, Collage Builder → /archer/collage) to templates/dashboard.html at the /dashboard route. On the home chat page (/), add a small nav row at the top pointing to the three tools — do not restructure the existing chat UI.
+
+✅ Export for Steph — the "Export for Steph" button on /archer/organic must generate a fully self-contained HTML file (no external CSS, no JS dependencies, no API calls) that can be saved locally and opened in any browser. Include per post: post number, angle pill label, copy text, image direction note, affiliate link in monospace, and a copy button using navigator.clipboard. No API key required to view or use the exported file.
+
+❌ SKIP — SQLite persistence for organic post sessions.
+❌ SKIP — Per-post product reassignment UI (drag to change product per post). Auto-rotation is sufficient for now.
+❌ SKIP — Diff labels in the Steph export HTML beyond the angle labels already on each card.
+
+Do not modify product_api.py. Do not change any existing route logic.
+
+Confirm when all tasks are complete with: the new route URLs, the new template filename, and the exact line range where you extended the from prompts import block.
