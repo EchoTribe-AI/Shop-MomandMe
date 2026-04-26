@@ -1,0 +1,278 @@
+You are fixing and extending an existing Flask app (echo-dashboard). 
+Do NOT rewrite or replace any existing files. Only ADD to them.
+
+The codebase already has:
+- product_api.py: ArcherAPI, URLGeniusAPI, _make_smart_link() helper in app.py
+- prompts.py: STEPH_CAPTION_PROMPT, STEPH_AD_COPY_PROMPT  
+- data/matched_asins.json with real product data
+- Working routes: /archer/generate_caption, /archer/generate_ad_copy, /archer/ads, /archer/collage
+
+DO THESE 4 TASKS:
+
+──────────────────────────────────────────────────────────────
+TASK 1: Add STEPH_ORGANIC_POSTS_PROMPT to prompts.py
+──────────────────────────────────────────────────────────────
+Add this constant to prompts.py after STEPH_CAPTION_PROMPT:
+
+STEPH_ORGANIC_POSTS_PROMPT = """You generate organic Facebook Group posts for Steph 
+(@EverydaywithSteph / Mommy & Me Collective). Voice: warm, mom-to-mom, texting your 
+best friend about a deal. 1-2 emojis max. Direct and honest. Mentions price or 
+benefit. Never sounds like an ad. 2-5 sentences.
+
+Return ONLY valid JSON — no preamble, no markdown, no backticks.
+Format: {"posts": [{"angle": "2-4 word label", "copy": "full post text", 
+"image_note": "brief description of ideal product image"}]}
+
+Generate exactly 20 variations. Each must use a completely different angle from this list:
+deal/price urgency, personal rec (my kids love), mom-to-mom story, social proof 
+(thousands of reviews), spring/summer seasonal, bundle pairing, gift idea, 
+problem/solution, comparison, scarcity (selling out fast), discovery moment, 
+value framing, educational tip, before/after, community reaction (my group went crazy), 
+ASMR visual hook, back to camp/school, gift guide placement, limited time, everyday essential."""
+
+Also add STEPH_CAMPAIGN_PACKAGE_PROMPT to prompts.py:
+
+STEPH_CAMPAIGN_PACKAGE_PROMPT = """You build Meta ad campaign packages for EchoTribe 
+creator @EverydaywithSteph. Proven playbook: top campaign 21.71% CTR $0.026 CPC. 
+Audience: deal-focused moms, 99.1% Facebook, 99.9% mobile iOS. 
+Always OUTCOME_TRAFFIC, CBO at campaign level.
+
+Return ONLY valid JSON — no preamble, no markdown, no backticks.
+Format: {"layers": [{"layer_num": 1, "name": "string", "objective": "OUTCOME_TRAFFIC", 
+"daily_budget_range": "string", "advantage_plus": true, "audience": "string 1-2 sentences",
+"variants": [{"label": "A — Deal/Price", "headline": "string max 40 chars", 
+"primary_text": "string 2-3 sentences", "cta": "Shop Now"}],
+"creative_direction": "string"}]}
+
+Generate exactly 5 layers:
+L1 Evergreen — $60-80/day, Advantage+ ON, broad deal-focused moms audience, 
+3 variants: A=deal/price hook, B=storytelling narrative, C=social proof
+L2 Retargeting — $25-30/day, Manual, people who clicked but didn't buy in last 14 days,
+3 variants: A=reminder/urgency, B=benefit reinforcement, C=price anchor
+L3 Bundle — $25-35/day, Advantage+ ON, lookalike from purchasers,
+3 variants: A=value bundle angle, B=gifting angle, C=lifestyle angle
+L4 Flash/Event — $40-55/day, Manual, deal-seekers interest stack,
+3 variants: A=time urgency, B=limited quantity, C=event tie-in (if applicable)
+L5 IG Native — $20-30/day, Manual, Instagram-only placement 9:16 sound-off readable,
+3 variants: A=visual hook first 2 seconds, B=product close-up text overlay, C=testimonial style"""
+
+──────────────────────────────────────────────────────────────
+TASK 2: Add 2 new routes to app.py
+──────────────────────────────────────────────────────────────
+
+Add these imports to app.py at the top (after existing imports):
+from prompts import (
+    build_chat_prompt, build_chat_products,
+    STEPH_CAPTION_PROMPT, STEPH_AD_COPY_PROMPT,
+    STEPH_ORGANIC_POSTS_PROMPT, STEPH_CAMPAIGN_PACKAGE_PROMPT,
+)
+
+Add these two routes to app.py AFTER the existing /archer/generate_caption route:
+
+@app.route('/archer/generate_organic_posts', methods=['POST'])
+def archer_generate_organic_posts():
+    from product_api import ArcherAPI
+    from datetime import datetime as _dt
+    import re
+    data = request.get_json() or {}
+    product_list = data.get('product_list', [])  # [{asin, product_name, brand, price, commission}, ...]
+    if not product_list:
+        return jsonify({'error': 'product_list is required'}), 400
+    
+    mmdd = _dt.now().strftime('%m%d')
+    pl = '\n'.join([
+        f"{p.get('product_name','')[:60]} by {p.get('brand','')} · {p.get('price','')} · {p.get('commission','')} commission · ASIN: {p.get('asin','')}"
+        for p in product_list
+    ])
+    
+    try:
+        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+        message = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=6000,
+            system=STEPH_ORGANIC_POSTS_PROMPT,
+            messages=[{"role": "user", "content": f"Products:\n{pl}\n\nDate code: {mmdd}\n\nGenerate 20 organic Facebook Group post variations."}]
+        )
+        raw = message.content[0].text.strip().replace('```json','').replace('```','').strip()
+        parsed = json.loads(raw)
+        posts_raw = parsed.get('posts', [])
+        
+        # For each post, find the ASIN from the product list and generate URLGenius link
+        posts = []
+        for post in posts_raw:
+            # Use first product ASIN for the link (can be enhanced later per-product)
+            asin = product_list[0].get('asin', '') if product_list else ''
+            brand_raw = (product_list[0].get('brand') or 'brand').lower()
+            brand_short = re.sub(r'[^a-z0-9]', '', brand_raw.split()[0])[:10]
+            name_words = re.sub(r'[^a-z0-9 ]', '', (product_list[0].get('product_name') or 'product').lower()).split()
+            product_short = '-'.join(name_words[:2])[:15]
+            campaign = f"{brand_short}-{product_short}-{mmdd}"
+            
+            link_result = {'genius_url': f'https://amazon.com/dp/{asin}?tag={AMAZON_TAG}', 'affiliate_url': f'https://amazon.com/dp/{asin}?tag={AMAZON_TAG}', 'urlgenius': False}
+            if asin:
+                try:
+                    link_result = _make_smart_link(
+                        asin=asin, network='amazon',
+                        utm_source='fb-group', utm_medium='organic',
+                        utm_campaign=campaign,
+                    )
+                except Exception as e:
+                    logging.warning(f'[ORGANIC] Smart link failed: {e}')
+            
+            urlgenius_tag = f"fb-group_organic_{brand_short}_{product_short}_{mmdd}"
+            posts.append({
+                'angle': post.get('angle', ''),
+                'copy': post.get('copy', ''),
+                'image_note': post.get('image_note', ''),
+                'asin': asin,
+                'affiliate_url': link_result['affiliate_url'],
+                'genius_url': link_result['genius_url'],
+                'urlgenius_tag': urlgenius_tag,
+                'urlgenius_active': link_result.get('urlgenius', False),
+            })
+        
+        return jsonify({'posts': posts})
+    except Exception as e:
+        logging.error(f'[ORGANIC] Post generation failed: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/archer/generate_campaign_package', methods=['POST'])
+def archer_generate_campaign_package():
+    from product_api import ArcherAPI
+    from datetime import datetime as _dt
+    import re
+    data = request.get_json() or {}
+    product_list = data.get('product_list', [])
+    layers = data.get('layers', [1, 2, 3, 4, 5])
+    slug = data.get('slug', '').strip()
+    
+    if not product_list:
+        return jsonify({'error': 'product_list is required'}), 400
+    
+    mmdd = _dt.now().strftime('%m%d')
+    pl = '\n'.join([
+        f"{p.get('product_name','')[:60]} by {p.get('brand','')} · {p.get('price','')} · {p.get('commission','')} commission · ASIN: {p.get('asin','')}"
+        for p in product_list
+    ])
+    
+    try:
+        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+        message = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=8000,
+            system=STEPH_CAMPAIGN_PACKAGE_PROMPT,
+            messages=[{"role": "user", "content": f"Products:\n{pl}\n\nLayers to include: {layers}\n\nGenerate the 5-layer campaign package."}]
+        )
+        raw = message.content[0].text.strip().replace('```json','').replace('```','').strip()
+        parsed = json.loads(raw)
+        layers_data = parsed.get('layers', [])
+        
+        # Add URLGenius attribution links to each variant
+        asin = product_list[0].get('asin', '') if product_list else ''
+        brand_raw = (product_list[0].get('brand') or 'brand').lower()
+        brand_short = re.sub(r'[^a-z0-9]', '', brand_raw.split()[0])[:10]
+        
+        for layer in layers_data:
+            for i, variant in enumerate(layer.get('variants', [])):
+                var_letter = ['a','b','c'][i] if i < 3 else str(i)
+                campaign = f"{slug or brand_short}-{asin.lower()[:6]}-l{layer.get('layer_num',i+1)}-{mmdd}"
+                link_result = {'genius_url': f'https://amazon.com/dp/{asin}?tag={AMAZON_TAG}', 'affiliate_url': '', 'urlgenius': False}
+                if asin:
+                    try:
+                        link_result = _make_smart_link(
+                            asin=asin, network='archer',
+                            utm_source='fb-ad', utm_medium='dark',
+                            utm_campaign=campaign,
+                            utm_term=f'var{var_letter}',
+                        )
+                    except Exception as e:
+                        logging.warning(f'[CAMPAIGN] Smart link failed: {e}')
+                variant['attribution_url'] = link_result['genius_url']
+                variant['archer_url'] = link_result.get('affiliate_url', '')
+        
+        # Build Ryze MCP prompt
+        layer_lines = []
+        for l in layers_data:
+            var_block = '\n'.join([
+                f"    Variant {v.get('label','')}: Headline: {v.get('headline','')} | Body: {v.get('primary_text','')} | CTA: {v.get('cta','Shop Now')} | URL: {v.get('attribution_url','')}"
+                for v in l.get('variants', [])
+            ])
+            layer_lines.append(
+                f"  Layer {l.get('layer_num','')}: {l.get('name','')}\n"
+                f"  Budget: {l.get('daily_budget_range','')}/day | Advantage+: {'ON' if l.get('advantage_plus') else 'OFF'}\n"
+                f"  Audience: {l.get('audience','')}\n{var_block}\n"
+                f"  Creative: {l.get('creative_direction','')}"
+            )
+        
+        ryze_prompt = (
+            f"Using the Ryze MCP connected to Steph's Meta account (act_573934886369270), "
+            f"create the following ad campaigns for ASIN {asin} "
+            f"({product_list[0].get('brand','')} — {product_list[0].get('product_name','')}).\n\n"
+            f"For each campaign: OUTCOME_TRAFFIC objective, CBO at campaign level, "
+            f"Advantage+ as specified, mobile-first placements.\n\n"
+            f"CAMPAIGNS TO CREATE:\n\n" + '\n\n'.join(layer_lines) +
+            f"\n\nCreate all campaigns in PAUSED status for review before activating. "
+            f"Confirm each campaign ID after creation."
+        )
+        
+        return jsonify({
+            'layers': layers_data,
+            'ryze_prompt': ryze_prompt,
+            'asin': asin,
+            'product': product_list[0] if product_list else {}
+        })
+    except Exception as e:
+        logging.error(f'[CAMPAIGN] Package generation failed: {e}')
+        return jsonify({'error': str(e)}), 500
+
+──────────────────────────────────────────────────────────────
+TASK 3: Add /archer/organic route + template (organic_posts.html)
+──────────────────────────────────────────────────────────────
+
+Add this route to app.py after the /archer/ads route:
+
+@app.route('/archer/organic')
+def archer_organic():
+    return render_template('organic_posts.html')
+
+Create templates/organic_posts.html. This page must:
+- Match the design style of archer_ads.html (same CSS variables, topbar, etc.)
+- Have a product search/add section (reuse the same pattern as archer_ads.html 
+  using /archer/search and /archer/product/<asin> endpoints)
+- Have a "Generate 20 Posts" button that calls POST /archer/generate_organic_posts 
+  with the selected products
+- Display results as a grid of post cards, each showing:
+  - Angle label (pill badge)
+  - Post copy text (selectable/copyable)
+  - Image direction note (italic, purple)
+  - "Copy Post + Link" button (copies copy + genius_url to clipboard)
+  - genius_url displayed in monospace
+  - URLGenius tag displayed
+  - View on Amazon link
+- Add "Copy All Posts" button at top of results
+- Add "Export for Steph" button that generates a downloadable standalone HTML file 
+  with all posts formatted (no JS required, no API key needed) — Kelly saves this 
+  and shares with Steph via Drive/Telegram
+- Navigation links to /archer/ads and /archer/collage in topbar
+
+──────────────────────────────────────────────────────────────  
+TASK 4: Update navigation across all pages
+──────────────────────────────────────────────────────────────
+
+In templates/archer_ads.html, add to the tb-right nav bar:
+<a href="/archer/organic" class="tb-link">Organic Posts</a>
+
+In templates/archer_collage.html, add to the tb-right nav bar:
+<a href="/archer/organic" class="tb-link">Organic Posts</a>
+<a href="/archer/ads" class="tb-link">Ads</a>
+
+In templates/dashboard.html (the home page), add prominent navigation cards or 
+buttons to the 3 main tools:
+- Organic Posts → /archer/organic
+- Ads Builder → /archer/ads  
+- Collage Builder → /archer/collage
+
+Do not break any existing functionality. Do not modify product_api.py. 
+Do not modify any existing route logic. Only add the new routes, prompts, and template.
+Test that all 4 tasks are complete before responding.
