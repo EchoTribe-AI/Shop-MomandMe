@@ -59,6 +59,49 @@
   .ps-remove { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.5); color: #fff; border: none; font-size: 11px; cursor: pointer; display: none; align-items: center; justify-content: center; }
   .ps-slot.filled:hover .ps-remove { display: flex; }
 
+  /* DISCOVERY */
+  .disc-section { margin-bottom: 28px; }
+  .disc-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+  .df-group { display: flex; flex-direction: column; gap: 4px; }
+  .df-label { font-family: var(--mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text4); }
+  .df-select { border: 0.5px solid var(--border2); border-radius: var(--r); padding: 7px 10px; font-size: 12px; font-family: var(--sans); color: var(--text); background: var(--surface); outline: none; cursor: pointer; min-width: 160px; }
+  .df-select:focus { border-color: var(--archer); }
+  .pull-btn { display: flex; align-items: center; gap: 7px; font-family: var(--sans); font-size: 12px; font-weight: 600; padding: 8px 18px; border-radius: var(--r); border: none; background: var(--archer); color: #fff; cursor: pointer; align-self: flex-end; transition: opacity 0.15s; }
+  .pull-btn:hover { opacity: 0.88; }
+  .pull-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .disc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: 10px; min-height: 56px; }
+  .dc { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); padding: 12px; cursor: pointer; transition: all 0.15s; position: relative; }
+  .dc:hover { border-color: var(--archer); box-shadow: 0 0 0 3px rgba(232,93,38,0.08); }
+  .dc.dc-sel { border-color: var(--archer); background: var(--archer-light); }
+  .dc-check { position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; border-radius: 50%; background: var(--archer); color: #fff; font-size: 10px; display: none; align-items: center; justify-content: center; }
+  .dc-sel .dc-check { display: flex; }
+  .dc-brand { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--archer); margin-bottom: 3px; }
+  .dc-name { font-size: 11.5px; font-weight: 500; line-height: 1.35; margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .dc-pills { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px; }
+  .dc-pill { padding: 2px 7px; border-radius: 20px; font-family: var(--mono); font-size: 9px; border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text4); }
+  .dc-pill.green { background: var(--green-light); border-color: rgba(39,105,58,0.3); color: var(--green); }
+  .dc-pill.blue { background: var(--blue-light); border-color: rgba(28,95,166,0.3); color: var(--blue-text); }
+  .dc-pill.amber { background: var(--amber-light); border-color: rgba(138,85,16,0.3); color: var(--amber); }
+  .dc-asin { font-family: var(--mono); font-size: 9px; color: var(--text4); margin-bottom: 4px; }
+  .dc-why { font-size: 10.5px; color: var(--purple); font-style: italic; line-height: 1.4; }
+  .disc-empty { grid-column: 1 / -1; text-align: center; padding: 28px; color: var(--text4); font-size: 12px; font-family: var(--mono); }
+
+  /* BULK PASTE */
+  .bulk-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 10px; align-items: flex-start; }
+  .bulk-ta { width: 100%; border: 0.5px solid var(--border2); border-radius: var(--r); padding: 8px 10px; font-family: var(--mono); font-size: 11.5px; resize: vertical; outline: none; background: var(--bg); color: var(--text); line-height: 1.6; min-height: 72px; }
+  .bulk-ta:focus { border-color: var(--archer); background: var(--surface); }
+  .bulk-add-btn { font-size: 12px; font-weight: 600; padding: 8px 16px; border-radius: var(--r); border: none; background: var(--text); color: #fff; cursor: pointer; white-space: nowrap; align-self: flex-start; transition: opacity 0.15s; }
+  .bulk-add-btn:hover { opacity: 0.8; }
+
+  /* QUEUE CHIPS */
+  .queue-chips { display: flex; flex-wrap: wrap; gap: 7px; min-height: 28px; margin-top: 8px; }
+  .q-chip { background: var(--surface); border: 0.5px solid var(--border2); border-radius: var(--r); padding: 4px 10px; font-size: 11.5px; display: flex; align-items: center; gap: 8px; }
+  .q-chip-name { font-weight: 500; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+  .q-chip-asin { font-family: var(--mono); font-size: 9.5px; color: var(--text4); }
+  .q-chip-x { cursor: pointer; color: var(--text4); font-size: 14px; line-height: 1; flex-shrink: 0; }
+  .q-chip-x:hover { color: var(--archer); }
+  .q-empty { font-family: var(--mono); font-size: 11px; color: var(--text4); padding: 4px 0; }
+
   /* SEARCH BAR (mirrors archer_ads.html) */
   .add-bar { display: flex; gap: 8px; margin-bottom: 6px; }
   .add-input { flex: 1; border: 0.5px solid var(--border2); border-radius: var(--r); padding: 8px 12px; font-size: 13px; font-family: var(--sans); color: var(--text); background: var(--bg); outline: none; transition: border-color 0.15s; }
@@ -159,17 +202,81 @@
 
 <div class="page">
 
-  <!-- ── PRODUCT SELECTION ── -->
-  <div class="section">
-    <div class="slabel">Products <span style="color:var(--text4);font-weight:400;">(1–3 — posts cycle through all selected products)</span></div>
-    <div class="product-selector" id="product-slots"></div>
-
-    <div class="add-bar" style="margin-top:10px;">
-      <input type="text" class="add-input" id="prod-search" placeholder="Search by name, brand, ASIN, or paste Amazon URL..." oninput="handleProdSearch(this.value)">
-      <button class="add-btn btn-archer" onclick="lookupFromProdInput()">Add</button>
-      <a href="/archer/products" class="add-btn btn-outline" target="_blank">Browse</a>
+  <!-- ── 01 PRODUCT DISCOVERY ── -->
+  <div class="disc-section">
+    <div class="slabel">01 — Product Discovery</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">Filter Archer's catalog by category, commission, and signal — click any card to add to your Build Queue</div>
+    <div class="disc-filters">
+      <div class="df-group">
+        <span class="df-label">Category</span>
+        <select class="df-select" id="df-cat">
+          <option value="">All Categories</option>
+          <option value="toys">Toys &amp; Baby</option>
+          <option value="beauty">Beauty &amp; Personal Care</option>
+          <option value="home">Home &amp; Organization</option>
+          <option value="outdoor">Outdoor &amp; Sports</option>
+          <option value="health">Health &amp; Household</option>
+        </select>
+      </div>
+      <div class="df-group">
+        <span class="df-label">Min Commission</span>
+        <select class="df-select" id="df-comm">
+          <option value="0">Any Rate</option>
+          <option value="10">10%+</option>
+          <option value="15">15%+</option>
+          <option value="20">20%+</option>
+        </select>
+      </div>
+      <div class="df-group">
+        <span class="df-label">Signal Source</span>
+        <select class="df-select" id="df-signal">
+          <option value="both">Trending + Steph Matched</option>
+          <option value="matched">Steph Matched Only</option>
+          <option value="trending">Archer Trending Only</option>
+        </select>
+      </div>
+      <div class="df-group">
+        <span class="df-label">Price Range</span>
+        <select class="df-select" id="df-price">
+          <option value="">Any Price</option>
+          <option value="under25">Under $25</option>
+          <option value="2575">$25–$75</option>
+          <option value="over75">Over $75</option>
+        </select>
+      </div>
+      <button class="pull-btn" id="pull-btn" onclick="pullRecs()">
+        <span id="pull-spin" style="display:none;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;"></span>
+        Pull Recommendations
+      </button>
     </div>
-    <div class="search-drop" id="prod-drop"></div>
+    <div class="disc-grid" id="disc-grid">
+      <div class="disc-empty">Set filters above and click Pull Recommendations</div>
+    </div>
+  </div>
+
+  <!-- ── 02 BUILD QUEUE ── -->
+  <div class="section">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div class="slabel" style="margin-bottom:0;">02 — Build Queue <span style="color:var(--text4);font-weight:400;">(1–3 products · posts cycle through all)</span></div>
+      <button onclick="clearQueue()" style="font-size:11px;color:var(--text4);background:none;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Clear All</button>
+    </div>
+    <div class="queue-chips" id="queue-chips"><span class="q-empty">No products selected yet</span></div>
+
+    <div style="margin-top:14px;">
+      <div class="add-bar">
+        <input type="text" class="add-input" id="prod-search" placeholder="Search by name, brand, ASIN, or paste Amazon URL..." oninput="handleProdSearch(this.value)">
+        <button class="add-btn btn-archer" onclick="lookupFromProdInput()">Add</button>
+        <a href="/archer/products" class="add-btn btn-outline" target="_blank">Browse</a>
+      </div>
+      <div class="search-drop" id="prod-drop"></div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text4);margin:8px 0 4px;">Or paste ASINs / Amazon URLs — one per line or comma-separated:</div>
+      <div class="bulk-row">
+        <textarea class="bulk-ta" id="bulk-ta" placeholder="B0DKZTSB3K&#10;https://amazon.com/dp/B0BV4X8TTQ&#10;B089D3Q24T, B0CB821FTX"></textarea>
+        <button class="bulk-add-btn" onclick="bulkAdd()">Parse &amp; Add</button>
+      </div>
+    </div>
+
+    <div class="product-selector" id="product-slots" style="margin-top:14px;"></div>
   </div>
 
   <!-- ── GENERATE ── -->
@@ -200,9 +307,200 @@
     products: [],
     posts: [],
     searchTimer: null,
+    discProds: [],
   };
 
-  window.onload = () => { renderProductSlots(); };
+  window.onload = () => { renderProductSlots(); renderQueueChips(); };
+
+  // ── PRODUCT DISCOVERY ─────────────────────────────────
+  async function pullRecs() {
+    const btn = document.getElementById('pull-btn');
+    const spin = document.getElementById('pull-spin');
+    const grid = document.getElementById('disc-grid');
+    btn.disabled = true;
+    spin.style.display = 'inline-block';
+    grid.innerHTML = '<div class="disc-empty">Pulling recommendations…</div>';
+
+    const cat = document.getElementById('df-cat').value;
+    const comm = document.getElementById('df-comm').value;
+    const signal = document.getElementById('df-signal').value;
+    const price = document.getElementById('df-price').value;
+
+    const params = new URLSearchParams({ limit: 24 });
+    if (cat) params.set('category', cat);
+    if (comm !== '0') params.set('min_commission', comm);
+
+    try {
+      const res = await fetch(`/archer/search?${params}`);
+      const data = await res.json();
+      let products = data.products || [];
+
+      // Client-side signal filter: "matched" = has steph_revenue; "trending" = no steph_revenue
+      if (signal === 'matched') {
+        products = products.filter(p => p.steph_revenue && parseFloat(p.steph_revenue) > 0);
+      } else if (signal === 'trending') {
+        products = products.filter(p => !p.steph_revenue || parseFloat(p.steph_revenue) === 0);
+      }
+
+      // Client-side price filter
+      if (price) {
+        products = products.filter(p => {
+          const raw = parseFloat((p.price || '').replace(/[^0-9.]/g, '')) || 0;
+          if (price === 'under25') return raw > 0 && raw < 25;
+          if (price === '2575') return raw >= 25 && raw <= 75;
+          if (price === 'over75') return raw > 75;
+          return true;
+        });
+      }
+
+      state.discProds = products;
+      renderDiscovery();
+    } catch (e) {
+      grid.innerHTML = `<div class="disc-empty">Failed to load recommendations — ${esc(e.message)}</div>`;
+    }
+    btn.disabled = false;
+    spin.style.display = 'none';
+  }
+
+  function renderDiscovery() {
+    const grid = document.getElementById('disc-grid');
+    const prods = state.discProds;
+    if (!prods.length) {
+      grid.innerHTML = '<div class="disc-empty">No products found — try different filters.</div>';
+      return;
+    }
+    grid.innerHTML = prods.map((p, i) => {
+      const asin = p.asin || p.ASIN || '';
+      const inQueue = !!state.products.find(q => q.asin === asin);
+      const comm = p.commission_payout || p.commission || '';
+      const rev = p.steph_revenue ? `$${parseFloat(p.steph_revenue).toFixed(0)} earned` : '';
+      const signalPill = rev
+        ? `<span class="dc-pill blue">steph matched</span>`
+        : `<span class="dc-pill amber">trending</span>`;
+      return `<div class="dc${inQueue ? ' dc-sel' : ''}" onclick="toggleDisc(${i})" data-asin="${esc(asin)}">
+        <div class="dc-check">✓</div>
+        <div class="dc-brand">${esc(p.company_name || p.brand || '')}</div>
+        <div class="dc-name">${esc(p.product_name || p.name || '')}</div>
+        <div class="dc-pills">
+          ${p.price ? `<span class="dc-pill">${esc(p.price)}</span>` : ''}
+          ${comm ? `<span class="dc-pill green">${esc(comm)}</span>` : ''}
+          ${signalPill}
+        </div>
+        <div class="dc-asin">${esc(asin)}</div>
+        ${rev ? `<div class="dc-why">${rev}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  async function toggleDisc(i) {
+    const p = state.discProds[i];
+    const asin = (p.asin || p.ASIN || '').trim();
+    if (!asin) return;
+    const existing = state.products.find(q => q.asin === asin);
+    if (existing) {
+      removeProduct(asin);
+    } else {
+      // Prefer full product data from /archer/product, fall back to discovery card data
+      if (state.products.length >= 3) { showToast('Max 3 products per batch'); return; }
+      try {
+        const res = await fetch(`/archer/product/${asin}`);
+        const data = await res.json();
+        state.products.push(data.product || {
+          asin,
+          product_name: p.product_name || p.name || asin,
+          company_name: p.company_name || p.brand || '',
+          price: p.price || '',
+          commission_payout: p.commission_payout || p.commission || '',
+        });
+      } catch (e) {
+        state.products.push({
+          asin,
+          product_name: p.product_name || p.name || asin,
+          company_name: p.company_name || p.brand || '',
+          price: p.price || '',
+          commission_payout: p.commission_payout || p.commission || '',
+        });
+      }
+      renderProductSlots();
+      renderQueueChips();
+      renderDiscovery(); // refresh checkmarks
+    }
+  }
+
+  // ── BUILD QUEUE CHIPS ─────────────────────────────────
+  function renderQueueChips() {
+    const el = document.getElementById('queue-chips');
+    if (!state.products.length) {
+      el.innerHTML = '<span class="q-empty">No products selected yet</span>';
+      return;
+    }
+    el.innerHTML = state.products.map(p =>
+      `<div class="q-chip">
+        <div>
+          <div class="q-chip-name">${esc(p.product_name || p.name || p.asin)}</div>
+          <div class="q-chip-asin">${esc(p.asin)}${p.commission_payout ? ' · ' + esc(p.commission_payout) : ''}</div>
+        </div>
+        <span class="q-chip-x" onclick="removeProduct('${esc(p.asin)}')">×</span>
+      </div>`
+    ).join('');
+  }
+
+  function clearQueue() {
+    state.products = [];
+    renderProductSlots();
+    renderQueueChips();
+    renderDiscovery(); // refresh checkmarks
+  }
+
+  // ── BULK PASTE ADD ────────────────────────────────────
+  async function bulkAdd() {
+    const raw = document.getElementById('bulk-ta').value;
+    const lines = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    let added = 0, skipped = 0;
+    for (const line of lines) {
+      if (state.products.length >= 3) { showToast('Max 3 products — stopping'); break; }
+      const asin = extractAsin(line);
+      if (!asin) { skipped++; continue; }
+      if (state.products.find(p => p.asin === asin)) continue;
+      try {
+        const res = await fetch(`/archer/product/${asin}`);
+        const data = await res.json();
+        if (data.product) {
+          state.products.push(data.product);
+          added++;
+        } else {
+          // Product not in catalog — add stub so user can still generate
+          state.products.push({ asin, product_name: asin, company_name: '', price: '', commission_payout: '' });
+          added++;
+        }
+      } catch (e) {
+        state.products.push({ asin, product_name: asin, company_name: '', price: '', commission_payout: '' });
+        added++;
+      }
+    }
+    if (added) {
+      document.getElementById('bulk-ta').value = '';
+      renderProductSlots();
+      renderQueueChips();
+      renderDiscovery();
+      showToast(`Added ${added} product${added === 1 ? '' : 's'}${skipped ? `, ${skipped} invalid` : ''}`);
+    } else {
+      showToast('No valid ASINs found — paste 10-char ASINs or Amazon URLs');
+    }
+  }
+
+  function extractAsin(s) {
+    s = s.trim();
+    const dp = s.match(/\/dp\/([A-Z0-9]{10})/i); if (dp) return dp[1].toUpperCase();
+    const gp = s.match(/\/gp\/product\/([A-Z0-9]{10})/i); if (gp) return gp[1].toUpperCase();
+    if (/^[A-Z0-9]{10}$/i.test(s)) return s.toUpperCase();
+    return null;
+  }
+
+  // Add @keyframes spin for pull button spinner
+  const _spinStyle = document.createElement('style');
+  _spinStyle.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(_spinStyle);
 
   // ── PRODUCT MANAGEMENT (mirrors archer_ads.html) ──────
   function renderProductSlots() {
@@ -242,6 +540,8 @@
       if (data.product) {
         state.products.push(data.product);
         renderProductSlots();
+        renderQueueChips();
+        renderDiscovery();
       } else {
         showToast('Product not found');
       }
@@ -251,6 +551,8 @@
   function removeProduct(asin) {
     state.products = state.products.filter(p => p.asin !== asin);
     renderProductSlots();
+    renderQueueChips();
+    renderDiscovery();
   }
 
   async function handleProdSearch(val) {
@@ -283,7 +585,7 @@
   async function selectProduct(asin) {
     document.getElementById('prod-drop').classList.remove('open');
     document.getElementById('prod-search').value = '';
-    await addProduct(asin);
+    await addProduct(asin); // addProduct already calls renderQueueChips + renderDiscovery
   }
 
   async function lookupFromProdInput() {
