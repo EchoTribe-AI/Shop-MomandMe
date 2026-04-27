@@ -574,6 +574,94 @@ def archer_generate_organic_posts():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/archer/generate_posts', methods=['POST'])
+def archer_generate_posts():
+    """Content builder v2 — returns Claude-generated copy WITHOUT pre-built links.
+    Frontend creates smart links on-demand via /urlgenius/smart_link after reviewing UTM tags.
+
+    Mode B: 1 post per product, different angle per product.
+    Mode C: 1 collection post + product taglines.
+    """
+    data = request.get_json() or {}
+    mode = data.get('mode', 'b')
+    product_list = data.get('product_list', [])
+    if not product_list:
+        return jsonify({'error': 'product_list is required'}), 400
+
+    n = len(product_list)
+    pl = '\n'.join([
+        f"[{i}] ASIN:{p.get('asin','')} | {(p.get('product_name') or p.get('name',''))[:50]}"
+        f" by {p.get('brand','')} · {p.get('price','')} · {p.get('commission','')} commission"
+        for i, p in enumerate(product_list)
+    ])
+
+    try:
+        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+
+        if mode == 'b':
+            system = (
+                "You generate organic Facebook Group posts for Steph (@EverydaywithSteph / Mommy & Me Collective). "
+                "Voice: warm, mom-to-mom, texting best friend about a deal. 1-2 emojis max. "
+                "Direct. Mentions price or benefit. 2-5 sentences. Never sounds like an ad.\n\n"
+                "Return ONLY valid JSON:\n"
+                '{"posts":[{"asin":"string","angle":"lowercase-hyphenated-slug max 20 chars",'
+                '"copy":"full post text","image_note":"brief ideal image description"}]}\n\n'
+                "Generate exactly N posts — one per product. Each must use a DIFFERENT angle from: "
+                "deal-price, mom-rec, social-proof, seasonal, gift-idea, problem-solve, scarcity, "
+                "discovery, value-frame, bundle-pair, before-after, community-reaction, "
+                "everyday-essential, back-to-camp, educational."
+            ).replace('N', str(n))
+            user_msg = f"Generate exactly {n} post{'s' if n > 1 else ''}, one per product.\nProducts:\n{pl}"
+            msg = client.messages.create(
+                model='claude-sonnet-4-6', max_tokens=4000, system=system,
+                messages=[{'role': 'user', 'content': user_msg}]
+            )
+            raw = msg.content[0].text.strip().replace('```json', '').replace('```', '').strip()
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                m = re.search(r'\{.*\}', raw, re.DOTALL)
+                if not m:
+                    raise
+                parsed = json.loads(m.group(0))
+            return jsonify({'mode': 'b', 'posts': parsed.get('posts', [])})
+
+        elif mode == 'c':
+            collection_name = data.get('collection_name', 'Collection')
+            collection_slug = data.get('collection_slug', 'collection')
+            url = f"go.echotribe.com/steph-{collection_slug}"
+            system = (
+                f"You build themed shoppable collection posts for Steph (@EverydaywithSteph). "
+                "Voice: warm, enthusiastic, mom-to-mom. 2-4 sentences. Naturally mentions the URL.\n\n"
+                "Return ONLY valid JSON:\n"
+                '{"angle":"lowercase-hyphenated-slug max 20 chars","copy":"collection Facebook Group post",'
+                '"image_note":"ideal collage image description",'
+                '"product_taglines":[{"asin":"string","tagline":"one sentence why this product belongs"}]}\n\n'
+                "angle must be lowercase-hyphenated (used in utm_content as organic_ANGLE_collection)."
+            )
+            user_msg = f'Theme: "{collection_name}"\nURL: {url}\nProducts:\n{pl}\n\nNaturally mention {url} in the post.'
+            msg = client.messages.create(
+                model='claude-sonnet-4-6', max_tokens=2000, system=system,
+                messages=[{'role': 'user', 'content': user_msg}]
+            )
+            raw = msg.content[0].text.strip().replace('```json', '').replace('```', '').strip()
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                m = re.search(r'\{.*\}', raw, re.DOTALL)
+                if not m:
+                    raise
+                parsed = json.loads(m.group(0))
+            return jsonify({'mode': 'c', 'collection': parsed, 'url': url})
+
+        else:
+            return jsonify({'error': f'Unknown mode: {mode}'}), 400
+
+    except Exception as e:
+        logging.error(f'[GENERATE_POSTS] mode={mode} failed: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/archer/generate_campaign_package', methods=['POST'])
 def archer_generate_campaign_package():
     """Generate a 5-layer Meta ad campaign package + paste-ready Ryze MCP prompt.
@@ -965,20 +1053,21 @@ def archer_list_campaigns():
 
 AMAZON_TAG = os.environ.get('AMAZON_AFFILIATE_TAG', 'mommymedeals-20')
 
-# Valid source × medium combinations (Task 5 — naming convention)
-# channel = utm_source | type = utm_medium
+# Valid source × medium combinations
+# Includes both legacy values and new UTM schema (April 2026)
 VALID_PLACEMENTS = {
-    'fb-group': ['organic'],
-    'fb-ad':    ['dark', 'boost'],
-    # Legacy — kept for backwards-compat with existing saved links
-    'facebook':  ['organic', 'paid'],
-    'instagram': ['organic', 'paid'],
-    'tiktok':    ['organic', 'paid'],
-    'email':     ['newsletter'],
+    'fb-group':  ['organic'],
+    'fb-ad':     ['dark', 'boost'],
+    # Legacy
+    'facebook':  ['organic', 'paid', 'organic_social', 'paid_social', 'boosted_post'],
+    'instagram': ['organic', 'paid', 'organic_social', 'organic_video', 'paid_social'],
+    'tiktok':    ['organic', 'paid', 'organic_video', 'organic_social', 'paid_social'],
+    'email':     ['newsletter', 'email'],
+    'linkinbio': ['organic_social'],
     'steph-ai':  ['ai-agent'],
 }
 
-# utm_content auto-derived from affiliate network (never supplied by caller)
+# utm_content: caller may supply override; otherwise auto-derived from affiliate network
 NETWORK_CONTENT = {
     'amazon':  'amazon-assoc',
     'archer':  'archer',
@@ -1063,10 +1152,12 @@ def urlgenius_smart_link():
     Body: {
       asin: str,
       network: 'amazon' | 'archer' | 'levanta',
-      placement: { source, medium, campaign, term? },
+      placement: { source, medium, campaign, content?, term? },
       force_new?: bool
     }
-    utm_content is derived automatically from network — never supplied by caller.
+    utm_content: caller-supplied placement.content takes precedence; falls back to
+    NETWORK_CONTENT auto-derive (e.g. 'amazon-assoc'). Use organic_[angle]_static
+    or organic_[angle]_collection convention from UTM Schema Reference.
     Returns { genius_url, affiliate_url, network, label, utm }
     """
     from product_api import ArcherAPI, LevantaAPI, URLGeniusAPI
@@ -1096,8 +1187,8 @@ def urlgenius_smart_link():
     if utm_medium not in valid_mediums:
         return jsonify({'error': f'Invalid medium "{utm_medium}" for source "{utm_source}". Valid: {valid_mediums}'}), 400
 
-    # ── utm_content auto-derived from network ───────────────────────────────
-    utm_content = NETWORK_CONTENT.get(network, network)
+    # ── utm_content: caller override takes precedence, else auto-derive ────────
+    utm_content = (placement.get('content') or '').strip() or NETWORK_CONTENT.get(network, network)
 
     # ── Build affiliate URL ─────────────────────────────────────────────────
     affiliate_url = None
