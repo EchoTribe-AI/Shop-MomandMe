@@ -79,6 +79,8 @@ def _route_shop_subdomain():
     if request.method == 'GET':
         if path == '/' or path == '':
             return shop_directory()
+        if path == '/posts':
+            return shop_posts()
         if path == '/sitemap.xml':
             return shop_sitemap()
         if path == '/robots.txt':
@@ -205,6 +207,25 @@ def _tok(s: str) -> list:
     return [t for t in re.split(r'[^a-z0-9]+', s) if len(t) > 1]
 
 
+def _format_display_price(raw) -> str:
+    """Normalize storefront price display to include '$' for plain USD numerics."""
+    if raw is None:
+        return ''
+    s = str(raw).strip()
+    if not s:
+        return ''
+    if '$' in s:
+        return s
+    # Common numeric forms: 19, 19.9, 19.99
+    if re.fullmatch(r'\d+(\.\d{1,2})?', s):
+        return f'${s}'
+    # Common ranges: 19.99-24.99 or 19 - 24
+    m = re.fullmatch(r'(\d+(?:\.\d{1,2})?)\s*[-–]\s*(\d+(?:\.\d{1,2})?)', s)
+    if m:
+        return f'${m.group(1)}-${m.group(2)}'
+    return s
+
+
 def _build_shop_chat_kb(creator_id: str) -> list:
     """Build a creator-scoped product KB from published collages + posts."""
     from product_api import ArcherAPI
@@ -280,7 +301,7 @@ def _build_shop_chat_kb(creator_id: str) -> list:
                 })
                 item['name'] = item['name'] or (p.get('product_name') or p.get('name') or '')
                 item['brand'] = item['brand'] or (p.get('company_name') or p.get('brand') or '')
-                item['price'] = item['price'] or (p.get('price') or '')
+                item['price'] = item['price'] or _format_display_price(p.get('price') or '')
                 item['image'] = item['image'] or (p.get('image_encoded_string') or '')
                 item['link'] = item['link'] or (p.get('attribution_link') or '')
                 item['sources'].add('collage')
@@ -317,7 +338,7 @@ def _build_shop_chat_kb(creator_id: str) -> list:
             # Prefer post metadata if the current value is missing
             item['name'] = item['name'] or (r['product_name'] or '')
             item['brand'] = item['brand'] or (r['product_brand'] or '')
-            item['price'] = item['price'] or (r['product_price'] or '')
+            item['price'] = item['price'] or _format_display_price(r['product_price'] or '')
             item['image'] = item['image'] or (r['product_image'] or '')
             item['link'] = item['link'] or (r['smart_link'] or '')
             item['sources'].add('post')
@@ -1507,6 +1528,8 @@ def shop_landing(slug):
         return "Page not found", 404
 
     products = json.loads(collage.get('products_json') or '[]')
+    for p in products:
+        p['price_display'] = _format_display_price(p.get('price') or '')
     collage['direct_to_amazon'] = bool(collage.get('direct_to_amazon'))
 
     # Resolve creator for branding + creator-specific FB pixel
@@ -1602,6 +1625,60 @@ def shop_directory():
         items=items,
         themes=THEMES,
         canonical_url=f'https://{SHOP_SUBDOMAIN}/',
+        shop_subdomain=SHOP_SUBDOMAIN,
+    )
+
+
+@app.route('/shop/posts')
+def shop_posts():
+    """Public social-post feed (newest first), mobile-friendly card/grid."""
+    from product_api import ArcherAPI
+    a = ArcherAPI()
+    conn = a._db_connect()
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT id, slug, asin, angle, copy, collection_slug, status, smart_link,
+               product_name, product_brand, product_price, product_image,
+               creator_id, created_at, posted_at
+        FROM posts
+        WHERE status != 'archived'
+        ORDER BY COALESCE(posted_at, created_at) DESC
+        LIMIT 400
+        """
+    ).fetchall()
+    conn.close()
+
+    creators_by_id = {c['id']: c for c in db_schema.list_creators()}
+    items = []
+    for r in rows:
+        creator = creators_by_id.get(r['creator_id'] or 'everydaywithsteph', {})
+        copy = (r['copy'] or '').strip()
+        items.append({
+            'id': r['id'],
+            'slug': r['slug'] or '',
+            'asin': r['asin'] or '',
+            'angle': r['angle'] or '',
+            'copy': copy,
+            'copy_excerpt': (copy[:180] + '…') if len(copy) > 180 else copy,
+            'collection_slug': r['collection_slug'] or '',
+            'status': r['status'] or 'draft',
+            'smart_link': r['smart_link'] or '',
+            'product_name': r['product_name'] or (r['asin'] or 'Product'),
+            'product_brand': r['product_brand'] or '',
+            'product_price': _format_display_price(r['product_price'] or ''),
+            'product_image': r['product_image'] or '',
+            'creator_id': r['creator_id'] or 'everydaywithsteph',
+            'creator_handle': creator.get('handle') or '@creator',
+            'created_at': (r['created_at'] or '')[:10],
+            'posted_at': (r['posted_at'] or '')[:10] if r['posted_at'] else '',
+            'shop_url': f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}" if r['collection_slug'] else '',
+        })
+
+    return render_template(
+        'shop_posts.html',
+        items=items,
+        canonical_url=f'https://{SHOP_SUBDOMAIN}/posts',
         shop_subdomain=SHOP_SUBDOMAIN,
     )
 

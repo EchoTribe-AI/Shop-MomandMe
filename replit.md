@@ -286,3 +286,41 @@ their content backlog.
 - `index.html` - Frontend with product cards UI
 - `steph-ai-plan.html`, `steph-architecture.html`, `steph-connection-map.html` - Documentation pages
 - `pyproject.toml` - Dependencies
+
+### Shop + Insights UX updates (April 28, 2026 follow-up)
+
+This branch now includes the approved storefront/insights improvements from the audit:
+
+1. **Shop directory parity enhancements**
+   - `templates/shop_directory.html` now includes a bottom AI chat module wired to `POST /api/shop/chat` with `slug='shop-home'` context.
+   - Added affiliate disclosure copy on the `/shop/` directory page.
+   - Added directory header nav to the social posts feed (`https://<SHOP_SUBDOMAIN>/posts`).
+
+2. **New public social posts feed**
+   - Added `GET /shop/posts` route in `app.py`.
+   - Added `templates/shop_posts.html` for a public, mobile-friendly social-post listing.
+   - Default sort is newest-first using `COALESCE(posted_at, created_at) DESC`.
+   - Mobile view supports both **2-per-row** and a **condensed 1-per-row** toggle.
+
+3. **Landing page rendering fixes**
+   - Product title truncation removed on `templates/shop_landing.html` (full title now shown).
+   - Added `_format_display_price(raw)` in `app.py` and wired it to landing/chat/post surfaces so plain USD numerics render with `$` consistently.
+
+4. **Insights drill-in / edit navigation**
+   - `templates/insights.html` now includes explicit **View/Edit** actions for:
+     - Collections (view landing + edit in collage builder)
+     - Posts (view landing when available + edit in organic posts UI)
+     - Ads (open ads builder for management)
+
+5. **Editor deep-link behavior**
+   - `templates/archer_collage.html` now supports `?collection=<slug>` and preloads that collage.
+   - `templates/organic_posts.html` now supports `?post_id=<id>` and auto-loads/smooth-scrolls/highlights the target card.
+
+6. **Post metadata edit support**
+   - `posts.py` `update_post()` allowlist now includes `product_name`, `product_brand`, and `product_price` for richer future editing flows.
+
+#### Operational notes for maintainers
+- Public social feed is now part of shop subdomain surface:
+  - `https://shop.echotribe.ai/posts`
+- Subdomain rewrite hook in `app.py` now explicitly routes `GET /posts` to `shop_posts()` before slug fallback.
+- If adding future public shop pages, register explicit paths in `_route_shop_subdomain()` before the dynamic slug branch.

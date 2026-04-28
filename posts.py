@@ -141,12 +141,14 @@ def update_post(post_id: int, fields: dict) -> Optional[dict]:
 
     Allowed fields: copy, image_note, angle, status, smart_link,
     utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-    collection_slug, product_image, posted_at.
+    collection_slug, product_image, posted_at, product_name,
+    product_brand, product_price.
     """
     allowed = {
         'copy', 'image_note', 'angle', 'status', 'smart_link',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
         'collection_slug', 'product_image', 'posted_at',
+        'product_name', 'product_brand', 'product_price',
     }
     sets = []
     vals: list = []

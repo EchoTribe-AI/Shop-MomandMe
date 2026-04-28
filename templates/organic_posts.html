@@ -511,7 +511,14 @@
 ════════════════════════════════════════════════════════════════ */
 const state = { products: [], discProds: [], searchTimer: null };
 
-window.onload = () => { renderQueueChips(); };
+window.onload = async () => {
+  renderQueueChips();
+  const params = new URLSearchParams(window.location.search);
+  const postId = parseInt(params.get('post_id') || '0', 10);
+  if (postId) {
+    await loadSavedQueue(postId);
+  }
+};
 
 /* ════════════════════════════════════════════════════════════════
    UTILITIES
@@ -1139,7 +1146,7 @@ async function savePostEdit(postId, asin) {
   }
 }
 
-async function loadSavedQueue() {
+async function loadSavedQueue(focusPostId = 0) {
   try {
     const res = await fetch('/archer/posts');
     const data = await res.json();
@@ -1151,6 +1158,13 @@ async function loadSavedQueue() {
     const term   = document.getElementById('gb-term').value.trim();
     renderModeB(posts, source, medium, term);
     showToast(`${posts.length} saved post${posts.length===1?'':'s'} loaded`);
+    if (focusPostId) {
+      const target = document.getElementById(`post-card-${focusPostId}`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.style.boxShadow = '0 0 0 2px rgba(232,93,38,0.5)';
+      }
+    }
   } catch (e) {
     showErr('b-err', `Failed to load queue: ${e.message}`);
   }
