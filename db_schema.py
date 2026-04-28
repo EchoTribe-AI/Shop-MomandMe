@@ -133,6 +133,43 @@ def init_schema() -> None:
         _add_column_if_missing(conn, 'collages', "hero_title TEXT")
         _add_column_if_missing(conn, 'collages', "hero_subtitle TEXT")
 
+        # ── posts (Branch 2B) ────────────────────────────────────────────
+        # Persists Mode B individual social posts (1 per product). Optional
+        # foreign key to a collection slug so a "Mother's Day" gift guide
+        # can have N individual posts AND one collection landing page, all
+        # queryable together.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS posts (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                creator_id      TEXT NOT NULL DEFAULT 'everydaywithsteph',
+                asin            TEXT,
+                network         TEXT DEFAULT 'amazon',
+                angle           TEXT,
+                copy            TEXT,
+                image_note      TEXT,
+                collection_slug TEXT,
+                status          TEXT DEFAULT 'draft',
+                utm_source      TEXT,
+                utm_medium      TEXT,
+                utm_campaign    TEXT,
+                utm_content     TEXT,
+                utm_term        TEXT,
+                smart_link      TEXT,
+                product_name    TEXT,
+                product_brand   TEXT,
+                product_price   TEXT,
+                product_image   TEXT,
+                slug            TEXT,
+                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                posted_at       TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_creator ON posts(creator_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_collection ON posts(collection_slug)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)")
+
         conn.commit()
     finally:
         conn.close()

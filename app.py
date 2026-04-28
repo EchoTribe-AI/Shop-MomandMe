@@ -736,7 +736,46 @@ def archer_generate_posts():
                 if not m:
                     raise
                 parsed = json.loads(m.group(0))
-            return jsonify({'mode': 'b', 'posts': parsed.get('posts', [])})
+
+            # Persist generated posts to the queue (Branch 2B). Each post becomes
+            # a draft row joinable to clicks/earnings via posts.slug ↔ click_log.slug.
+            import posts as _posts
+            creator_id = (data.get('creator_id') or 'everydaywithsteph').strip()
+            collection_slug = (data.get('collection_slug') or '').strip().lower() or None
+            persisted = []
+            asin_to_product = {(p.get('asin') or '').strip(): p for p in product_list}
+            for raw_post in parsed.get('posts', []):
+                asin = (raw_post.get('asin') or '').strip()
+                product = asin_to_product.get(asin, {})
+                try:
+                    saved = _posts.create_post(
+                        creator_id=creator_id,
+                        asin=asin,
+                        angle=raw_post.get('angle', ''),
+                        copy=raw_post.get('copy', ''),
+                        image_note=raw_post.get('image_note', ''),
+                        collection_slug=collection_slug,
+                        status='draft',
+                        product_name=product.get('product_name') or product.get('name') or '',
+                        product_brand=product.get('brand') or product.get('company_name') or '',
+                        product_price=product.get('price') or '',
+                        product_image=product.get('image_encoded_string') or '',
+                    )
+                    persisted.append(saved)
+                except Exception as _e:
+                    logging.warning(f"[GENERATE_POSTS] persist failed for {asin}: {_e}")
+                    persisted.append({
+                        'angle': raw_post.get('angle', ''),
+                        'copy': raw_post.get('copy', ''),
+                        'image_note': raw_post.get('image_note', ''),
+                        'asin': asin,
+                    })
+            return jsonify({
+                'mode': 'b',
+                'posts': parsed.get('posts', []),
+                'persisted_posts': persisted,
+                'persisted_count': len([p for p in persisted if p.get('id')]),
+            })
 
         elif mode == 'c':
             collection_name = data.get('collection_name', 'Collection')
@@ -969,6 +1008,15 @@ def archer_generate_campaign_package():
 
 @app.route('/archer/collage/save', methods=['POST'])
 def archer_save_collage():
+    """Save (or update) a collage.
+
+    Branch 2B behavior change:
+      status='draft'     → SKIP Archer attribution-link generation (saves API
+                            quota during preview iteration)
+      status='published' → Generate Archer links for any product missing one
+                            (existing default behavior)
+    Drafts are 404 publicly and viewable only via /shop/<slug>?preview=1.
+    """
     from product_api import ArcherAPI
     data = request.get_json() or {}
     slug = data.get('slug', '').strip().lower().replace(' ', '-')
@@ -976,15 +1024,17 @@ def archer_save_collage():
         return jsonify({'error': 'slug and products required'}), 400
 
     creator_id = (data.get('creator_id') or 'everydaywithsteph').strip()
+    status = (data.get('status') or 'published').strip()
 
     a = ArcherAPI()
     products = data.get('products', [])
-    for p in products:
-        asin = p.get('asin', '')
-        if asin and not p.get('attribution_link'):
-            link = a.generate_link(asin, label=f"{slug}-{asin.lower()}")
-            if link:
-                p['attribution_link'] = link.get('attribution_link') or link.get('url') or ''
+    if status == 'published':
+        for p in products:
+            asin = p.get('asin', '')
+            if asin and not p.get('attribution_link'):
+                link = a.generate_link(asin, label=f"{slug}-{asin.lower()}")
+                if link:
+                    p['attribution_link'] = link.get('attribution_link') or link.get('url') or ''
 
     # Preserve campaign_types if the collage already exists (e.g. previously
     # tagged 'paid' from Ad Builder use; we don't want to clobber that on re-save).
@@ -1014,20 +1064,105 @@ def archer_save_collage():
         data.get('caption', ''),
         1 if data.get('direct_to_amazon') else 0,
         creator_id,
-        data.get('status', 'published'),
+        status,
         json.dumps(merged_types),
         data.get('hero_title', ''),
         data.get('hero_subtitle', ''),
     ))
     conn.commit()
     conn.close()
+
+    is_draft = status != 'published'
     return jsonify({
-        'url': f'/shop/{slug}',
-        'public_url': f'https://{SHOP_SUBDOMAIN}/{slug}',
+        'url': f'/shop/{slug}' + ('?preview=1' if is_draft else ''),
+        'public_url': (
+            f'https://{SHOP_SUBDOMAIN}/{slug}'
+            if not is_draft
+            else f'/shop/{slug}?preview=1'
+        ),
         'slug': slug,
         'creator_id': creator_id,
+        'status': status,
+        'is_draft': is_draft,
         'campaign_types': merged_types,
     })
+
+
+@app.route('/archer/collage/publish', methods=['POST'])
+def archer_collage_publish():
+    """Promote a draft collage to published. Generates Archer attribution links
+    for products that don't have them yet, then flips status to 'published'.
+
+    Body: { "slug": "..." }
+    """
+    from product_api import ArcherAPI
+    data = request.get_json() or {}
+    slug = (data.get('slug') or '').strip().lower()
+    if not slug:
+        return jsonify({'error': 'slug is required'}), 400
+
+    a = ArcherAPI()
+    conn = a._db_connect()
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM collages WHERE slug = ?", (slug,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'collection not found'}), 404
+
+    try:
+        products = json.loads(row['products_json'] or '[]')
+    except (json.JSONDecodeError, TypeError):
+        products = []
+
+    # Backfill Archer attribution links on products that lack them
+    for p in products:
+        asin = p.get('asin', '')
+        if asin and not p.get('attribution_link'):
+            try:
+                link = a.generate_link(asin, label=f"{slug}-{asin.lower()}")
+                if link:
+                    p['attribution_link'] = (
+                        link.get('attribution_link') or link.get('url') or ''
+                    )
+            except Exception as _e:
+                logging.warning(f"[PUBLISH] Archer link gen failed for {asin}: {_e}")
+
+    conn.execute(
+        "UPDATE collages SET products_json = ?, status = 'published' WHERE slug = ?",
+        (json.dumps(products), slug),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({
+        'slug': slug,
+        'status': 'published',
+        'public_url': f'https://{SHOP_SUBDOMAIN}/{slug}',
+    })
+
+@app.route('/archer/collage/<slug>', methods=['GET'])
+def archer_collage_get(slug):
+    """Return one collection's full record (used by Ad Builder auto-load
+    when ?collection=<slug> deep-link is hit, and by the Mode C edit flow)."""
+    from product_api import ArcherAPI
+    conn = ArcherAPI()._db_connect()
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM collages WHERE slug = ?", (slug,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'not found'}), 404
+    out = dict(row)
+    try:
+        out['products'] = json.loads(out.pop('products_json') or '[]')
+    except (json.JSONDecodeError, TypeError):
+        out['products'] = []
+    try:
+        out['campaign_types'] = (
+            json.loads(out['campaign_types']) if out.get('campaign_types') else []
+        )
+    except (json.JSONDecodeError, TypeError):
+        out['campaign_types'] = []
+    return jsonify({'collage': out})
+
 
 @app.route('/archer/collages')
 def archer_list_collages():
@@ -1226,6 +1361,87 @@ def shop_robots():
         f"Sitemap: https://{SHOP_SUBDOMAIN}/sitemap.xml\n"
     )
     return Response(body, mimetype='text/plain')
+
+
+# ── POSTS QUEUE (Branch 2B) ──────────────────────────────────────────────────
+@app.route('/archer/posts', methods=['GET'])
+def archer_posts_list():
+    """List posts for the queue UI. Query: status, collection_slug, creator_id."""
+    import posts as _posts
+    rows = _posts.list_posts(
+        creator_id=request.args.get('creator_id', 'everydaywithsteph'),
+        status=request.args.get('status') or None,
+        collection_slug=request.args.get('collection_slug') or None,
+        limit=int(request.args.get('limit', 200)),
+    )
+    return jsonify({'posts': rows, 'stats': _posts.stats(
+        request.args.get('creator_id', 'everydaywithsteph')
+    )})
+
+
+@app.route('/archer/posts/<int:post_id>', methods=['PATCH'])
+def archer_post_update(post_id):
+    """Update a single post's editable fields (copy, angle, status, UTMs, smart_link)."""
+    import posts as _posts
+    body = request.get_json() or {}
+    saved = _posts.update_post(post_id, body)
+    if not saved:
+        return jsonify({'error': 'post not found'}), 404
+    return jsonify({'post': saved})
+
+
+@app.route('/archer/posts/<int:post_id>', methods=['DELETE'])
+def archer_post_delete(post_id):
+    """Hard delete. Use bulk_status with 'archived' for soft delete."""
+    import posts as _posts
+    if not _posts.delete_post(post_id):
+        return jsonify({'error': 'post not found'}), 404
+    return jsonify({'ok': True})
+
+
+@app.route('/archer/posts/bulk', methods=['POST'])
+def archer_posts_bulk():
+    """Bulk-update status on many posts at once.
+
+    Body: { "ids": [1,2,3], "status": "approved" | "posted" | "archived" }
+    """
+    import posts as _posts
+    body = request.get_json() or {}
+    ids = body.get('ids') or []
+    status = (body.get('status') or '').strip()
+    if not ids or status not in {'draft', 'approved', 'posted', 'archived'}:
+        return jsonify({'error': 'ids and valid status required'}), 400
+    n = _posts.bulk_set_status([int(i) for i in ids], status)
+    return jsonify({'updated': n})
+
+
+@app.route('/archer/posts/export.csv', methods=['GET'])
+def archer_posts_export_csv():
+    """Export posts queue as CSV: created_at | angle | asin | copy | smart_link | image_note | status."""
+    import csv, io
+    import posts as _posts
+    rows = _posts.list_posts(
+        creator_id=request.args.get('creator_id', 'everydaywithsteph'),
+        status=request.args.get('status') or None,
+        collection_slug=request.args.get('collection_slug') or None,
+        limit=int(request.args.get('limit', 1000)),
+    )
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['created_at', 'angle', 'asin', 'product_name', 'copy',
+                'smart_link', 'image_note', 'status', 'collection_slug'])
+    for r in rows:
+        w.writerow([
+            r.get('created_at', ''), r.get('angle', ''), r.get('asin', ''),
+            r.get('product_name', ''), r.get('copy', ''),
+            r.get('smart_link', ''), r.get('image_note', ''),
+            r.get('status', ''), r.get('collection_slug', '') or '',
+        ])
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="posts_queue.csv"'},
+    )
 
 
 @app.route('/archer/track_click', methods=['POST'])

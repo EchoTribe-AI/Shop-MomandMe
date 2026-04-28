@@ -169,45 +169,77 @@ def collections_summary(creator_id: str, start: str, end: str) -> list[dict]:
 
 
 def posts_summary(creator_id: str, start: str, end: str) -> list[dict]:
-    """Per-Mode-B-post (slug-level): clicks per slug not tied to a collection.
+    """Per-Mode-B-post performance.
 
-    In Phase 2A we don't yet have a `posts` table — that lands in Branch 2B.
-    Until then we surface ANY click_log slug that does not match a collage row,
-    treating it as an individual-post slug for now.
+    Branch 2B: joins the `posts` table (persisted Mode B output) against
+    `click_log` by slug. Posts that haven't received any clicks still show up
+    so creators can see their content backlog and approval status. Posts
+    created within the window are included even with zero clicks.
     """
     conn = _connect()
-    where, params = _date_filter(start, end, 'clicked_at')
+    where_clicks, click_params = _date_filter(start, end, 'clicked_at')
 
-    # Get all collage slugs so we can exclude them
-    collage_slugs = {r[0] for r in conn.execute("SELECT slug FROM collages").fetchall()}
-
-    rows = conn.execute(
-        f"SELECT slug, asin, COUNT(*) as clicks, MAX(clicked_at) as last_click "
+    # 1) Click counts per (post.slug, asin) inside the window
+    click_rows = conn.execute(
+        f"SELECT slug, COUNT(*) AS clicks, MAX(clicked_at) AS last_click "
         f"FROM click_log "
-        f"WHERE {where} AND slug IS NOT NULL AND slug != '' "
-        f"GROUP BY slug, asin "
-        f"ORDER BY clicks DESC",
-        params,
+        f"WHERE {where_clicks} AND slug IS NOT NULL AND slug != '' "
+        f"GROUP BY slug",
+        click_params,
     ).fetchall()
+    clicks_by_slug = {r['slug']: dict(r) for r in click_rows}
+
+    # 2) Posts for this creator created OR updated in the window. (Plus any
+    #    clicked-in-window posts that were created earlier — folded in below.)
+    posts_where_c, posts_params_c = _date_filter(start, end, 'created_at')
+    posts_where_u, posts_params_u = _date_filter(start, end, 'updated_at')
+    post_rows = conn.execute(
+        f"SELECT id, slug, asin, angle, status, copy, collection_slug, "
+        f"       product_name, product_brand, created_at, posted_at "
+        f"FROM posts "
+        f"WHERE COALESCE(creator_id,'everydaywithsteph') = ? "
+        f"  AND status != 'archived' "
+        f"  AND (({posts_where_c}) OR ({posts_where_u}))",
+        [creator_id, *posts_params_c, *posts_params_u],
+    ).fetchall()
+
+    # 2b) Pull in older posts whose slug got clicks during the window
+    seen_ids = {r['id'] for r in post_rows}
+    if clicks_by_slug:
+        slug_placeholders = ','.join('?' for _ in clicks_by_slug)
+        extra_rows = conn.execute(
+            f"SELECT id, slug, asin, angle, status, copy, collection_slug, "
+            f"       product_name, product_brand, created_at, posted_at "
+            f"FROM posts "
+            f"WHERE COALESCE(creator_id,'everydaywithsteph') = ? "
+            f"  AND status != 'archived' "
+            f"  AND slug IN ({slug_placeholders})",
+            [creator_id, *list(clicks_by_slug.keys())],
+        ).fetchall()
+        post_rows = list(post_rows) + [r for r in extra_rows if r['id'] not in seen_ids]
+
     conn.close()
 
-    # Aggregate clicks across asins per slug
-    by_slug: dict[str, dict] = {}
-    for r in rows:
-        if r['slug'] in collage_slugs:
-            continue
-        b = by_slug.setdefault(r['slug'], {'clicks': 0, 'asins': set(), 'last_click': r['last_click']})
-        b['clicks'] += int(r['clicks'] or 0)
-        b['asins'].add(r['asin'])
-    return [
-        {
-            'slug':       slug,
-            'clicks':     v['clicks'],
-            'asin_count': len(v['asins']),
-            'last_click': (v['last_click'] or '')[:10],
-        }
-        for slug, v in sorted(by_slug.items(), key=lambda kv: kv[1]['clicks'], reverse=True)
-    ]
+    out = []
+    for r in post_rows:
+        slug = r['slug'] or ''
+        click_info = clicks_by_slug.get(slug, {})
+        out.append({
+            'id':              r['id'],
+            'slug':            slug,
+            'angle':           r['angle'] or '',
+            'asin':            r['asin'] or '',
+            'product_name':    r['product_name'] or '',
+            'product_brand':   r['product_brand'] or '',
+            'status':          r['status'] or 'draft',
+            'collection_slug': r['collection_slug'] or '',
+            'clicks':          int(click_info.get('clicks') or 0),
+            'last_click':      (click_info.get('last_click') or '')[:10],
+            'created_at':      (r['created_at'] or '')[:10],
+            'posted_at':       (r['posted_at'] or '')[:10] if r['posted_at'] else '',
+        })
+    out.sort(key=lambda r: (r['clicks'], r['created_at']), reverse=True)
+    return out
 
 
 def ads_summary(creator_id: str, start: str, end: str,

@@ -216,14 +216,42 @@
       {% if posts %}
       <table>
         <thead>
-          <tr><th>Post slug</th><th>Clicks</th><th>ASINs touched</th><th>Last click</th></tr>
+          <tr>
+            <th>Product</th>
+            <th>Angle</th>
+            <th>Status</th>
+            <th>Clicks</th>
+            <th>Collection</th>
+            <th>Created</th>
+            <th>Last click</th>
+          </tr>
         </thead>
         <tbody>
           {% for p in posts %}
           <tr>
-            <td><a class="slug-link" href="/shop/{{ p.slug }}" target="_blank" rel="noopener">{{ p.slug }}</a></td>
+            <td>
+              <div style="font-weight:500;font-size:12.5px;">{{ p.product_name or p.asin }}</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--text4);">{{ p.asin }}</div>
+            </td>
+            <td><span class="ct-pill" style="background:var(--archer-light);color:var(--archer);">{{ p.angle }}</span></td>
+            <td>
+              {% set s = p.status %}
+              <span class="ct-pill" style="
+                {% if s == 'approved' %}background:var(--green-light);color:var(--green);
+                {% elif s == 'posted' %}background:var(--blue-light);color:var(--blue);
+                {% elif s == 'archived' %}background:#fff0f0;color:var(--red);
+                {% else %}background:var(--surface2);color:var(--text3);{% endif %}
+              ">{{ s }}</span>
+            </td>
             <td class="num num-clicks">{{ '{:,}'.format(p.clicks) }}</td>
-            <td class="num">{{ p.asin_count }}</td>
+            <td>
+              {% if p.collection_slug %}
+                <a class="slug-link" href="/shop/{{ p.collection_slug }}" target="_blank" rel="noopener">{{ p.collection_slug }}</a>
+              {% else %}
+                <span style="color:var(--text4);font-size:11px;">—</span>
+              {% endif %}
+            </td>
+            <td class="num" style="color:var(--text3);">{{ p.created_at }}</td>
             <td class="num" style="color:var(--text3);">{{ p.last_click }}</td>
           </tr>
           {% endfor %}
@@ -232,8 +260,8 @@
       {% else %}
       <div class="empty">
         <div class="empty-emoji">📝</div>
-        No individual-post clicks recorded for this window.
-        <div style="margin-top:8px;font-size:11px;">Persisted Mode B posts arrive in Branch 2B; this tab will populate then.</div>
+        No posts created or clicks recorded for this window.
+        <div style="margin-top:8px;font-size:11px;">Generate posts at <a href="/archer/organic" style="color:var(--blue);">Mode B</a> — they'll appear here as drafts.</div>
       </div>
       {% endif %}
     </div>

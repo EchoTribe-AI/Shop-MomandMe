@@ -939,6 +939,7 @@ async function genModeB() {
     brand: p.company_name || p.brand || '',
     price: p.price || '',
     commission: p.commission_payout || p.commission || '',
+    image_encoded_string: p.image_encoded_string || (p.asin ? asinImg(p.asin) : ''),
   }));
 
   try {
@@ -949,8 +950,11 @@ async function genModeB() {
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-    renderModeB(data.posts || [], source, medium, term);
-    showToast(`${(data.posts||[]).length} posts generated`);
+    // Prefer persisted_posts (have id+slug) when present; fall back to raw posts
+    const persisted = data.persisted_posts || [];
+    const posts = persisted.length ? persisted : (data.posts || []);
+    renderModeB(posts, source, medium, term);
+    showToast(`${posts.length} posts generated · ${data.persisted_count||0} saved as draft`);
   } catch (err) {
     showErr('b-err', err.message);
     document.getElementById('b-res').innerHTML = '<div class="empty">Generation failed — see error above.</div>';
@@ -958,51 +962,202 @@ async function genModeB() {
   setLoading('b-btn', 'b-spin', false);
 }
 
+const QUEUE_STATUSES = {
+  draft:    { label: 'Draft',    color: '#a8a6a0', bg: '#f5f4f0' },
+  approved: { label: 'Approved', color: '#27693a', bg: '#e8f4ec' },
+  posted:   { label: 'Posted',   color: '#1c5fa6', bg: '#e8f0f8' },
+  archived: { label: 'Archived', color: '#a02828', bg: '#fff0f0' },
+};
+
 function renderModeB(posts, source, medium, term) {
   if (!posts.length) { document.getElementById('b-res').innerHTML = '<div class="empty">No posts returned.</div>'; return; }
+  state.modeB = { posts, source, medium, term };
 
-  const cards = posts.map(post => {
-    const prod = state.products.find(p => p.asin === post.asin) || { asin: post.asin, product_name: post.asin, company_name: '', price: '', commission_payout: '' };
-    const imgSrc = prod.image_encoded_string || (prod.asin ? asinImg(prod.asin) : '');
-    const angle  = (post.angle || 'organic').toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    const utm = {
-      source, medium,
-      campaign: autoUtmCampaign(prod),
-      content:  `organic_${slugify(angle)}_static`,
-      term,
-    };
-    const pid = `post-${post.asin}`;
-    return `<div class="ocard" id="${pid}">
-      <div class="ocard-head">
-        ${imgSrc ? `<img class="ocard-img" src="${esc(imgSrc)}" onerror="this.style.display='none'" alt="">` : ''}
-        <div class="ocard-meta">
-          <div class="ocard-brand">${esc(prod.company_name||prod.brand||'')}</div>
-          <div class="ocard-name">${esc(prod.product_name||prod.name||prod.asin)}</div>
-          <div class="ocard-pills">
-            ${prod.price ? `<span class="opill">${esc(prod.price)}</span>` : ''}
-            ${prod.commission_payout ? `<span class="opill green">${esc(prod.commission_payout)}</span>` : ''}
-          </div>
-        </div>
-      </div>
-      <div class="ocard-body">
-        <div><span class="angle-badge">📐 ${esc(post.angle||'')}</span></div>
-        ${post.image_note ? `<div class="image-note">🖼 ${esc(post.image_note)}</div>` : ''}
-        <div class="post-copy" contenteditable="true" id="copy-${esc(post.asin)}">${esc(post.copy||'')}</div>
-        ${utmCardHtml(post.asin, utm)}
-        <div class="card-actions">
-          <button class="ca-btn primary" onclick="copyPost('${esc(post.asin)}')">Copy Post + Link</button>
-          <a href="https://www.amazon.com/dp/${esc(post.asin)}" target="_blank" class="ca-btn">Amazon ↗</a>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
+  const cards = posts.map(post => _renderPostCard(post, source, medium, term)).join('');
 
   document.getElementById('b-res').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-      <span style="font-family:var(--mono);font-size:11px;color:var(--text4);">${posts.length} post${posts.length===1?'':'s'} · 1 per product</span>
-      <button class="ca-btn primary" onclick="copyAllPosts()">Copy All Posts + Links</button>
+    <div class="queue-toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;background:var(--surface);border:0.5px solid var(--border);border-radius:var(--rlg);padding:10px 14px;">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:var(--mono);color:var(--text3);cursor:pointer;">
+          <input type="checkbox" id="q-select-all" onchange="toggleAllQueue(this.checked)"> Select all
+        </label>
+        <span id="q-count" style="font-family:var(--mono);font-size:11px;color:var(--text4);">${posts.length} post${posts.length===1?'':'s'} · 1 per product</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="ca-btn" onclick="loadSavedQueue()">📂 View Saved Queue</button>
+        <button class="ca-btn" onclick="exportQueueCSV()">⬇️ Export CSV</button>
+        <button class="ca-btn" onclick="bulkSetQueueStatus('approved')">✓ Approve selected</button>
+        <button class="ca-btn" onclick="bulkSetQueueStatus('archived')" style="color:var(--red);">🗑 Archive selected</button>
+        <button class="ca-btn primary" onclick="copyAllPosts()">Copy all</button>
+      </div>
     </div>
-    <div class="out-grid">${cards}</div>`;
+    <div class="out-grid" id="b-grid">${cards}</div>`;
+}
+
+function _renderPostCard(post, source, medium, term) {
+  const asin = post.asin || '';
+  const prod = state.products.find(p => p.asin === asin) || {
+    asin,
+    product_name: post.product_name || asin,
+    company_name: post.product_brand || '',
+    price: post.product_price || '',
+    image_encoded_string: post.product_image || '',
+    commission_payout: '',
+  };
+  const imgSrc = prod.image_encoded_string || (asin ? asinImg(asin) : '');
+  const angle  = (post.angle || 'organic').toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  const utm = {
+    source, medium,
+    campaign: autoUtmCampaign(prod),
+    content:  `organic_${slugify(angle)}_static`,
+    term,
+  };
+  const postId = post.id || '';
+  const status = post.status || 'draft';
+  const stMeta = QUEUE_STATUSES[status] || QUEUE_STATUSES.draft;
+  const cardId = postId ? `post-card-${postId}` : `post-${asin}`;
+  const checkbox = postId
+    ? `<input type="checkbox" class="q-checkbox" data-post-id="${postId}" style="margin-right:6px;">`
+    : '';
+
+  return `<div class="ocard" id="${cardId}" data-post-id="${esc(String(postId))}" data-asin="${esc(asin)}">
+    <div class="ocard-head" style="position:relative;">
+      ${checkbox}
+      ${imgSrc ? `<img class="ocard-img" src="${esc(imgSrc)}" onerror="this.style.display='none'" alt="">` : ''}
+      <div class="ocard-meta">
+        <div class="ocard-brand">${esc(prod.company_name||prod.brand||'')}</div>
+        <div class="ocard-name">${esc(prod.product_name||prod.name||asin)}</div>
+        <div class="ocard-pills">
+          ${prod.price ? `<span class="opill">${esc(prod.price)}</span>` : ''}
+          ${prod.commission_payout ? `<span class="opill green">${esc(prod.commission_payout)}</span>` : ''}
+          ${postId ? `<span class="opill" style="background:${stMeta.bg};color:${stMeta.color};border-color:${stMeta.color}33;" id="status-${postId}">${stMeta.label}</span>` : ''}
+        </div>
+      </div>
+    </div>
+    <div class="ocard-body">
+      <div><span class="angle-badge">📐 ${esc(post.angle||'')}</span></div>
+      ${post.image_note ? `<div class="image-note">🖼 ${esc(post.image_note)}</div>` : ''}
+      <div class="post-copy" contenteditable="true" id="copy-${esc(asin)}" oninput="markPostDirty(${postId||0})">${esc(post.copy||'')}</div>
+      ${utmCardHtml(asin, utm)}
+      <div class="card-actions">
+        <button class="ca-btn primary" onclick="copyPost('${esc(asin)}')">Copy Post + Link</button>
+        ${postId ? `<button class="ca-btn" onclick="savePostEdit(${postId}, '${esc(asin)}')">💾 Save Edit</button>` : ''}
+        ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'approved')" style="background:var(--green-light);color:var(--green);">✓ Approve</button>` : ''}
+        ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'archived')" style="color:var(--red);">🗑 Archive</button>` : ''}
+        <a href="https://www.amazon.com/dp/${esc(asin)}" target="_blank" class="ca-btn">Amazon ↗</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ─── QUEUE ACTIONS ───────────────────────────────────────────── */
+function _selectedPostIds() {
+  return Array.from(document.querySelectorAll('.q-checkbox:checked')).map(el => parseInt(el.dataset.postId));
+}
+
+function toggleAllQueue(on) {
+  document.querySelectorAll('.q-checkbox').forEach(el => { el.checked = on; });
+}
+
+async function setPostStatus(postId, status) {
+  try {
+    const res = await fetch(`/archer/posts/${postId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const stMeta = QUEUE_STATUSES[status] || QUEUE_STATUSES.draft;
+    const pill = document.getElementById(`status-${postId}`);
+    if (pill) {
+      pill.textContent = stMeta.label;
+      pill.style.background = stMeta.bg;
+      pill.style.color = stMeta.color;
+      pill.style.borderColor = stMeta.color + '33';
+    }
+    showToast(`Marked ${stMeta.label.toLowerCase()}`);
+  } catch (e) {
+    showErr('b-err', `Status update failed: ${e.message}`);
+  }
+}
+
+async function bulkSetQueueStatus(status) {
+  const ids = _selectedPostIds();
+  if (!ids.length) { showToast('Select posts first (checkboxes)'); return; }
+  try {
+    const res = await fetch('/archer/posts/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, status }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    showToast(`${data.updated} updated`);
+    // Re-render local pills + clear selection
+    const stMeta = QUEUE_STATUSES[status] || QUEUE_STATUSES.draft;
+    ids.forEach(id => {
+      const pill = document.getElementById(`status-${id}`);
+      if (pill) {
+        pill.textContent = stMeta.label;
+        pill.style.background = stMeta.bg;
+        pill.style.color = stMeta.color;
+      }
+      // If archived, hide the card
+      if (status === 'archived') {
+        const card = document.getElementById(`post-card-${id}`);
+        if (card) card.style.display = 'none';
+      }
+    });
+    document.getElementById('q-select-all').checked = false;
+    document.querySelectorAll('.q-checkbox').forEach(el => { el.checked = false; });
+  } catch (e) {
+    showErr('b-err', `Bulk update failed: ${e.message}`);
+  }
+}
+
+function markPostDirty(postId) {
+  if (!postId) return;
+  const card = document.getElementById(`post-card-${postId}`);
+  if (card) card.dataset.dirty = '1';
+}
+
+async function savePostEdit(postId, asin) {
+  const el = document.getElementById(`copy-${asin}`);
+  const newCopy = (el?.innerText || el?.textContent || '').trim();
+  try {
+    const res = await fetch(`/archer/posts/${postId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ copy: newCopy }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const card = document.getElementById(`post-card-${postId}`);
+    if (card) delete card.dataset.dirty;
+    showToast('Saved');
+  } catch (e) {
+    showErr('b-err', `Edit save failed: ${e.message}`);
+  }
+}
+
+async function loadSavedQueue() {
+  try {
+    const res = await fetch('/archer/posts');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const posts = data.posts || [];
+    if (!posts.length) { showToast('No saved posts in queue yet'); return; }
+    const source = document.getElementById('gb-source').value;
+    const medium = document.getElementById('gb-medium').value;
+    const term   = document.getElementById('gb-term').value.trim();
+    renderModeB(posts, source, medium, term);
+    showToast(`${posts.length} saved post${posts.length===1?'':'s'} loaded`);
+  } catch (e) {
+    showErr('b-err', `Failed to load queue: ${e.message}`);
+  }
+}
+
+function exportQueueCSV() {
+  window.open('/archer/posts/export.csv', '_blank');
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -1103,8 +1258,9 @@ function renderModeC(col, url, source, medium, term) {
         <div class="card-actions mt8">
           <button class="ca-btn primary" onclick="copyEl('col-copy', this)">Copy Post</button>
           <button class="ca-btn" onclick="copyToClipboard('${esc(url)}')">Copy URL</button>
-          <button class="ca-btn" onclick="previewLandingPage()">👁 Preview</button>
-          <button class="ca-btn" onclick="saveAsLandingPage(this)">🚀 Save &amp; Publish</button>
+          <button class="ca-btn" onclick="saveDraftLandingPage(this)">💾 Save Draft</button>
+          <button class="ca-btn" onclick="previewDraftLandingPage(this)">👁 Preview</button>
+          <button class="ca-btn" onclick="publishLandingPage(this)" style="background:var(--green-light);color:var(--green);border-color:rgba(39,105,58,0.3);">🚀 Publish</button>
         </div>
       </div>
     </div>
@@ -1117,31 +1273,15 @@ function renderModeC(col, url, source, medium, term) {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   LANDING PAGE — Preview & Publish
+   LANDING PAGE — Save Draft / Preview / Publish (3-state)
 ════════════════════════════════════════════════════════════════ */
-function previewLandingPage() {
-  // Use existing /archer/collage/save with a temp preview slug, then open in new tab.
-  // Faster path: open the editor at /archer/collage with state pre-loaded; for now
-  // just save with a -preview slug that the user can clean up later, so they can see
-  // exactly how it'll look on shop.echotribe.ai.
-  const slug = (document.getElementById('col-slug').value || '').trim().toLowerCase();
-  if (!slug) { showErr('c-err', 'Enter a slug first.'); return; }
-  // If already saved this slug, just open it; otherwise save first.
-  saveAsLandingPage(null, /*then=*/ (data) => {
-    const url = data.public_url || `/shop/${data.slug}`;
-    window.open(url, '_blank', 'noopener');
-  });
-}
-
-async function saveAsLandingPage(btn, then) {
-  const name  = (document.getElementById('col-name').value  || '').trim();
+function _collectLpPayload() {
   const slug  = (document.getElementById('col-slug').value  || '').trim().toLowerCase().replace(/\s+/g, '-');
   const theme = (document.getElementById('col-theme').value || 'coral');
+  const name  = (document.getElementById('col-name').value  || '').trim();
   const caption = (document.getElementById('col-copy')?.innerText || '').trim();
-  if (!slug)  { showErr('c-err', 'Enter a landing page slug.'); return; }
-  if (state.products.length < 2) { showErr('c-err', 'Need at least 2 products.'); return; }
-
-  // Carry full product objects so the existing save route can render images & generate Archer links
+  if (!slug)  { showErr('c-err', 'Enter a landing page slug.'); return null; }
+  if (state.products.length < 2) { showErr('c-err', 'Need at least 2 products.'); return null; }
   const products = state.products.map(p => ({
     asin: p.asin,
     product_name: p.product_name || p.name || '',
@@ -1152,43 +1292,100 @@ async function saveAsLandingPage(btn, then) {
     deal: p.deal || null,
     attribution_link: p.attribution_link || '',
   }));
+  return { slug, theme, name, caption, products };
+}
 
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+async function _saveCollage(status, btn, busyLabel, restoreLabel) {
+  const p = _collectLpPayload();
+  if (!p) return null;
+  if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
   try {
     const res = await fetch('/archer/collage/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        slug, theme,
-        layout: products.length >= 6 ? 'layout-3' : 'layout-2',
-        caption,
+        slug: p.slug, theme: p.theme,
+        layout: p.products.length >= 6 ? 'layout-3' : 'layout-2',
+        caption: p.caption,
         direct_to_amazon: false,
-        products,
+        products: p.products,
+        status,
+        hero_title: p.name,
       }),
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-
-    // Replace the lp-pill slot with a green published pill
-    const publicUrl = data.public_url || `${location.origin}/shop/${data.slug}`;
-    const slot = document.getElementById('lp-pill-slot');
-    if (slot) {
-      slot.innerHTML = `<div class="lp-pill">
-        <span class="lp-pill-label">✓ Published</span>
-        <span class="lp-pill-url">${esc(publicUrl)}</span>
-        <div class="lp-pill-actions">
-          <button class="ca-btn primary" onclick="copyToClipboard('${esc(publicUrl)}')">Copy URL</button>
-          <a class="ca-btn" href="${esc(publicUrl)}" target="_blank" rel="noopener">Open ↗</a>
-        </div>
-      </div>`;
-    }
-    showToast('Landing page published');
-    if (typeof then === 'function') then(data);
+    return data;
   } catch (err) {
-    showErr('c-err', `Publish failed: ${err.message}`);
+    showErr('c-err', `${restoreLabel.replace(/[^a-zA-Z ]/g,'').trim() || 'Save'} failed: ${err.message}`);
+    return null;
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🚀 Save & Publish'; }
+    if (btn) { btn.disabled = false; btn.textContent = restoreLabel; }
   }
+}
+
+async function saveDraftLandingPage(btn) {
+  const data = await _saveCollage('draft', btn, 'Saving…', '💾 Save Draft');
+  if (!data) return;
+  _renderDraftPill(data);
+  showToast('Draft saved (no Archer links generated yet)');
+}
+
+async function previewDraftLandingPage(btn) {
+  // Save as draft first (no archer link gen), then open ?preview=1 page.
+  const data = await _saveCollage('draft', btn, 'Saving…', '👁 Preview');
+  if (!data) return;
+  _renderDraftPill(data);
+  const slug = data.slug;
+  window.open(`/shop/${slug}?preview=1`, '_blank', 'noopener');
+}
+
+async function publishLandingPage(btn) {
+  // 1. Save final state as published (this generates Archer links)
+  const data = await _saveCollage('published', btn, 'Publishing…', '🚀 Publish');
+  if (!data) return;
+  // 2. (Belt-and-suspenders) call /publish to backfill any missed links
+  try {
+    await fetch('/archer/collage/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: data.slug }),
+    });
+  } catch (_e) { /* non-fatal — save already wrote the row */ }
+  _renderPublishedPill(data);
+  showToast('Landing page published');
+}
+
+function _renderDraftPill(data) {
+  const slug = data.slug;
+  const slot = document.getElementById('lp-pill-slot');
+  if (!slot) return;
+  const previewUrl = `/shop/${slug}?preview=1`;
+  slot.innerHTML = `<div class="lp-pill" style="background:#fff3e0;border-color:#ffb74d;">
+    <span class="lp-pill-label" style="color:#e65100;">📝 Draft saved</span>
+    <span class="lp-pill-url" style="color:#e65100;">/shop/${esc(slug)} (preview only)</span>
+    <div class="lp-pill-actions">
+      <a class="ca-btn" href="${esc(previewUrl)}" target="_blank" rel="noopener">Preview ↗</a>
+      <button class="ca-btn primary" onclick="publishLandingPage(this)">🚀 Publish</button>
+    </div>
+  </div>`;
+}
+
+function _renderPublishedPill(data) {
+  const slug = data.slug;
+  const publicUrl = data.public_url || `${location.origin}/shop/${slug}`;
+  const slot = document.getElementById('lp-pill-slot');
+  if (!slot) return;
+  slot.innerHTML = `<div class="lp-pill">
+    <span class="lp-pill-label">✓ Published</span>
+    <span class="lp-pill-url">${esc(publicUrl)}</span>
+    <div class="lp-pill-actions">
+      <button class="ca-btn primary" onclick="copyToClipboard('${esc(publicUrl)}')">Copy URL</button>
+      <a class="ca-btn" href="${esc(publicUrl)}" target="_blank" rel="noopener">Open ↗</a>
+      <a class="ca-btn" href="/archer/collage?slug=${esc(slug)}" target="_blank" rel="noopener">✏️ Edit</a>
+      <a class="ca-btn" href="/archer/ads?collection=${esc(slug)}" style="background:var(--blue-light);color:var(--blue);border-color:rgba(28,95,166,0.3);">🚀 Promote</a>
+    </div>
+  </div>`;
 }
 
 /* ════════════════════════════════════════════════════════════════

@@ -517,17 +517,55 @@
   };
 
   // ── INIT ──────────────────────────────────────────────
-  window.onload = () => {
+  window.onload = async () => {
     renderProductSlots();
     calcForecast();
     loadCampaigns();
-    loadCollectionsIntoPicker();
+    await loadCollectionsIntoPicker();
     // Auto-generate slug
     const d = new Date();
     const mon = d.toLocaleString('default',{month:'short'}).toLowerCase();
     document.getElementById('campaign-slug').value = `${mon}${d.getDate()}-a`;
     state.slug = document.getElementById('campaign-slug').value;
+
+    // Branch 2B: ?collection=<slug> deep-link from Mode C "Promote" button.
+    // Pre-select the collection in the picker AND auto-load its products
+    // into Step 2 so Generate Variants is one click away.
+    const params = new URLSearchParams(location.search);
+    const presetCollection = (params.get('collection') || '').trim().toLowerCase();
+    if (presetCollection) {
+      await preloadFromCollection(presetCollection);
+    }
   };
+
+  async function preloadFromCollection(slug) {
+    try {
+      // 1. Pre-select in the picker
+      const sel = document.getElementById('collection-pick');
+      if (sel) {
+        sel.value = slug;
+        onCollectionPick(slug);
+      }
+      // 2. Fetch the collection record and add each product to state
+      const res = await fetch(`/archer/collage/${encodeURIComponent(slug)}`);
+      const data = await res.json();
+      if (!res.ok || !data.collage) {
+        showToast(`Collection "${slug}" not found`);
+        return;
+      }
+      const products = data.collage.products || [];
+      for (const p of products) {
+        if (!p.asin || state.products.find(x => x.asin === p.asin)) continue;
+        state.products.push(p);
+      }
+      renderProductSlots();
+      // 3. Jump to Step 2 so user sees the loaded queue
+      goStep(2);
+      showToast(`Loaded ${products.length} products from "${slug}"`);
+    } catch (e) {
+      showToast(`Failed to load collection: ${e.message}`);
+    }
+  }
 
   // ── STEP NAVIGATION ───────────────────────────────────
   function goStep(n) {

@@ -196,6 +196,61 @@ collections with creator badges.
 Collages with `status != 'published'` 404 publicly. Append `?preview=1` to
 the slug URL to render the page with a yellow "DRAFT PREVIEW" banner.
 
+### Posts queue + publishing loop (Phase 2B)
+
+#### Posts persistence
+- `posts.py` data layer + `posts` table store every Mode B generation as a
+  draft row. Each post has: `creator_id`, `asin`, `angle`, `copy`,
+  `image_note`, `collection_slug` (optional), `status` (`draft` /
+  `approved` / `posted` / `archived`), full UTM bundle, `smart_link`,
+  product context fields, and a stable `slug` of form
+  `{angle-slug}-{asin}-{post_id}` used for click_log joins.
+- Mode B's `POST /archer/generate_posts` now persists each generated post
+  and returns both the raw posts and a `persisted_posts` array with
+  ids+slugs.
+
+#### Posts CRUD routes
+- `GET    /archer/posts` — list (filter by status / collection_slug)
+- `PATCH  /archer/posts/<id>` — edit copy/angle/status/UTMs/smart_link
+- `DELETE /archer/posts/<id>` — hard delete
+- `POST   /archer/posts/bulk` — bulk-set status across many ids
+- `GET    /archer/posts/export.csv` — CSV export for paste-into-Meta workflow
+
+#### Mode B queue UI
+The generated-posts grid now includes:
+- Per-card status pill, Approve / Archive / Save Edit buttons, checkbox
+- Toolbar with "Select all", bulk Approve, bulk Archive, Export CSV,
+  Copy all, "View Saved Queue" (loads persisted posts on demand)
+- Inline `contenteditable` copy edits → "💾 Save Edit" button writes back
+  via PATCH
+
+#### Draft / Preview / Publish for collections
+- `POST /archer/collage/save` accepts `status` (`draft` | `published`).
+  Drafts SKIP Archer attribution-link generation to save API quota during
+  preview iteration.
+- `POST /archer/collage/publish` flips an existing draft to published and
+  backfills missing Archer links.
+- Mode C output now shows three buttons:
+  `💾 Save Draft` · `👁 Preview` · `🚀 Publish`
+- Draft pill (orange) → has Preview link + Publish button
+- Published pill (green) → has Copy URL, Open, ✏️ Edit (deep-links to
+  `/archer/collage?slug=…`), 🚀 Promote (deep-links to
+  `/archer/ads?collection=…`)
+
+#### Promote handoff (Mode C → Ad Builder)
+`/archer/ads?collection=<slug>` triggers `preloadFromCollection()` on page
+load:
+1. Pre-selects the collection in the picker
+2. Fetches the collection record via `GET /archer/collage/<slug>`
+3. Adds every product to the Ad Builder's `state.products`
+4. Jumps to Step 2 so Generate Variants is one click away
+
+#### Insights Posts tab
+Now reads from the `posts` table (not click_log scraping). Shows product /
+angle / status pill / clicks / collection / created / last_click. Posts
+created in the window appear even with zero clicks so creators can see
+their content backlog.
+
 ## Files
 - `app.py` - Flask server with all endpoints
 - `product_api.py` - ArcherAPI, LevantaAPI, URLGeniusAPI, NetworkMatcher classes
