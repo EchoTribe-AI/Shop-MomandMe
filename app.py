@@ -195,6 +195,297 @@ def chat():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# ── Shop landing chat (creator-specific KB) ──────────────────────────────────
+_SHOP_CHAT_CACHE: dict = {}
+
+
+def _tok(s: str) -> list:
+    s = (s or '').lower()
+    return [t for t in re.split(r'[^a-z0-9]+', s) if len(t) > 1]
+
+
+def _build_shop_chat_kb(creator_id: str) -> list:
+    """Build a creator-scoped product KB from published collages + posts."""
+    from product_api import ArcherAPI
+    a = ArcherAPI()
+    conn = a._db_connect()
+    conn.row_factory = sqlite3.Row
+    try:
+        # Aggregate click_log by ASIN for this creator from both landing-page
+        # slugs and post slugs to support ranking by real engagement.
+        clicks_by_asin = {}
+        click_rows = conn.execute(
+            """
+            SELECT cl.asin, COUNT(*) AS c
+            FROM click_log cl
+            JOIN collages c ON c.slug = cl.slug
+            WHERE COALESCE(c.creator_id, 'everydaywithsteph') = ?
+            GROUP BY cl.asin
+            """,
+            (creator_id,),
+        ).fetchall()
+        for r in click_rows:
+            asin = (r['asin'] or '').strip()
+            if asin:
+                clicks_by_asin[asin] = clicks_by_asin.get(asin, 0) + int(r['c'] or 0)
+
+        post_click_rows = conn.execute(
+            """
+            SELECT cl.asin, COUNT(*) AS c
+            FROM click_log cl
+            JOIN posts p ON p.slug = cl.slug
+            WHERE COALESCE(p.creator_id, 'everydaywithsteph') = ?
+            GROUP BY cl.asin
+            """,
+            (creator_id,),
+        ).fetchall()
+        for r in post_click_rows:
+            asin = (r['asin'] or '').strip()
+            if asin:
+                clicks_by_asin[asin] = clicks_by_asin.get(asin, 0) + int(r['c'] or 0)
+
+        kb_by_asin = {}
+
+        collage_rows = conn.execute(
+            """
+            SELECT slug, products_json
+            FROM collages
+            WHERE COALESCE(creator_id, 'everydaywithsteph') = ?
+              AND COALESCE(status, 'published') = 'published'
+            ORDER BY created_at DESC
+            """,
+            (creator_id,),
+        ).fetchall()
+        for row in collage_rows:
+            slug = (row['slug'] or '').strip()
+            try:
+                products = json.loads(row['products_json'] or '[]')
+            except (json.JSONDecodeError, TypeError):
+                products = []
+            for p in products:
+                asin = (p.get('asin') or '').strip()
+                if not asin:
+                    continue
+                item = kb_by_asin.setdefault(asin, {
+                    'asin': asin,
+                    'name': '',
+                    'brand': '',
+                    'price': '',
+                    'image': '',
+                    'link': '',
+                    'sources': set(),
+                    'collage_slugs': set(),
+                    'clicks': 0,
+                })
+                item['name'] = item['name'] or (p.get('product_name') or p.get('name') or '')
+                item['brand'] = item['brand'] or (p.get('company_name') or p.get('brand') or '')
+                item['price'] = item['price'] or (p.get('price') or '')
+                item['image'] = item['image'] or (p.get('image_encoded_string') or '')
+                item['link'] = item['link'] or (p.get('attribution_link') or '')
+                item['sources'].add('collage')
+                if slug:
+                    item['collage_slugs'].add(slug)
+                item['clicks'] = clicks_by_asin.get(asin, 0)
+
+        post_rows = conn.execute(
+            """
+            SELECT asin, product_name, product_brand, product_price, product_image, smart_link, collection_slug
+            FROM posts
+            WHERE COALESCE(creator_id, 'everydaywithsteph') = ?
+              AND status != 'archived'
+            ORDER BY created_at DESC
+            LIMIT 2000
+            """,
+            (creator_id,),
+        ).fetchall()
+        for r in post_rows:
+            asin = (r['asin'] or '').strip()
+            if not asin:
+                continue
+            item = kb_by_asin.setdefault(asin, {
+                'asin': asin,
+                'name': '',
+                'brand': '',
+                'price': '',
+                'image': '',
+                'link': '',
+                'sources': set(),
+                'collage_slugs': set(),
+                'clicks': 0,
+            })
+            # Prefer post metadata if the current value is missing
+            item['name'] = item['name'] or (r['product_name'] or '')
+            item['brand'] = item['brand'] or (r['product_brand'] or '')
+            item['price'] = item['price'] or (r['product_price'] or '')
+            item['image'] = item['image'] or (r['product_image'] or '')
+            item['link'] = item['link'] or (r['smart_link'] or '')
+            item['sources'].add('post')
+            if r['collection_slug']:
+                item['collage_slugs'].add(r['collection_slug'])
+            item['clicks'] = clicks_by_asin.get(asin, 0)
+
+        out = []
+        for item in kb_by_asin.values():
+            sources = sorted(list(item.pop('sources')))
+            collage_slugs = sorted(list(item.pop('collage_slugs')))
+            item['sources'] = sources
+            item['collage_slugs'] = collage_slugs
+            out.append(item)
+        return out
+    finally:
+        conn.close()
+
+
+def _get_shop_chat_kb(creator_id: str) -> list:
+    key = (creator_id or 'everydaywithsteph').strip() or 'everydaywithsteph'
+    now = time.time()
+    cached = _SHOP_CHAT_CACHE.get(key)
+    if cached and now < cached['expires']:
+        return cached['items']
+    items = _build_shop_chat_kb(key)
+    _SHOP_CHAT_CACHE[key] = {
+        'items': items,
+        'expires': now + 1800,  # 30 minutes
+    }
+    return items
+
+
+def _rank_shop_kb(query: str, items: list, current_slug: str = '') -> list:
+    """Relevancy first, then click count, then current-page product bias."""
+    q_tokens = set(_tok(query))
+    current_slug = (current_slug or '').strip().lower()
+
+    def _score(it: dict) -> tuple:
+        text = ' '.join([
+            it.get('name', ''),
+            it.get('brand', ''),
+            it.get('price', ''),
+            ' '.join(it.get('sources', [])),
+        ]).lower()
+        # Relevancy score
+        overlap = sum(1 for t in q_tokens if t in text)
+        title_phrase = 1 if query.lower().strip() and query.lower().strip() in (it.get('name', '').lower()) else 0
+        relevancy = overlap + (2 * title_phrase)
+
+        # Tie-breakers
+        clicks = int(it.get('clicks') or 0)
+        on_current_page = 1 if current_slug and current_slug in set(it.get('collage_slugs', [])) else 0
+        return (relevancy, clicks, on_current_page)
+
+    ranked = sorted(items, key=_score, reverse=True)
+    return ranked
+
+
+@app.route('/api/shop/chat', methods=['POST'])
+def shop_chat():
+    data = request.get_json(silent=True) or {}
+    user_message = (data.get('message') or '').strip()
+    creator_id = (data.get('creator_id') or 'everydaywithsteph').strip() or 'everydaywithsteph'
+    slug = (data.get('slug') or '').strip().lower()
+    if not user_message:
+        return jsonify({'error': 'message is required'}), 400
+
+    try:
+        kb = _get_shop_chat_kb(creator_id)
+        if not kb:
+            return jsonify({
+                'reply': "I don’t have product data loaded yet. Please check back in a bit 💕",
+                'products': [],
+            })
+
+        ranked = _rank_shop_kb(user_message, kb, current_slug=slug)
+        # Keep prompt compact: send top 20 candidates
+        candidates = ranked[:20]
+        lines = []
+        for i, p in enumerate(candidates):
+            lines.append(
+                f"[{i}] ASIN:{p.get('asin','')} | {p.get('name','')[:100]} | "
+                f"Brand:{p.get('brand','')} | Price:{p.get('price','')} | "
+                f"Clicks:{p.get('clicks',0)} | Sources:{','.join(p.get('sources', []))}"
+            )
+        catalog = '\n'.join(lines)
+
+        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+        msg = client.messages.create(
+            model='claude-sonnet-4-20250514',
+            max_tokens=280,
+            system=(
+                "You are a shopping assistant for a creator storefront. "
+                "Recommend only from the provided candidate products. "
+                "Prioritize query relevancy. If multiple relevant options exist, "
+                "prefer higher-click products. Keep tone concise, friendly, and helpful. "
+                "Return exactly two lines:\n"
+                "REPLY: <short shopper-facing text>\n"
+                "PRODUCTS: <comma-separated candidate indexes (max 3)>"
+            ),
+            messages=[{
+                'role': 'user',
+                'content': (
+                    f"User query: {user_message}\n"
+                    f"Current landing slug: {slug or '(none)'}\n"
+                    f"Candidates:\n{catalog}"
+                )
+            }],
+        )
+        raw = (msg.content[0].text or '').strip()
+        text_reply = "Here are a few picks you might love."
+        picked = []
+        for ln in raw.splitlines():
+            if ln.strip().upper().startswith('REPLY:'):
+                text_reply = ln.split(':', 1)[1].strip() or text_reply
+            if ln.strip().upper().startswith('PRODUCTS:'):
+                idx_part = ln.split(':', 1)[1].strip()
+                for bit in idx_part.split(','):
+                    bit = bit.strip()
+                    if bit.isdigit():
+                        idx = int(bit)
+                        if 0 <= idx < len(candidates):
+                            picked.append(candidates[idx])
+        if not picked:
+            picked = candidates[:3]
+
+        out_products = []
+        creator = db_schema.get_creator(creator_id)
+        tag = creator.get('amazon_tag') or 'mommymedeals-20'
+        for p in picked[:3]:
+            asin = (p.get('asin') or '').strip()
+            link = (p.get('link') or '').strip()
+            if not link and asin:
+                try:
+                    smart = _make_smart_link(
+                        asin=asin,
+                        network='amazon',
+                        utm_source='shop-chat',
+                        utm_medium='chat',
+                        utm_campaign=slug or 'shop',
+                        utm_content='shop-chat-reco',
+                        utm_term=asin.lower(),
+                    )
+                    link = (smart or {}).get('genius_url') or (smart or {}).get('affiliate_url') or ''
+                except Exception:
+                    link = ''
+            if not link and asin:
+                link = f"https://www.amazon.com/dp/{asin}?tag={tag}"
+
+            out_products.append({
+                'asin': asin,
+                'name': p.get('name') or f'Amazon Product {asin}',
+                'price': p.get('price') or '',
+                'image': p.get('image') or '',
+                'retailer': 'Amazon',
+                'link': link,
+            })
+
+        return jsonify({'reply': text_reply, 'products': out_products})
+    except Exception as e:
+        logging.error(f"[SHOP_CHAT] failed: {e}")
+        return jsonify({
+            'reply': "I hit a snag, but here are top picks from this creator.",
+            'products': [],
+            'error': str(e),
+        }), 500
+
 @app.route('/')
 def index():
     return render_template('dashboard.html')

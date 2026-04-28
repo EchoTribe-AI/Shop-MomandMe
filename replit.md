@@ -131,6 +131,34 @@ How it works:
 The dashboard host (e.g. `dash.echotribe.ai` or the raw Replit URL) continues to
 serve the full builder UI; only the shop subdomain serves landing pages.
 
+#### Production setup checklist (Replit + DNS)
+Use this checklist when wiring a production custom domain for daily landing pages:
+
+1. In **Replit Deployments → Custom domains**, add `shop.echotribe.ai` to the
+   deployment that runs this Flask app.
+2. In your DNS provider, create the record Replit asks for (typically a CNAME
+   for `shop` pointing to Replit's target host; some providers flatten this to
+   A/ALIAS automatically).
+3. Keep DNS proxy/CDN mode compatible with Replit validation (if using
+   Cloudflare, start with DNS-only until cert validation completes).
+4. Wait for Replit to issue TLS and show the domain as active.
+5. In Replit Secrets, set `SHOP_SUBDOMAIN=shop.echotribe.ai` (or your chosen
+   host) so `_route_shop_subdomain` matches the incoming host header.
+6. Validate these URLs:
+   - `https://shop.echotribe.ai/` → public shop directory
+   - `https://shop.echotribe.ai/sitemap.xml` → sitemap of published collections
+   - `https://shop.echotribe.ai/<slug>` → published landing page
+7. Keep your admin/builder UI on a different host (for example
+   `dash.echotribe.ai` or the default Replit URL) so only public pages are
+   reachable from `shop`.
+
+Operational notes:
+- Slugs are dynamic by design; publishing a new collection creates a new route
+  at `/<slug>` on the shop subdomain without additional DNS/app config.
+- Only `published` collages resolve publicly; drafts return 404 unless
+  `?preview=1` is appended.
+- `robots.txt` and `sitemap.xml` are served from the shop host for indexing.
+
 ### Collection-as-CTA in the Ad Builder
 On `/archer/ads` Step 1, when "Landing page" routing is selected, a collection
 picker appears. Choosing a saved collection causes the campaign-package backend
