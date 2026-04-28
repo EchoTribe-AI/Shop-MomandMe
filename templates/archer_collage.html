@@ -368,6 +368,7 @@
   window.onload = async () => {
     // Check for pre-selected products passed via URL params
     const params = new URLSearchParams(window.location.search);
+    const collectionSlug = (params.get('collection') || '').trim().toLowerCase();
     const asins = params.get('asins');
     if (asins) {
       const asinList = asins.split(',').filter(Boolean).slice(0, MAX_SLOTS);
@@ -375,10 +376,42 @@
         await addProductByAsin(asin);
       }
     }
+    if (collectionSlug) {
+      await loadCollectionForEdit(collectionSlug);
+    }
     renderSlots();
     generateSlug();
     await loadCollageList();
   };
+
+  async function loadCollectionForEdit(slug) {
+    try {
+      const res = await fetch(`/archer/collage/${encodeURIComponent(slug)}`);
+      const data = await res.json();
+      if (!res.ok || data.error || !data.collage) throw new Error(data.error || `HTTP ${res.status}`);
+      const c = data.collage;
+      state.slug = c.slug || slug;
+      state.layout = c.layout || 'layout-2';
+      state.theme = c.theme || 'coral';
+      state.caption = c.caption || '';
+      state.directToAmazon = !!c.direct_to_amazon;
+      state.products = (c.products || []).slice(0, MAX_SLOTS);
+
+      const slugInput = document.getElementById('slug');
+      const captionInput = document.getElementById('caption');
+      const layoutSel = document.getElementById('layout');
+      const themeSel = document.getElementById('theme');
+      const d2a = document.getElementById('direct-amazon');
+      if (slugInput) slugInput.value = state.slug;
+      if (captionInput) captionInput.value = state.caption;
+      if (layoutSel) layoutSel.value = state.layout;
+      if (themeSel) themeSel.value = state.theme;
+      if (d2a) d2a.checked = state.directToAmazon;
+      showToast(`Loaded ${slug} for editing`);
+    } catch (e) {
+      showToast(`Failed to load ${slug}: ${e.message}`);
+    }
+  }
 
   // ── PRODUCT MANAGEMENT ────────────────────────────────
 

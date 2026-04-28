@@ -175,6 +175,7 @@
             <th>Est. revenue</th>
             <th>Top products</th>
             <th>Status</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -199,6 +200,12 @@
               </div>
             </td>
             <td><span class="ct-pill ct-organic">{{ c.status }}</span></td>
+            <td>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <a class="slug-link" href="/shop/{{ c.slug }}" target="_blank" rel="noopener">View</a>
+                <a class="slug-link" href="/archer/collage?collection={{ c.slug }}" target="_blank" rel="noopener">Edit</a>
+              </div>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -224,6 +231,7 @@
             <th>Collection</th>
             <th>Created</th>
             <th>Last click</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -253,6 +261,14 @@
             </td>
             <td class="num" style="color:var(--text3);">{{ p.created_at }}</td>
             <td class="num" style="color:var(--text3);">{{ p.last_click }}</td>
+            <td>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                {% if p.collection_slug %}
+                <a class="slug-link" href="/shop/{{ p.collection_slug }}" target="_blank" rel="noopener">View</a>
+                {% endif %}
+                <a class="slug-link" href="/archer/organic?post_id={{ p.id }}" target="_blank" rel="noopener">Edit</a>
+              </div>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -271,7 +287,7 @@
       {% if ads %}
       <table>
         <thead>
-          <tr><th>Label</th><th>Network</th><th>Clicks</th><th>Conversions</th><th>Revenue</th><th>Last pulled</th></tr>
+          <tr><th>Label</th><th>Network</th><th>Clicks</th><th>Conversions</th><th>Revenue</th><th>Last pulled</th><th>Actions</th></tr>
         </thead>
         <tbody>
           {% for a in ads %}
@@ -282,6 +298,7 @@
             <td class="num">{{ a.conversions }}</td>
             <td class="num num-rev">${{ '{:,.2f}'.format(a.revenue) }}</td>
             <td class="num" style="color:var(--text3);font-size:10px;">{{ a.pulled_at[:16] if a.pulled_at else '' }}</td>
+            <td><a class="slug-link" href="/archer/ads" target="_blank" rel="noopener">View/Edit</a></td>
           </tr>
           {% endfor %}
         </tbody>
