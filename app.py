@@ -8,6 +8,18 @@ import requests as req
 from flask import Flask, send_from_directory, request, jsonify, render_template, Response
 from dotenv import load_dotenv
 import anthropic
+
+# ── Multi-creator schema migrations + Steph seed (idempotent) ────────────────
+# CRITICAL: bootstrap MUST run before importing prompts. The legacy STEPH_*
+# constants in prompts.py are PEP-562 lazy attrs that resolve via DB queries
+# on first import — if the creators table doesn't exist yet, the prompts
+# import crashes the whole app at boot. Bootstrap creates the tables first.
+import db_schema
+try:
+    db_schema.bootstrap()
+except Exception as _e:
+    logging.warning(f"[BOOT] db_schema.bootstrap failed: {_e}")
+
 from product_api import ProductResolver, detect_category
 from prompts import (
     build_chat_prompt, build_chat_products,
@@ -31,6 +43,54 @@ THEMES = {
 }
 
 PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
+
+# ── shop.echotribe.ai subdomain ──────────────────────────────────────────────
+# When DNS for shop.echotribe.ai points to this Flask app, requests like
+# https://shop.echotribe.ai/summer-essentials are rewritten so the existing
+# /shop/<slug> handler renders. Cleaner share URLs without a /shop/ prefix.
+SHOP_SUBDOMAIN = os.environ.get('SHOP_SUBDOMAIN', 'shop.echotribe.ai').lower()
+
+
+@app.before_request
+def _route_shop_subdomain():
+    """If host == shop.echotribe.ai, rewrite GET requests to public-only routes.
+
+    Public surface on the shop subdomain:
+      GET  /                      → shop_directory()         (creator-aware index)
+      GET  /sitemap.xml           → shop_sitemap()
+      GET  /robots.txt            → shop_robots()
+      GET  /<slug>                → shop_landing(slug)
+      POST /archer/track_click    → tracking endpoint (passthrough)
+      *    /static/*              → passthrough for assets
+    Anything else 404s on the public subdomain.
+    """
+    host = (request.host or '').split(':')[0].lower()
+    if host != SHOP_SUBDOMAIN:
+        return  # normal routing for the dashboard host
+
+    path = request.path or '/'
+
+    # Passthroughs the public surface itself needs
+    if path == '/archer/track_click':
+        return
+    if path.startswith('/static/'):
+        return
+
+    if request.method == 'GET':
+        if path == '/' or path == '':
+            return shop_directory()
+        if path == '/sitemap.xml':
+            return shop_sitemap()
+        if path == '/robots.txt':
+            return shop_robots()
+
+        slug = path.lstrip('/').split('/')[0]
+        if not slug or slug.startswith('favicon'):
+            return jsonify({'error': 'Not found'}), 404
+        return shop_landing(slug)
+
+    return jsonify({'error': 'Not found'}), 404
+
 
 # ── Chat prompt cache (2-hour TTL) ───────────────────────────────────────────
 _CHAT_CACHE: dict = {'prompt': None, 'products': None, 'expires': 0.0}
@@ -147,18 +207,37 @@ def dashboard():
 
 @app.route('/dashboard/upload_csv', methods=['POST'])
 def dashboard_upload_csv():
+    """Upload Amazon Associates earnings CSV.
+
+    Phase 2A: persists rows into earnings_amazon so /insights can do
+    click-weighted revenue reconciliation by ASIN. Existing UI behavior
+    (returning the top-10 products) is preserved.
+
+    Optional form fields:
+      creator_id   — defaults to 'everydaywithsteph'
+      period_start — ISO date 'YYYY-MM-DD' (defaults to today)
+      period_end   — ISO date 'YYYY-MM-DD' (defaults to today)
+    """
     import csv, io
+    from datetime import date as _date
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     f = request.files['file']
     if not f.filename.lower().endswith('.csv'):
         return jsonify({'error': 'File must be a .csv'}), 400
+
+    creator_id   = (request.form.get('creator_id') or 'everydaywithsteph').strip()
+    period_start = (request.form.get('period_start') or _date.today().isoformat()).strip()
+    period_end   = (request.form.get('period_end')   or _date.today().isoformat()).strip()
+    source_file  = f.filename
+
     try:
         text = f.read().decode('utf-8-sig')
         reader_io = io.StringIO(text)
         next(reader_io)  # skip report title row
         rows = list(csv.DictReader(reader_io))
         products = []
+        persist_rows = []
         for row in rows:
             asin = (row.get('ASIN') or '').strip()
             if not asin:
@@ -168,14 +247,47 @@ def dashboard_upload_csv():
                 units    = int(float(row.get('Items Shipped') or 0))
             except (ValueError, TypeError):
                 earnings, units = 0.0, 0
+            name = (row.get('Name') or row.get('Title') or asin).strip()
             products.append({
                 'asin':           asin,
-                'product_name':   (row.get('Name') or row.get('Title') or asin).strip(),
+                'product_name':   name,
                 'total_earnings': round(earnings, 2),
                 'items_shipped':  units,
             })
+            persist_rows.append((
+                creator_id, asin, name, period_start, period_end,
+                round(earnings, 2), units, source_file,
+            ))
+
+        # Persist to earnings_amazon for /insights reconciliation
+        if persist_rows:
+            try:
+                from product_api import ArcherAPI
+                conn = ArcherAPI()._db_connect()
+                conn.executemany(
+                    "INSERT INTO earnings_amazon "
+                    "(creator_id, asin, product_name, period_start, period_end, "
+                    " earnings, units, source_file) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    persist_rows,
+                )
+                conn.commit()
+                conn.close()
+                logging.info(
+                    f"[CSV_UPLOAD] Persisted {len(persist_rows)} rows for "
+                    f"{creator_id} ({period_start}..{period_end}) from {source_file}"
+                )
+            except Exception as _e:
+                logging.warning(f"[CSV_UPLOAD] persist failed: {_e}")
+
         products.sort(key=lambda p: p['total_earnings'], reverse=True)
-        return jsonify({'products': products[:10]})
+        return jsonify({
+            'products': products[:10],
+            'persisted': len(persist_rows),
+            'creator_id': creator_id,
+            'period_start': period_start,
+            'period_end': period_end,
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -574,6 +686,134 @@ def archer_generate_organic_posts():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/archer/generate_posts', methods=['POST'])
+def archer_generate_posts():
+    """Content builder v2 — returns Claude-generated copy WITHOUT pre-built links.
+    Frontend creates smart links on-demand via /urlgenius/smart_link after reviewing UTM tags.
+
+    Mode B: 1 post per product, different angle per product.
+    Mode C: 1 collection post + product taglines.
+    """
+    data = request.get_json() or {}
+    mode = data.get('mode', 'b')
+    product_list = data.get('product_list', [])
+    if not product_list:
+        return jsonify({'error': 'product_list is required'}), 400
+
+    n = len(product_list)
+    pl = '\n'.join([
+        f"[{i}] ASIN:{p.get('asin','')} | {(p.get('product_name') or p.get('name',''))[:50]}"
+        f" by {p.get('brand','')} · {p.get('price','')} · {p.get('commission','')} commission"
+        for i, p in enumerate(product_list)
+    ])
+
+    try:
+        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+
+        if mode == 'b':
+            system = (
+                "You generate organic Facebook Group posts for Steph (@EverydaywithSteph / Mommy & Me Collective). "
+                "Voice: warm, mom-to-mom, texting best friend about a deal. 1-2 emojis max. "
+                "Direct. Mentions price or benefit. 2-5 sentences. Never sounds like an ad.\n\n"
+                "Return ONLY valid JSON:\n"
+                '{"posts":[{"asin":"string","angle":"lowercase-hyphenated-slug max 20 chars",'
+                '"copy":"full post text","image_note":"brief ideal image description"}]}\n\n'
+                "Generate exactly N posts — one per product. Each must use a DIFFERENT angle from: "
+                "deal-price, mom-rec, social-proof, seasonal, gift-idea, problem-solve, scarcity, "
+                "discovery, value-frame, bundle-pair, before-after, community-reaction, "
+                "everyday-essential, back-to-camp, educational."
+            ).replace('N', str(n))
+            user_msg = f"Generate exactly {n} post{'s' if n > 1 else ''}, one per product.\nProducts:\n{pl}"
+            msg = client.messages.create(
+                model='claude-sonnet-4-6', max_tokens=4000, system=system,
+                messages=[{'role': 'user', 'content': user_msg}]
+            )
+            raw = msg.content[0].text.strip().replace('```json', '').replace('```', '').strip()
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                m = re.search(r'\{.*\}', raw, re.DOTALL)
+                if not m:
+                    raise
+                parsed = json.loads(m.group(0))
+
+            # Persist generated posts to the queue (Branch 2B). Each post becomes
+            # a draft row joinable to clicks/earnings via posts.slug ↔ click_log.slug.
+            import posts as _posts
+            creator_id = (data.get('creator_id') or 'everydaywithsteph').strip()
+            collection_slug = (data.get('collection_slug') or '').strip().lower() or None
+            persisted = []
+            asin_to_product = {(p.get('asin') or '').strip(): p for p in product_list}
+            for raw_post in parsed.get('posts', []):
+                asin = (raw_post.get('asin') or '').strip()
+                product = asin_to_product.get(asin, {})
+                try:
+                    saved = _posts.create_post(
+                        creator_id=creator_id,
+                        asin=asin,
+                        angle=raw_post.get('angle', ''),
+                        copy=raw_post.get('copy', ''),
+                        image_note=raw_post.get('image_note', ''),
+                        collection_slug=collection_slug,
+                        status='draft',
+                        product_name=product.get('product_name') or product.get('name') or '',
+                        product_brand=product.get('brand') or product.get('company_name') or '',
+                        product_price=product.get('price') or '',
+                        product_image=product.get('image_encoded_string') or '',
+                    )
+                    persisted.append(saved)
+                except Exception as _e:
+                    logging.warning(f"[GENERATE_POSTS] persist failed for {asin}: {_e}")
+                    persisted.append({
+                        'angle': raw_post.get('angle', ''),
+                        'copy': raw_post.get('copy', ''),
+                        'image_note': raw_post.get('image_note', ''),
+                        'asin': asin,
+                    })
+            return jsonify({
+                'mode': 'b',
+                'posts': parsed.get('posts', []),
+                'persisted_posts': persisted,
+                'persisted_count': len([p for p in persisted if p.get('id')]),
+            })
+
+        elif mode == 'c':
+            collection_name = data.get('collection_name', 'Collection')
+            collection_slug = data.get('collection_slug', 'collection')
+            # Public landing-page URL on the shop subdomain (configured via SHOP_SUBDOMAIN env)
+            url = f"https://{SHOP_SUBDOMAIN}/{collection_slug}"
+            system = (
+                f"You build themed shoppable collection posts for Steph (@EverydaywithSteph). "
+                "Voice: warm, enthusiastic, mom-to-mom. 2-4 sentences. Naturally mentions the URL.\n\n"
+                "Return ONLY valid JSON:\n"
+                '{"angle":"lowercase-hyphenated-slug max 20 chars","copy":"collection Facebook Group post",'
+                '"image_note":"ideal collage image description",'
+                '"product_taglines":[{"asin":"string","tagline":"one sentence why this product belongs"}]}\n\n'
+                "angle must be lowercase-hyphenated (used in utm_content as organic_ANGLE_collection)."
+            )
+            user_msg = f'Theme: "{collection_name}"\nURL: {url}\nProducts:\n{pl}\n\nNaturally mention {url} in the post.'
+            msg = client.messages.create(
+                model='claude-sonnet-4-6', max_tokens=2000, system=system,
+                messages=[{'role': 'user', 'content': user_msg}]
+            )
+            raw = msg.content[0].text.strip().replace('```json', '').replace('```', '').strip()
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                m = re.search(r'\{.*\}', raw, re.DOTALL)
+                if not m:
+                    raise
+                parsed = json.loads(m.group(0))
+            return jsonify({'mode': 'c', 'collection': parsed, 'url': url})
+
+        else:
+            return jsonify({'error': f'Unknown mode: {mode}'}), 400
+
+    except Exception as e:
+        logging.error(f'[GENERATE_POSTS] mode={mode} failed: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/archer/generate_campaign_package', methods=['POST'])
 def archer_generate_campaign_package():
     """Generate a 5-layer Meta ad campaign package + paste-ready Ryze MCP prompt.
@@ -584,10 +824,15 @@ def archer_generate_campaign_package():
       - Real link labels surfaced (not fabricated strings).
     """
     from datetime import datetime as _dt
+    from urllib.parse import urlencode
     data = request.get_json() or {}
     product_list = data.get('product_list', [])
     layers = data.get('layers', [1, 2, 3, 4, 5])
     slug = (data.get('slug') or '').strip()
+    # Collection-as-CTA: when caller provides a collection_slug, all 5 layers route
+    # to the published landing page at https://<SHOP_SUBDOMAIN>/<collection_slug>
+    # with utm_content suffix '_collection' instead of per-product Amazon links.
+    collection_slug = (data.get('collection_slug') or '').strip().lower()
 
     if not product_list:
         return jsonify({'error': 'product_list is required'}), 400
@@ -610,6 +855,17 @@ def archer_generate_campaign_package():
     # would multiply API calls 3×; layer-level granularity is enough for reporting).
     link_cache: dict = {}
 
+    # Build collection context line if we're routing to a landing page
+    collection_context = ''
+    if collection_slug:
+        collection_context = (
+            f"\nCTA destination: a curated collection landing page bundling all "
+            f"{len(product_list)} products at https://{SHOP_SUBDOMAIN}/{collection_slug}. "
+            f"Headlines and copy should reference the curated bundle (multiple picks, "
+            f"not a single product) — angles like 'shop my picks', 'whole collection', "
+            f"'mom-curated bundle' work well.\n"
+        )
+
     try:
         client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
         message = client.messages.create(
@@ -619,7 +875,7 @@ def archer_generate_campaign_package():
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Products:\n{pl}\n\nLayers to include: {layers}\n\n"
+                    f"Products:\n{pl}\n{collection_context}\nLayers to include: {layers}\n\n"
                     f"Generate the 5-layer campaign package."
                 )
             }]
@@ -647,34 +903,58 @@ def archer_generate_campaign_package():
 
         for layer in layers_data:
             layer_num = layer.get('layer_num', 0)
-            cache_key = (asin, layer_num)
-            if asin and cache_key not in link_cache:
-                campaign = f"{slug or brand_short}-{asin.lower()[:6]}-l{layer_num}-{mmdd}"
-                try:
-                    link_cache[cache_key] = _make_smart_link(
-                        asin=asin, network='archer',
-                        utm_source='fb-ad', utm_medium='dark',
-                        utm_campaign=campaign,
-                        utm_term=f'l{layer_num}',
-                    )
-                except Exception as e:
-                    logging.warning(f'[CAMPAIGN] Smart link failed for {asin} L{layer_num}: {e}')
-                    link_cache[cache_key] = {
-                        'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
-                        'affiliate_url': '',
-                        'label': '',
-                        'urlgenius': False,
-                    }
 
-            link_result = link_cache.get(cache_key, {
-                'genius_url': '', 'affiliate_url': '', 'label': '', 'urlgenius': False,
-            })
+            if collection_slug:
+                # ── Collection CTA path: build a direct UTM URL pointing at the
+                # public landing page. One link per layer, shared across variants.
+                campaign = f"{slug or brand_short}-collection-l{layer_num}-{mmdd}"
+                cache_key = (collection_slug, layer_num)
+                if cache_key not in link_cache:
+                    qs = urlencode({
+                        'utm_source':   'fb-ad',
+                        'utm_medium':   'paid_social',
+                        'utm_campaign': campaign,
+                        'utm_content':  f'l{layer_num}_collection',
+                        'utm_term':     f'l{layer_num}',
+                    })
+                    link_cache[cache_key] = {
+                        'genius_url':    f'https://{SHOP_SUBDOMAIN}/{collection_slug}?{qs}',
+                        'affiliate_url': '',
+                        'label':         f'collection-{collection_slug}-l{layer_num}',
+                        'urlgenius':     False,
+                    }
+                link_result = link_cache[cache_key]
+            else:
+                # ── Single-product CTA path (original behavior): URLGenius wrap → Amazon
+                cache_key = (asin, layer_num)
+                if asin and cache_key not in link_cache:
+                    campaign = f"{slug or brand_short}-{asin.lower()[:6]}-l{layer_num}-{mmdd}"
+                    try:
+                        link_cache[cache_key] = _make_smart_link(
+                            asin=asin, network='archer',
+                            utm_source='fb-ad', utm_medium='dark',
+                            utm_campaign=campaign,
+                            utm_term=f'l{layer_num}',
+                        )
+                    except Exception as e:
+                        logging.warning(f'[CAMPAIGN] Smart link failed for {asin} L{layer_num}: {e}')
+                        link_cache[cache_key] = {
+                            'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
+                            'affiliate_url': '',
+                            'label': '',
+                            'urlgenius': False,
+                        }
+                link_result = link_cache.get(cache_key, {
+                    'genius_url': '', 'affiliate_url': '', 'label': '', 'urlgenius': False,
+                })
+
             for i, variant in enumerate(layer.get('variants', [])):
                 var_letter = ['a', 'b', 'c'][i] if i < 3 else str(i)
                 variant['attribution_url'] = link_result.get('genius_url', '')
                 variant['archer_url'] = link_result.get('affiliate_url', '')
                 variant['urlgenius_tag'] = link_result.get('label', '')
                 variant['var_letter'] = var_letter
+                variant['cta_type'] = 'collection' if collection_slug else 'product'
 
         # Build paste-ready Ryze MCP prompt
         layer_lines = []
@@ -704,12 +984,22 @@ def archer_generate_campaign_package():
             f"Confirm each campaign ID after creation."
         )
 
+        # Auto-tag the collection as 'paid' since it was just used as an ad CTA
+        if collection_slug:
+            try:
+                db_schema.add_campaign_type_to_collage(collection_slug, 'paid')
+            except Exception as _e:
+                logging.warning(f"[CAMPAIGN] tag paid failed for {collection_slug}: {_e}")
+
         return jsonify({
             'layers': layers_data,
             'ryze_prompt': ryze_prompt,
             'asin': asin,
             'product': product_list[0] if product_list else {},
             'unique_links': len(link_cache),
+            'cta_type': 'collection' if collection_slug else 'product',
+            'collection_slug': collection_slug or None,
+            'collection_url': f'https://{SHOP_SUBDOMAIN}/{collection_slug}' if collection_slug else None,
         })
     except Exception as e:
         logging.error(f'[CAMPAIGN] Package generation failed: {e}')
@@ -718,37 +1008,161 @@ def archer_generate_campaign_package():
 
 @app.route('/archer/collage/save', methods=['POST'])
 def archer_save_collage():
+    """Save (or update) a collage.
+
+    Branch 2B behavior change:
+      status='draft'     → SKIP Archer attribution-link generation (saves API
+                            quota during preview iteration)
+      status='published' → Generate Archer links for any product missing one
+                            (existing default behavior)
+    Drafts are 404 publicly and viewable only via /shop/<slug>?preview=1.
+    """
     from product_api import ArcherAPI
     data = request.get_json() or {}
     slug = data.get('slug', '').strip().lower().replace(' ', '-')
     if not slug or not data.get('products'):
         return jsonify({'error': 'slug and products required'}), 400
 
+    creator_id = (data.get('creator_id') or 'everydaywithsteph').strip()
+    status = (data.get('status') or 'published').strip()
+
     a = ArcherAPI()
     products = data.get('products', [])
-    for p in products:
-        asin = p.get('asin', '')
-        if asin and not p.get('attribution_link'):
-            link = a.generate_link(asin, label=f"{slug}-{asin.lower()}")
-            if link:
-                p['attribution_link'] = link.get('attribution_link') or link.get('url') or ''
+    if status == 'published':
+        for p in products:
+            asin = p.get('asin', '')
+            if asin and not p.get('attribution_link'):
+                link = a.generate_link(asin, label=f"{slug}-{asin.lower()}")
+                if link:
+                    p['attribution_link'] = link.get('attribution_link') or link.get('url') or ''
 
+    # Preserve campaign_types if the collage already exists (e.g. previously
+    # tagged 'paid' from Ad Builder use; we don't want to clobber that on re-save).
     conn = a._db_connect()
+    existing = conn.execute(
+        "SELECT campaign_types FROM collages WHERE slug = ?", (slug,)
+    ).fetchone()
+    try:
+        prior_types = json.loads(existing[0]) if existing and existing[0] else []
+        if not isinstance(prior_types, list):
+            prior_types = []
+    except (json.JSONDecodeError, TypeError):
+        prior_types = []
+    # Mode C save always implies organic usage
+    merged_types = list({*prior_types, 'organic'})
+
     conn.execute("""
         INSERT OR REPLACE INTO collages
-        (slug, products_json, layout, theme, caption, direct_to_amazon, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        (slug, products_json, layout, theme, caption, direct_to_amazon,
+         creator_id, status, campaign_types, hero_title, hero_subtitle, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     """, (
         slug,
         json.dumps(products),
         data.get('layout', 'layout-2'),
         data.get('theme', 'coral'),
         data.get('caption', ''),
-        1 if data.get('direct_to_amazon') else 0
+        1 if data.get('direct_to_amazon') else 0,
+        creator_id,
+        status,
+        json.dumps(merged_types),
+        data.get('hero_title', ''),
+        data.get('hero_subtitle', ''),
     ))
     conn.commit()
     conn.close()
-    return jsonify({'url': f'/shop/{slug}', 'slug': slug})
+
+    is_draft = status != 'published'
+    return jsonify({
+        'url': f'/shop/{slug}' + ('?preview=1' if is_draft else ''),
+        'public_url': (
+            f'https://{SHOP_SUBDOMAIN}/{slug}'
+            if not is_draft
+            else f'/shop/{slug}?preview=1'
+        ),
+        'slug': slug,
+        'creator_id': creator_id,
+        'status': status,
+        'is_draft': is_draft,
+        'campaign_types': merged_types,
+    })
+
+
+@app.route('/archer/collage/publish', methods=['POST'])
+def archer_collage_publish():
+    """Promote a draft collage to published. Generates Archer attribution links
+    for products that don't have them yet, then flips status to 'published'.
+
+    Body: { "slug": "..." }
+    """
+    from product_api import ArcherAPI
+    data = request.get_json() or {}
+    slug = (data.get('slug') or '').strip().lower()
+    if not slug:
+        return jsonify({'error': 'slug is required'}), 400
+
+    a = ArcherAPI()
+    conn = a._db_connect()
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM collages WHERE slug = ?", (slug,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'collection not found'}), 404
+
+    try:
+        products = json.loads(row['products_json'] or '[]')
+    except (json.JSONDecodeError, TypeError):
+        products = []
+
+    # Backfill Archer attribution links on products that lack them
+    for p in products:
+        asin = p.get('asin', '')
+        if asin and not p.get('attribution_link'):
+            try:
+                link = a.generate_link(asin, label=f"{slug}-{asin.lower()}")
+                if link:
+                    p['attribution_link'] = (
+                        link.get('attribution_link') or link.get('url') or ''
+                    )
+            except Exception as _e:
+                logging.warning(f"[PUBLISH] Archer link gen failed for {asin}: {_e}")
+
+    conn.execute(
+        "UPDATE collages SET products_json = ?, status = 'published' WHERE slug = ?",
+        (json.dumps(products), slug),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({
+        'slug': slug,
+        'status': 'published',
+        'public_url': f'https://{SHOP_SUBDOMAIN}/{slug}',
+    })
+
+@app.route('/archer/collage/<slug>', methods=['GET'])
+def archer_collage_get(slug):
+    """Return one collection's full record (used by Ad Builder auto-load
+    when ?collection=<slug> deep-link is hit, and by the Mode C edit flow)."""
+    from product_api import ArcherAPI
+    conn = ArcherAPI()._db_connect()
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM collages WHERE slug = ?", (slug,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'not found'}), 404
+    out = dict(row)
+    try:
+        out['products'] = json.loads(out.pop('products_json') or '[]')
+    except (json.JSONDecodeError, TypeError):
+        out['products'] = []
+    try:
+        out['campaign_types'] = (
+            json.loads(out['campaign_types']) if out.get('campaign_types') else []
+        )
+    except (json.JSONDecodeError, TypeError):
+        out['campaign_types'] = []
+    return jsonify({'collage': out})
+
 
 @app.route('/archer/collages')
 def archer_list_collages():
@@ -757,19 +1171,32 @@ def archer_list_collages():
     conn = a._db_connect()
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        "SELECT slug, theme, layout, created_at, click_count, products_json FROM collages ORDER BY created_at DESC LIMIT 20"
+        "SELECT slug, theme, layout, created_at, click_count, products_json, "
+        "creator_id, status, campaign_types "
+        "FROM collages "
+        "WHERE COALESCE(status,'published') != 'archived' "
+        "ORDER BY created_at DESC LIMIT 50"
     ).fetchall()
     conn.close()
     collages = []
     for r in rows:
         products = json.loads(r['products_json'] or '[]')
+        try:
+            ctypes = json.loads(r['campaign_types']) if r['campaign_types'] else ['organic']
+            if not isinstance(ctypes, list):
+                ctypes = ['organic']
+        except (json.JSONDecodeError, TypeError):
+            ctypes = ['organic']
         collages.append({
-            'slug': r['slug'],
-            'theme': r['theme'],
-            'layout': r['layout'],
-            'created_at': r['created_at'][:10] if r['created_at'] else '',
-            'click_count': r['click_count'] or 0,
-            'product_count': len(products)
+            'slug':           r['slug'],
+            'theme':          r['theme'],
+            'layout':         r['layout'],
+            'created_at':     r['created_at'][:10] if r['created_at'] else '',
+            'click_count':    r['click_count'] or 0,
+            'product_count':  len(products),
+            'creator_id':     r['creator_id'] or 'everydaywithsteph',
+            'status':         r['status'] or 'published',
+            'campaign_types': ctypes,
         })
     return jsonify({'collages': collages})
 
@@ -784,14 +1211,238 @@ def shop_landing(slug):
     if not row:
         return "Page not found", 404
     collage = dict(row)
+    # Drafts only viewable via ?preview=1
+    if (collage.get('status') or 'published') != 'published' and request.args.get('preview') != '1':
+        return "Page not found", 404
+
     products = json.loads(collage.get('products_json') or '[]')
     collage['direct_to_amazon'] = bool(collage.get('direct_to_amazon'))
+
+    # Resolve creator for branding + creator-specific FB pixel
+    creator = db_schema.get_creator(collage.get('creator_id') or 'everydaywithsteph')
+    pixel_id = creator.get('fb_pixel_id') or PIXEL_ID
+
+    # SEO/OG metadata
+    page_title = (
+        collage.get('hero_title')
+        or (collage.get('slug') or '').replace('-', ' ').title()
+        or 'Shop'
+    )
+    page_description = (
+        collage.get('hero_subtitle')
+        or (collage.get('caption') or '')[:160]
+        or f"Curated picks from {creator.get('handle', '@creator')}"
+    )
+    og_image = ''
+    for p in products:
+        if p.get('image_encoded_string'):
+            og_image = p['image_encoded_string']
+            break
+    canonical_url = f"https://{SHOP_SUBDOMAIN}/{slug}"
+    is_preview = request.args.get('preview') == '1'
+
     return render_template('shop_landing.html',
         collage=collage,
         products=products,
         themes=THEMES,
-        pixel_id=PIXEL_ID
+        pixel_id=pixel_id,
+        creator=creator,
+        seo={
+            'title':         page_title,
+            'description':   page_description,
+            'og_image':      og_image,
+            'canonical_url': canonical_url,
+        },
+        is_preview=is_preview,
     )
+
+@app.route('/shop/')
+def shop_directory():
+    """Public directory of all published collections at shop.echotribe.ai/
+
+    Cross-creator listing with a creator badge per row. Works on both
+    the dashboard host (/shop/) and the shop subdomain root (rewritten
+    via _route_shop_subdomain).
+    """
+    from product_api import ArcherAPI
+    a = ArcherAPI()
+    conn = a._db_connect()
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT slug, theme, layout, products_json, created_at, click_count, "
+        "       creator_id, status, campaign_types, hero_title, hero_subtitle, caption "
+        "FROM collages "
+        "WHERE COALESCE(status,'published') = 'published' "
+        "ORDER BY created_at DESC "
+        "LIMIT 200"
+    ).fetchall()
+    conn.close()
+
+    creators_by_id = {c['id']: c for c in db_schema.list_creators()}
+
+    items = []
+    for r in rows:
+        try:
+            products = json.loads(r['products_json'] or '[]')
+        except (json.JSONDecodeError, TypeError):
+            products = []
+        cover_img = ''
+        for p in products:
+            if p.get('image_encoded_string'):
+                cover_img = p['image_encoded_string']
+                break
+        creator = creators_by_id.get(r['creator_id'] or 'everydaywithsteph', {})
+        items.append({
+            'slug':          r['slug'],
+            'title':         r['hero_title'] or (r['slug'] or '').replace('-', ' ').title(),
+            'subtitle':      r['hero_subtitle'] or (r['caption'] or '')[:160],
+            'theme':         r['theme'],
+            'cover_image':   cover_img,
+            'product_count': len(products),
+            'click_count':   r['click_count'] or 0,
+            'created_at':    (r['created_at'] or '')[:10],
+            'creator_id':    r['creator_id'] or 'everydaywithsteph',
+            'creator_handle': creator.get('handle') or '@creator',
+            'creator_name':   creator.get('display_name') or 'Creator',
+        })
+
+    return render_template(
+        'shop_directory.html',
+        items=items,
+        themes=THEMES,
+        canonical_url=f'https://{SHOP_SUBDOMAIN}/',
+        shop_subdomain=SHOP_SUBDOMAIN,
+    )
+
+
+@app.route('/sitemap.xml')
+def shop_sitemap():
+    """Auto-generated sitemap of all published collections.
+
+    Mounted at /sitemap.xml on both hosts; the shop subdomain serves the same
+    list (since both resolve canonical URLs to https://SHOP_SUBDOMAIN/<slug>).
+    """
+    from product_api import ArcherAPI
+    a = ArcherAPI()
+    conn = a._db_connect()
+    rows = conn.execute(
+        "SELECT slug, COALESCE(created_at, CURRENT_TIMESTAMP) as updated "
+        "FROM collages "
+        "WHERE COALESCE(status,'published') = 'published'"
+    ).fetchall()
+    conn.close()
+
+    base = f'https://{SHOP_SUBDOMAIN}'
+    parts = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    parts.append(f'  <url><loc>{base}/</loc><changefreq>daily</changefreq><priority>0.9</priority></url>')
+    for slug, updated in rows:
+        lastmod = (updated or '')[:10]
+        parts.append(
+            f'  <url><loc>{base}/{slug}</loc>'
+            f'<lastmod>{lastmod}</lastmod>'
+            f'<changefreq>weekly</changefreq>'
+            f'<priority>0.7</priority></url>'
+        )
+    parts.append('</urlset>')
+    return Response('\n'.join(parts), mimetype='application/xml')
+
+
+@app.route('/robots.txt')
+def shop_robots():
+    """Public robots.txt for the shop subdomain. Disallows admin paths."""
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /admin/\n"
+        "Disallow: /api/\n"
+        "Disallow: /archer/\n"
+        "Disallow: /dashboard/\n"
+        f"Sitemap: https://{SHOP_SUBDOMAIN}/sitemap.xml\n"
+    )
+    return Response(body, mimetype='text/plain')
+
+
+# ── POSTS QUEUE (Branch 2B) ──────────────────────────────────────────────────
+@app.route('/archer/posts', methods=['GET'])
+def archer_posts_list():
+    """List posts for the queue UI. Query: status, collection_slug, creator_id."""
+    import posts as _posts
+    rows = _posts.list_posts(
+        creator_id=request.args.get('creator_id', 'everydaywithsteph'),
+        status=request.args.get('status') or None,
+        collection_slug=request.args.get('collection_slug') or None,
+        limit=int(request.args.get('limit', 200)),
+    )
+    return jsonify({'posts': rows, 'stats': _posts.stats(
+        request.args.get('creator_id', 'everydaywithsteph')
+    )})
+
+
+@app.route('/archer/posts/<int:post_id>', methods=['PATCH'])
+def archer_post_update(post_id):
+    """Update a single post's editable fields (copy, angle, status, UTMs, smart_link)."""
+    import posts as _posts
+    body = request.get_json() or {}
+    saved = _posts.update_post(post_id, body)
+    if not saved:
+        return jsonify({'error': 'post not found'}), 404
+    return jsonify({'post': saved})
+
+
+@app.route('/archer/posts/<int:post_id>', methods=['DELETE'])
+def archer_post_delete(post_id):
+    """Hard delete. Use bulk_status with 'archived' for soft delete."""
+    import posts as _posts
+    if not _posts.delete_post(post_id):
+        return jsonify({'error': 'post not found'}), 404
+    return jsonify({'ok': True})
+
+
+@app.route('/archer/posts/bulk', methods=['POST'])
+def archer_posts_bulk():
+    """Bulk-update status on many posts at once.
+
+    Body: { "ids": [1,2,3], "status": "approved" | "posted" | "archived" }
+    """
+    import posts as _posts
+    body = request.get_json() or {}
+    ids = body.get('ids') or []
+    status = (body.get('status') or '').strip()
+    if not ids or status not in {'draft', 'approved', 'posted', 'archived'}:
+        return jsonify({'error': 'ids and valid status required'}), 400
+    n = _posts.bulk_set_status([int(i) for i in ids], status)
+    return jsonify({'updated': n})
+
+
+@app.route('/archer/posts/export.csv', methods=['GET'])
+def archer_posts_export_csv():
+    """Export posts queue as CSV: created_at | angle | asin | copy | smart_link | image_note | status."""
+    import csv, io
+    import posts as _posts
+    rows = _posts.list_posts(
+        creator_id=request.args.get('creator_id', 'everydaywithsteph'),
+        status=request.args.get('status') or None,
+        collection_slug=request.args.get('collection_slug') or None,
+        limit=int(request.args.get('limit', 1000)),
+    )
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['created_at', 'angle', 'asin', 'product_name', 'copy',
+                'smart_link', 'image_note', 'status', 'collection_slug'])
+    for r in rows:
+        w.writerow([
+            r.get('created_at', ''), r.get('angle', ''), r.get('asin', ''),
+            r.get('product_name', ''), r.get('copy', ''),
+            r.get('smart_link', ''), r.get('image_note', ''),
+            r.get('status', ''), r.get('collection_slug', '') or '',
+        ])
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="posts_queue.csv"'},
+    )
+
 
 @app.route('/archer/track_click', methods=['POST'])
 def archer_track_click():
@@ -839,6 +1490,82 @@ def archer_ads():
 @app.route('/archer/organic')
 def archer_organic():
     return render_template('organic_posts.html')
+
+
+# ── INSIGHTS: clicks × earnings × paid attribution ──────────────────────────
+@app.route('/insights')
+def insights_page():
+    """Insights dashboard. Query params:
+      window:       today | yesterday | 7d | 30d | custom (default: 30d)
+      start, end:   ISO dates when window=custom
+      creator_id:   defaults to 'everydaywithsteph'
+      tab:          collections | posts | ads (default: collections)
+    """
+    import insights as _ins
+    creator_id = (request.args.get('creator_id') or 'everydaywithsteph').strip()
+    window = (request.args.get('window') or '30d').strip()
+    custom_start = request.args.get('start')
+    custom_end = request.args.get('end')
+    tab = (request.args.get('tab') or 'collections').strip()
+
+    start, end, label = _ins.resolve_window(window, custom_start, custom_end)
+
+    overview = _ins.overview(creator_id, start, end)
+    collections = _ins.collections_summary(creator_id, start, end)
+    posts = _ins.posts_summary(creator_id, start, end)
+    ads = _ins.ads_summary(creator_id, start, end, pull_archer_now=(tab == 'ads'))
+
+    return render_template('insights.html',
+        creator_id=creator_id,
+        creators=db_schema.list_creators(),
+        window=window, window_label=label,
+        start=start, end=end,
+        tab=tab,
+        overview=overview,
+        collections=collections,
+        posts=posts,
+        ads=ads,
+    )
+
+
+# ── ADMIN: creator management ────────────────────────────────────────────────
+@app.route('/admin/creators', methods=['GET'])
+def admin_creators():
+    """List creators + edit/create form. Hidden URL — no auth in v1."""
+    creators = db_schema.list_creators()
+    return render_template('admin_creators.html', creators=creators)
+
+
+@app.route('/admin/creators', methods=['POST'])
+def admin_creators_save():
+    """Create or update a creator from the admin form."""
+    body = request.get_json(silent=True) or request.form.to_dict() or {}
+    creator_id = (body.get('id') or '').strip().lower()
+    if not creator_id:
+        return jsonify({'error': 'id is required (lowercase slug)'}), 400
+    payload = {
+        'id':                 creator_id,
+        'display_name':       (body.get('display_name') or '').strip(),
+        'handle':             (body.get('handle') or '').strip(),
+        'brand_label':        (body.get('brand_label') or '').strip(),
+        'fb_pixel_id':        (body.get('fb_pixel_id') or '').strip(),
+        'amazon_tag':         (body.get('amazon_tag') or '').strip(),
+        'meta_ad_account_id': (body.get('meta_ad_account_id') or '').strip(),
+        'ltk_url':            (body.get('ltk_url') or '').strip(),
+        'facebook_url':       (body.get('facebook_url') or '').strip(),
+        'voice_prompt':       (body.get('voice_prompt') or '').strip(),
+        'theme_default':      (body.get('theme_default') or 'coral').strip(),
+    }
+    if not payload['display_name']:
+        return jsonify({'error': 'display_name is required'}), 400
+    saved = db_schema.upsert_creator(payload)
+    return jsonify({'creator': saved})
+
+
+@app.route('/admin/creators/<creator_id>', methods=['GET'])
+def admin_creator_get(creator_id):
+    creator = db_schema.get_creator(creator_id)
+    return jsonify({'creator': creator})
 
 @app.route('/archer/generate_ad_copy', methods=['POST'])
 def archer_generate_ad_copy():
@@ -965,20 +1692,21 @@ def archer_list_campaigns():
 
 AMAZON_TAG = os.environ.get('AMAZON_AFFILIATE_TAG', 'mommymedeals-20')
 
-# Valid source × medium combinations (Task 5 — naming convention)
-# channel = utm_source | type = utm_medium
+# Valid source × medium combinations
+# Includes both legacy values and new UTM schema (April 2026)
 VALID_PLACEMENTS = {
-    'fb-group': ['organic'],
-    'fb-ad':    ['dark', 'boost'],
-    # Legacy — kept for backwards-compat with existing saved links
-    'facebook':  ['organic', 'paid'],
-    'instagram': ['organic', 'paid'],
-    'tiktok':    ['organic', 'paid'],
-    'email':     ['newsletter'],
+    'fb-group':  ['organic'],
+    'fb-ad':     ['dark', 'boost'],
+    # Legacy
+    'facebook':  ['organic', 'paid', 'organic_social', 'paid_social', 'boosted_post'],
+    'instagram': ['organic', 'paid', 'organic_social', 'organic_video', 'paid_social'],
+    'tiktok':    ['organic', 'paid', 'organic_video', 'organic_social', 'paid_social'],
+    'email':     ['newsletter', 'email'],
+    'linkinbio': ['organic_social'],
     'steph-ai':  ['ai-agent'],
 }
 
-# utm_content auto-derived from affiliate network (never supplied by caller)
+# utm_content: caller may supply override; otherwise auto-derived from affiliate network
 NETWORK_CONTENT = {
     'amazon':  'amazon-assoc',
     'archer':  'archer',
@@ -1001,59 +1729,34 @@ _seed_urlgenius()
 
 def _make_smart_link(asin: str, network: str = 'amazon', utm_source: str = 'fb-group',
                      utm_medium: str = 'organic', utm_campaign: str = '',
-                     utm_term: str = '') -> dict:
+                     utm_term: str = '', creator_id: str = 'everydaywithsteph') -> dict:
     """
     Internal helper: build an affiliate URL and wrap it in URLGenius.
-    Respects 2 req/sec URLGenius limit via 500ms sleep before each API call.
-    Returns dict with genius_url, affiliate_url, label, urlgenius (bool).
+
+    As of Phase 2A this delegates to link_builder.build_smart_link() which
+    routes through the LinkBuilder registry — Archer/URLGenius today, Walmart
+    Impact in Phase 2C. Signature preserved so existing call sites stay valid.
     """
-    from product_api import ArcherAPI, URLGeniusAPI
-    from datetime import datetime as _dt
+    from link_builder import build_smart_link as _build
 
-    amazon_tag = os.environ.get('AMAZON_AFFILIATE_TAG', 'mommymedeals-20')
-    affiliate_url = f'https://www.amazon.com/dp/{asin}?tag={amazon_tag}'
+    # Map legacy 'network' values to registry keys. 'levanta' had no real
+    # generator; treat it as a passthrough Amazon link with the Levanta
+    # utm_content fallback.
+    registry_network = 'archer' if network in ('amazon', 'archer') else network
 
-    if network == 'archer':
-        try:
-            a = ArcherAPI()
-            label_archer = f'steph-archer-{asin.lower()}-{int(time.time())}'
-            result = a.generate_link(asin, label=label_archer)
-            if result:
-                affiliate_url = (result.get('attribution_link') or result.get('url')
-                                 or result.get('link') or affiliate_url)
-        except Exception as e:
-            logging.warning(f'[SMART_LINK] Archer link failed for {asin}: {e}')
-
-    mmdd = _dt.now().strftime('%m%d')
-    link_label = f'{utm_source}_{utm_medium}_{utm_campaign}_{mmdd}'
     utm_content = NETWORK_CONTENT.get(network, network)
-
-    ug = URLGeniusAPI()
-    if not ug.api_key:
-        return {'genius_url': affiliate_url, 'affiliate_url': affiliate_url,
-                'label': link_label, 'urlgenius': False}
-    try:
-        time.sleep(0.5)  # 2 req/sec URLGenius rate limit
-        ug_result = ug.create_link(
-            destination_url=affiliate_url,
-            utm_source=utm_source,
-            utm_medium=utm_medium,
-            utm_campaign=utm_campaign,
-            utm_content=utm_content,
-            utm_term=utm_term or None,
-        )
-        link_obj = ug_result.get('link', {})
-        if isinstance(link_obj, dict) and link_obj.get('genius_url'):
-            genius_url = link_obj['genius_url']
-        else:
-            genius_url = (link_obj.get('genius_url', affiliate_url)
-                          if isinstance(link_obj, dict) else affiliate_url)
-        return {'genius_url': genius_url, 'affiliate_url': affiliate_url,
-                'label': link_label, 'urlgenius': True}
-    except Exception as e:
-        logging.warning(f'[SMART_LINK] URLGenius call failed for {asin}: {e}')
-        return {'genius_url': affiliate_url, 'affiliate_url': affiliate_url,
-                'label': link_label, 'urlgenius': False}
+    return _build(
+        item_id=asin,
+        network=registry_network,
+        utm={
+            'source':   utm_source,
+            'medium':   utm_medium,
+            'campaign': utm_campaign,
+            'content':  utm_content,
+            'term':     utm_term,
+        },
+        creator_id=creator_id,
+    )
 
 
 @app.route('/urlgenius/smart_link', methods=['POST'])
@@ -1063,10 +1766,12 @@ def urlgenius_smart_link():
     Body: {
       asin: str,
       network: 'amazon' | 'archer' | 'levanta',
-      placement: { source, medium, campaign, term? },
+      placement: { source, medium, campaign, content?, term? },
       force_new?: bool
     }
-    utm_content is derived automatically from network — never supplied by caller.
+    utm_content: caller-supplied placement.content takes precedence; falls back to
+    NETWORK_CONTENT auto-derive (e.g. 'amazon-assoc'). Use organic_[angle]_static
+    or organic_[angle]_collection convention from UTM Schema Reference.
     Returns { genius_url, affiliate_url, network, label, utm }
     """
     from product_api import ArcherAPI, LevantaAPI, URLGeniusAPI
@@ -1096,8 +1801,8 @@ def urlgenius_smart_link():
     if utm_medium not in valid_mediums:
         return jsonify({'error': f'Invalid medium "{utm_medium}" for source "{utm_source}". Valid: {valid_mediums}'}), 400
 
-    # ── utm_content auto-derived from network ───────────────────────────────
-    utm_content = NETWORK_CONTENT.get(network, network)
+    # ── utm_content: caller override takes precedence, else auto-derive ────────
+    utm_content = (placement.get('content') or '').strip() or NETWORK_CONTENT.get(network, network)
 
     # ── Build affiliate URL ─────────────────────────────────────────────────
     affiliate_url = None

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Organic Posts — EchoTribe</title>
+<title>Content Builder — EchoTribe</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -14,7 +14,6 @@
     --green: #27693a; --green-light: #e6f4eb; --green-mid: #34a352;
     --amber: #8a5510; --amber-light: #fbeedd;
     --red: #a02828; --red-light: #fbe9e9;
-    --teal: #0a6b52; --teal-light: #e2f5ee;
     --purple: #5a3d8a; --purple-light: #f0eafa;
     --archer: #e85d26; --archer-light: #fdf0ea;
     --r: 8px; --rlg: 12px;
@@ -24,7 +23,7 @@
   }
   body { font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
 
-  /* TOPBAR */
+  /* ── TOPBAR ── */
   .topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--topbar); background: var(--surface); border-bottom: 0.5px solid var(--border2); display: flex; align-items: center; padding: 0 20px; gap: 16px; z-index: 100; }
   .tb-logo { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
   .tb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--archer); }
@@ -35,110 +34,216 @@
   .tb-link:hover { background: var(--bg2); color: var(--text2); }
   .tb-link.active { background: var(--archer-light); color: var(--archer); border-color: var(--archer); }
 
-  /* PAGE */
-  .page { max-width: 1100px; margin: 0 auto; padding: calc(var(--topbar) + 24px) 24px 60px; }
-
+  /* ── PAGE ── */
+  .page { max-width: 1100px; margin: 0 auto; padding: calc(var(--topbar) + 24px) 24px 80px; }
   .section { margin-bottom: 28px; }
   .slabel { font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text4); margin-bottom: 10px; }
 
-  /* PRODUCT SELECTOR (mirrors archer_ads.html) */
-  .product-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
-  .ps-slot { background: var(--surface); border: 1.5px dashed var(--border2); border-radius: var(--rlg); min-height: 140px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s; position: relative; overflow: hidden; }
-  .ps-slot:hover { border-color: var(--archer); background: var(--archer-light); }
-  .ps-slot.filled { border-style: solid; border-color: var(--border); cursor: default; }
-  .ps-slot.filled:hover { border-color: var(--border2); background: var(--surface); }
-  .ps-empty { text-align: center; color: var(--text4); }
-  .ps-empty-icon { font-size: 20px; margin-bottom: 4px; }
-  .ps-empty-text { font-size: 11px; }
-  .ps-img { width: 100%; height: 90px; object-fit: cover; }
-  .ps-img-ph { width: 100%; height: 90px; background: var(--bg2); display: flex; align-items: center; justify-content: center; font-size: 24px; }
-  .ps-info { padding: 7px 9px; width: 100%; }
-  .ps-brand { font-family: var(--mono); font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text4); }
-  .ps-name { font-size: 11px; font-weight: 500; color: var(--text); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .ps-price { font-family: var(--mono); font-size: 11px; color: var(--archer); margin-top: 3px; }
-  .ps-remove { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.5); color: #fff; border: none; font-size: 11px; cursor: pointer; display: none; align-items: center; justify-content: center; }
-  .ps-slot.filled:hover .ps-remove { display: flex; }
+  /* ── DISCOVERY ── */
+  .disc-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+  .df-group { display: flex; flex-direction: column; gap: 4px; }
+  .df-label { font-family: var(--mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text4); }
+  .df-select { border: 0.5px solid var(--border2); border-radius: var(--r); padding: 7px 10px; font-size: 12px; color: var(--text); background: var(--surface); outline: none; cursor: pointer; min-width: 155px; }
+  .df-select:focus { border-color: var(--archer); }
+  .pull-btn { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; padding: 8px 18px; border-radius: var(--r); border: none; background: var(--archer); color: #fff; cursor: pointer; align-self: flex-end; transition: opacity 0.15s; }
+  .pull-btn:hover { opacity: 0.88; } .pull-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .disc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; min-height: 56px; }
+  .dc { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); overflow: hidden; cursor: pointer; transition: all 0.15s; position: relative; }
+  .dc:hover { border-color: var(--archer); box-shadow: 0 0 0 3px rgba(232,93,38,0.08); }
+  .dc.dc-sel { border-color: var(--archer); background: var(--archer-light); }
+  .dc-img-wrap { height: 100px; background: #fff; display: flex; align-items: center; justify-content: center; border-bottom: 0.5px solid var(--border); overflow: hidden; }
+  .dc-img { max-height: 95px; max-width: 100%; object-fit: contain; }
+  .dc-body { padding: 9px 10px 11px; }
+  .dc-check { position: absolute; top: 7px; right: 7px; width: 18px; height: 18px; border-radius: 50%; background: var(--archer); color: #fff; font-size: 10px; display: none; align-items: center; justify-content: center; z-index: 2; }
+  .dc-sel .dc-check { display: flex; }
+  .dc-brand { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--archer); margin-bottom: 3px; }
+  .dc-name { font-size: 11.5px; font-weight: 500; line-height: 1.35; margin-bottom: 7px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .dc-pills { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+  .dc-pill { padding: 2px 7px; border-radius: 20px; font-family: var(--mono); font-size: 9px; border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text4); }
+  .dc-pill.green { background: var(--green-light); border-color: rgba(39,105,58,0.3); color: var(--green); }
+  .dc-pill.amber { background: var(--amber-light); border-color: rgba(138,85,16,0.3); color: var(--amber); }
+  .dc-pill.blue { background: var(--blue-light); border-color: rgba(28,95,166,0.3); color: var(--blue-text); }
+  .dc-asin { font-family: var(--mono); font-size: 9px; color: var(--text4); margin-top: 4px; }
+  .dc-why { font-size: 10.5px; color: var(--purple); font-style: italic; margin-top: 3px; line-height: 1.4; }
+  .disc-empty { grid-column: 1/-1; text-align: center; padding: 28px; color: var(--text4); font-size: 12px; font-family: var(--mono); }
 
-  /* SEARCH BAR (mirrors archer_ads.html) */
+  /* ── BUILD QUEUE ── */
+  .queue-chips { display: flex; flex-wrap: wrap; gap: 7px; min-height: 36px; padding: 8px 10px; background: var(--bg); border: 0.5px dashed var(--border2); border-radius: var(--r); margin-bottom: 12px; align-items: center; }
+  .q-chip { background: var(--surface); border: 0.5px solid var(--border2); border-radius: var(--r); padding: 5px 6px 5px 8px; display: inline-flex; align-items: center; gap: 8px; }
+  .q-chip-img { width: 26px; height: 26px; border-radius: 4px; object-fit: contain; background: var(--bg2); flex-shrink: 0; }
+  .q-chip-info { display: flex; flex-direction: column; gap: 1px; }
+  .q-chip-name { font-weight: 500; font-size: 11px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.3; }
+  .q-chip-asin { font-family: var(--mono); font-size: 9.5px; color: var(--text4); }
+  .q-chip-x { cursor: pointer; color: var(--text4); font-size: 14px; line-height: 1; flex-shrink: 0; }
+  .q-chip-x:hover { color: var(--archer); }
+  .q-empty { font-family: var(--mono); font-size: 11px; color: var(--text4); padding: 2px 0; }
   .add-bar { display: flex; gap: 8px; margin-bottom: 6px; }
-  .add-input { flex: 1; border: 0.5px solid var(--border2); border-radius: var(--r); padding: 8px 12px; font-size: 13px; font-family: var(--sans); color: var(--text); background: var(--bg); outline: none; transition: border-color 0.15s; }
+  .add-input { flex: 1; border: 0.5px solid var(--border2); border-radius: var(--r); padding: 8px 12px; font-size: 13px; color: var(--text); background: var(--bg); outline: none; transition: border-color 0.15s; }
   .add-input:focus { border-color: var(--blue-mid); background: var(--surface); }
-  .add-btn { font-family: var(--sans); font-size: 12px; font-weight: 500; padding: 8px 14px; border-radius: var(--r); border: 0.5px solid; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .add-btn { font-size: 12px; font-weight: 500; padding: 8px 14px; border-radius: var(--r); border: 0.5px solid; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
   .btn-archer { background: var(--archer); color: #fff; border-color: var(--archer); }
   .btn-archer:hover { background: #d04d1c; }
   .btn-outline { background: var(--surface); color: var(--text2); border-color: var(--border2); }
   .btn-outline:hover { background: var(--bg2); }
-
   .search-drop { background: var(--surface); border: 0.5px solid var(--border2); border-radius: var(--r); max-height: 200px; overflow-y: auto; margin-bottom: 8px; display: none; }
   .search-drop.open { display: block; }
   .sd-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 0.5px solid var(--border); cursor: pointer; transition: background 0.1s; }
   .sd-item:last-child { border-bottom: none; }
   .sd-item:hover { background: var(--bg2); }
-  .sd-img { width: 34px; height: 34px; object-fit: cover; border-radius: 4px; background: var(--bg2); flex-shrink: 0; }
-  .sd-name { font-size: 12px; font-weight: 500; color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sd-img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; background: var(--bg2); flex-shrink: 0; }
+  .sd-name { font-size: 12px; font-weight: 500; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sd-comm { font-family: var(--mono); font-size: 11px; color: var(--green); flex-shrink: 0; }
+  .bulk-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: flex-start; }
+  .bulk-ta { width: 100%; border: 0.5px solid var(--border2); border-radius: var(--r); padding: 8px 10px; font-family: var(--mono); font-size: 11.5px; resize: vertical; outline: none; background: var(--bg); color: var(--text); line-height: 1.6; min-height: 68px; }
+  .bulk-ta:focus { border-color: var(--archer); background: var(--surface); }
+  .bulk-add-btn { font-size: 12px; font-weight: 600; padding: 8px 16px; border-radius: var(--r); border: none; background: var(--text); color: #fff; cursor: pointer; white-space: nowrap; align-self: flex-start; }
+  .bulk-add-btn:hover { opacity: 0.8; }
 
-  /* GENERATE BTN */
-  .gen-row { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
-  .gen-btn { display: flex; align-items: center; gap: 8px; font-family: var(--sans); font-size: 13px; font-weight: 500; padding: 10px 20px; border-radius: var(--r); border: none; background: var(--blue-mid); color: #fff; cursor: pointer; transition: all 0.15s; }
-  .gen-btn:hover { background: var(--blue); }
-  .gen-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .gen-btn.loading { opacity: 0.7; cursor: wait; }
+  /* ── MODE SELECTOR ── */
+  .mode-tabs { display: flex; gap: 0; border: 0.5px solid var(--border2); border-radius: var(--rlg); overflow: hidden; margin-bottom: 20px; width: fit-content; }
+  .mode-tab { padding: 9px 22px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: var(--surface); color: var(--text3); transition: all 0.15s; border-right: 0.5px solid var(--border2); display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  .mode-tab:last-child { border-right: none; }
+  .mode-tab:hover { background: var(--bg2); }
+  .mode-tab.active { background: var(--archer); color: #fff; }
+  .mode-tab small { font-size: 10px; font-family: var(--mono); font-weight: 400; opacity: 0.75; }
+  .mode-tab.active small { opacity: 0.9; }
+
+  /* ── UTM GLOBAL PANEL ── */
+  .utm-global { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); padding: 14px 16px; margin-bottom: 18px; }
+  .utm-global-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text4); margin-bottom: 10px; }
+  .utm-global-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .utm-gf { display: flex; flex-direction: column; gap: 3px; }
+  .utm-gl { font-family: var(--mono); font-size: 9px; color: var(--text4); letter-spacing: 0.5px; }
+  .utm-gsel { border: 0.5px solid var(--border2); border-radius: 6px; padding: 6px 9px; font-family: var(--mono); font-size: 11.5px; color: var(--text); background: var(--surface); outline: none; cursor: pointer; min-width: 160px; }
+  .utm-gsel:focus { border-color: var(--archer); }
+  .utm-gin { border: 0.5px solid var(--border2); border-radius: 6px; padding: 6px 9px; font-family: var(--mono); font-size: 11.5px; color: var(--text); background: var(--surface); outline: none; min-width: 200px; }
+  .utm-gin:focus { border-color: var(--archer); }
+
+  /* ── COLLECTION CONFIG ── */
+  .col-cfg { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); padding: 14px 16px; margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .col-cfg-f { display: flex; flex-direction: column; gap: 4px; }
+  .col-cfg-l { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text4); }
+  .col-cfg-i { border: 0.5px solid var(--border2); border-radius: var(--r); padding: 7px 10px; font-size: 13px; color: var(--text); background: var(--bg); outline: none; width: 100%; }
+  .col-cfg-i:focus { border-color: var(--archer); background: var(--surface); }
+  .slug-preview { font-family: var(--mono); font-size: 10px; color: var(--text4); margin-bottom: 3px; }
+  .slug-preview b { color: var(--archer); }
+
+  /* ── THEME PICKER ── */
+  .theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .theme-sw { cursor: pointer; border: 1.5px solid transparent; border-radius: 8px; padding: 4px; display: flex; align-items: center; justify-content: center; height: 32px; font-family: var(--mono); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.12s; user-select: none; }
+  .theme-sw:hover { transform: scale(1.04); }
+  .theme-sw.active { border-color: var(--archer); box-shadow: 0 0 0 2px rgba(232,93,38,0.15); }
+  .theme-sw[data-theme="coral"]    { background: #fff5f5; color: #ff6b6b; }
+  .theme-sw[data-theme="ocean"]    { background: #e8f4f8; color: #2e7dd4; }
+  .theme-sw[data-theme="lavender"] { background: #f5f0ff; color: #a78bfa; }
+  .theme-sw[data-theme="forest"]   { background: #f0f7f2; color: #27693a; }
+  .theme-sw[data-theme="midnight"] { background: #1a1a17; color: #e8e5dc; }
+  .theme-sw[data-theme="peach"]    { background: #fdf6f0; color: #e85d26; }
+  .theme-sw[data-theme="clean"]    { background: #ffffff; color: #1a1a17; border-color: var(--border); }
+  .theme-sw[data-theme="bold"]     { background: #fff8f6; color: #a02828; }
+
+  /* ── PUBLISHED LANDING PAGE PILL ── */
+  .lp-pill { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--r); background: var(--green-light); border: 0.5px solid rgba(39,105,58,0.3); margin-bottom: 16px; flex-wrap: wrap; }
+  .lp-pill-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--green); font-weight: 600; }
+  .lp-pill-url { font-family: var(--mono); font-size: 12px; color: var(--green); font-weight: 500; flex: 1; min-width: 200px; }
+  .lp-pill-actions { display: flex; gap: 6px; }
+  .lp-pill .ca-btn { padding: 5px 12px; font-size: 11px; }
+
+  /* ── GEN ROW ── */
+  .gen-row { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  .gen-btn { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; padding: 10px 22px; border-radius: var(--r); border: none; background: var(--blue-mid); color: #fff; cursor: pointer; transition: all 0.15s; }
+  .gen-btn:hover { background: var(--blue); } .gen-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .gen-note { font-size: 12px; color: var(--text4); }
 
-  /* TOOLBAR (Copy All / Export) */
-  .results-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; padding: 12px 14px; background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); }
-  .rt-stats { font-size: 12px; color: var(--text3); margin-right: auto; }
-  .rt-stats strong { color: var(--text); }
-  .rt-btn { font-size: 12px; font-weight: 500; padding: 7px 14px; border-radius: var(--r); border: 0.5px solid var(--border2); background: var(--surface); color: var(--text2); cursor: pointer; transition: all 0.15s; }
-  .rt-btn:hover { background: var(--bg2); }
-  .rt-btn.primary { background: var(--archer); color: #fff; border-color: var(--archer); }
-  .rt-btn.primary:hover { background: #d04d1c; }
-  .rt-btn.green { background: var(--green-light); color: var(--green); border-color: rgba(39,105,58,0.3); }
-  .rt-btn.green:hover { background: var(--green); color: #fff; }
+  /* ── OUTPUT GRID ── */
+  .out-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+  .ocard { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); overflow: hidden; display: flex; flex-direction: column; }
+  .ocard-head { display: flex; gap: 11px; padding: 12px; background: var(--surface2); border-bottom: 0.5px solid var(--border); align-items: flex-start; }
+  .ocard-img { width: 54px; height: 54px; border-radius: var(--r); object-fit: contain; background: var(--bg); border: 0.5px solid var(--border); flex-shrink: 0; }
+  .ocard-meta { flex: 1; min-width: 0; }
+  .ocard-brand { font-family: var(--mono); font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--archer); margin-bottom: 2px; }
+  .ocard-name { font-size: 13px; font-weight: 500; line-height: 1.3; margin-bottom: 5px; }
+  .ocard-pills { display: flex; gap: 5px; flex-wrap: wrap; }
+  .opill { padding: 2px 7px; border-radius: 20px; font-family: var(--mono); font-size: 9px; border: 0.5px solid var(--border2); background: var(--bg2); color: var(--text4); }
+  .opill.green { background: var(--green-light); border-color: rgba(39,105,58,0.3); color: var(--green); }
+  .opill.blue { background: var(--blue-light); border-color: rgba(28,95,166,0.3); color: var(--blue-text); }
+  .ocard-body { padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 12px; }
 
-  /* POSTS GRID */
-  .posts-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-  .post-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); overflow: hidden; display: flex; flex-direction: column; }
-  .pc-head { padding: 10px 14px; border-bottom: 0.5px solid var(--border); background: var(--surface2); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .pc-head-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .pc-num { font-family: var(--mono); font-size: 10px; color: var(--text4); }
-  .pc-pill { font-family: var(--mono); font-size: 9px; letter-spacing: 0.8px; text-transform: uppercase; padding: 3px 9px; border-radius: 20px; background: var(--archer-light); color: var(--archer); border: 0.5px solid rgba(232,93,38,0.25); }
-  .pc-product-tag { font-family: var(--mono); font-size: 9px; color: var(--text4); padding: 2px 6px; background: var(--bg2); border-radius: 4px; }
-  .pc-copy-btn { font-size: 10px; color: var(--text4); background: none; border: 0.5px solid var(--border2); cursor: pointer; padding: 4px 9px; border-radius: 4px; transition: all 0.15s; }
-  .pc-copy-btn:hover { background: var(--blue-mid); color: #fff; border-color: var(--blue-mid); }
-  .pc-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
-  .pc-copy { font-size: 13px; color: var(--text); line-height: 1.55; white-space: pre-wrap; user-select: text; }
-  .pc-image-note { font-size: 11.5px; color: var(--purple); font-style: italic; line-height: 1.5; padding: 7px 10px; background: var(--purple-light); border-radius: var(--r); }
-  .pc-image-note::before { content: '🖼 '; font-style: normal; }
-  .pc-link-row { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 0.5px solid var(--border); }
-  .pc-link { font-family: var(--mono); font-size: 10.5px; color: var(--blue-text); word-break: break-all; padding: 6px 8px; background: var(--bg2); border-radius: 4px; }
-  .pc-link a { color: inherit; text-decoration: none; }
-  .pc-link a:hover { text-decoration: underline; }
-  .pc-tag { font-family: var(--mono); font-size: 9.5px; color: var(--text4); }
-  .pc-amazon-link { font-size: 11px; color: var(--archer); text-decoration: none; }
-  .pc-amazon-link:hover { text-decoration: underline; }
-  .pc-status { font-family: var(--mono); font-size: 9px; padding: 2px 6px; border-radius: 4px; display: inline-block; }
-  .pc-status.on { background: var(--green-light); color: var(--green); }
-  .pc-status.off { background: var(--amber-light); color: var(--amber); }
+  /* ── ANGLE BADGE ── */
+  .angle-badge { display: inline-flex; align-items: center; gap: 5px; background: var(--archer-light); color: var(--archer); border: 0.5px solid rgba(232,93,38,0.25); font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.5px; padding: 3px 9px; border-radius: 20px; }
 
-  /* SKELETON */
-  .pc-skeleton { height: 220px; background: linear-gradient(90deg, var(--bg2) 25%, var(--bg) 50%, var(--bg2) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: var(--rlg); }
+  /* ── POST COPY ── */
+  .post-copy { font-size: 13px; line-height: 1.65; color: var(--text); white-space: pre-wrap; background: var(--bg); border: 0.5px solid var(--border); border-radius: var(--r); padding: 10px 12px; min-height: 80px; outline: none; cursor: text; }
+  .post-copy:focus { border-color: var(--blue-mid); background: var(--surface); }
+  .image-note { font-size: 11.5px; color: var(--purple); font-style: italic; padding: 7px 10px; background: var(--purple-light); border-radius: var(--r); line-height: 1.5; }
+
+  /* ── UTM BUILDER (per card) ── */
+  .utm-builder { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--r); padding: 12px; }
+  .utm-blabel { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text4); margin-bottom: 9px; }
+  .utm-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 8px; }
+  .utm-field { display: flex; flex-direction: column; gap: 2px; }
+  .utm-field.full { grid-column: 1 / -1; }
+  .utm-fl { font-family: var(--mono); font-size: 9px; color: var(--text4); }
+  .utm-val { border: 0.5px solid var(--border2); border-radius: 5px; padding: 5px 7px; font-family: var(--mono); font-size: 11px; color: var(--text); background: var(--surface); outline: none; width: 100%; }
+  .utm-val:focus { border-color: var(--archer); }
+  .utm-preview { font-family: var(--mono); font-size: 9.5px; color: var(--text4); word-break: break-all; line-height: 1.55; padding: 7px 9px; background: var(--surface); border: 0.5px dashed var(--border2); border-radius: 5px; margin-bottom: 9px; }
+  .utm-preview b { color: var(--text2); }
+
+  /* ── SMART LINK ROW ── */
+  .smart-row { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+  .smart-btn { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: var(--r); border: none; background: var(--archer); color: #fff; cursor: pointer; transition: all 0.15s; flex-shrink: 0; }
+  .smart-btn:hover { background: #d04d1c; } .smart-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .smart-btn.done { background: var(--green); }
+  .copy-utm-btn { font-size: 11px; padding: 6px 12px; border-radius: var(--r); border: 0.5px solid var(--border2); background: var(--surface); color: var(--text2); cursor: pointer; }
+  .copy-utm-btn:hover { background: var(--bg2); }
+  .genius-pill { display: none; align-items: center; gap: 7px; font-family: var(--mono); font-size: 10.5px; background: var(--green-light); color: var(--green); border: 0.5px solid rgba(39,105,58,0.3); border-radius: var(--r); padding: 6px 10px; flex: 1; min-width: 0; word-break: break-all; }
+  .genius-pill.show { display: flex; }
+  .genius-pill a { color: inherit; font-weight: 600; text-decoration: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .genius-pill a:hover { text-decoration: underline; }
+  .genius-pill.warn { background: var(--amber-light); color: var(--amber); border-color: rgba(138,85,16,0.3); }
+  .cp-icon { cursor: pointer; flex-shrink: 0; opacity: 0.7; }
+  .cp-icon:hover { opacity: 1; }
+
+  /* ── CARD ACTIONS ── */
+  .card-actions { display: flex; gap: 7px; flex-wrap: wrap; padding-top: 10px; border-top: 0.5px solid var(--border); }
+  .ca-btn { font-size: 11.5px; font-weight: 500; padding: 6px 14px; border-radius: var(--r); border: 0.5px solid var(--border2); background: var(--surface); color: var(--text2); cursor: pointer; transition: all 0.15s; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+  .ca-btn:hover { background: var(--bg2); }
+  .ca-btn.primary { background: var(--text); color: #fff; border-color: var(--text); }
+  .ca-btn.primary:hover { opacity: 0.85; }
+  .ca-btn.ok { background: var(--green); color: #fff; border-color: var(--green); }
+
+  /* ── COLLECTION OUTPUT ── */
+  .col-out { border: 0.5px solid var(--border); border-radius: var(--rlg); overflow: hidden; margin-bottom: 18px; }
+  .col-out-hdr { background: var(--text); color: #fff; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .col-out-title { font-size: 15px; font-weight: 600; }
+  .col-out-url { font-family: var(--mono); font-size: 11px; color: var(--archer); flex-shrink: 0; }
+  .col-sec { padding: 14px 16px; border-top: 0.5px solid var(--border); }
+  .col-sec-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text4); margin-bottom: 9px; }
+
+  /* ── SKELETON ── */
+  .skel { height: 200px; background: linear-gradient(90deg, var(--bg2) 25%, var(--bg) 50%, var(--bg2) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: var(--rlg); }
   @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
 
-  .empty { text-align: center; padding: 40px 20px; color: var(--text4); font-size: 13px; }
-
-  /* TOAST */
-  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--text); color: #fff; font-size: 13px; padding: 10px 18px; border-radius: var(--r); opacity: 0; transition: all 0.25s; z-index: 200; white-space: nowrap; pointer-events: none; }
-  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
+  /* ── MISC ── */
   .divider { border: none; border-top: 0.5px solid var(--border); margin: 24px 0; }
+  .empty { text-align: center; padding: 40px 20px; color: var(--text4); font-size: 13px; }
+  .mt8 { margin-top: 8px; } .mt12 { margin-top: 12px; }
+  .flex-b { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--text); color: #fff; font-size: 13px; padding: 10px 18px; border-radius: var(--r); opacity: 0; transition: all 0.25s; z-index: 999; white-space: nowrap; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .errbar { background: var(--red-light); border: 0.5px solid rgba(160,40,40,0.3); border-radius: var(--r); padding: 10px 14px; font-size: 12px; color: var(--red); margin-bottom: 14px; display: none; }
 
   @media (max-width: 768px) {
-    .product-selector { grid-template-columns: 1fr; }
-    .posts-grid { grid-template-columns: 1fr; }
-    .results-toolbar { flex-direction: column; align-items: stretch; }
-    .rt-stats { margin-right: 0; margin-bottom: 4px; }
+    .out-grid { grid-template-columns: 1fr; }
+    .col-cfg { grid-template-columns: 1fr; }
+    .theme-grid { grid-template-columns: repeat(4, 1fr); }
+    .utm-fields { grid-template-columns: 1fr; }
+    .utm-field.full { grid-column: auto; }
+    .mode-tabs { flex-direction: column; width: 100%; }
+    .mode-tab { border-right: none; border-bottom: 0.5px solid var(--border2); }
+    .mode-tab:last-child { border-bottom: none; }
   }
 </style>
 </head>
@@ -147,7 +252,7 @@
 <div class="topbar">
   <div class="tb-logo"><div class="tb-dot"></div>EchoTribe</div>
   <div class="tb-divider"></div>
-  <div class="tb-page">Organic Posts</div>
+  <div class="tb-page">Content Builder</div>
   <div class="tb-right">
     <a href="/archer/organic" class="tb-link active">Organic</a>
     <a href="/archer/ads" class="tb-link">Ads</a>
@@ -159,363 +264,1182 @@
 
 <div class="page">
 
-  <!-- ── PRODUCT SELECTION ── -->
+  <!-- ── 01 PRODUCT DISCOVERY ─────────────────────────────────────── -->
   <div class="section">
-    <div class="slabel">Products <span style="color:var(--text4);font-weight:400;">(1–3 — posts cycle through all selected products)</span></div>
-    <div class="product-selector" id="product-slots"></div>
+    <div class="slabel">01 — Product Discovery</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">Filter Archer's catalog — click any card to add to the Build Queue</div>
+    <div class="disc-filters">
+      <div class="df-group">
+        <span class="df-label">Category</span>
+        <select class="df-select" id="df-cat">
+          <option value="">All Categories</option>
+          <option value="toys">Toys &amp; Baby</option>
+          <option value="beauty">Beauty &amp; Personal Care</option>
+          <option value="home">Home &amp; Organization</option>
+          <option value="outdoor">Outdoor &amp; Sports</option>
+          <option value="health">Health &amp; Household</option>
+        </select>
+      </div>
+      <div class="df-group">
+        <span class="df-label">Min Commission</span>
+        <select class="df-select" id="df-comm">
+          <option value="0">Any Rate</option>
+          <option value="10">10%+</option>
+          <option value="15">15%+</option>
+          <option value="20">20%+</option>
+        </select>
+      </div>
+      <div class="df-group">
+        <span class="df-label">Signal Source</span>
+        <select class="df-select" id="df-signal">
+          <option value="both">Trending + Steph Matched</option>
+          <option value="matched">Steph Matched Only</option>
+          <option value="trending">Archer Trending Only</option>
+        </select>
+      </div>
+      <div class="df-group">
+        <span class="df-label">Price Range</span>
+        <select class="df-select" id="df-price">
+          <option value="">Any Price</option>
+          <option value="under25">Under $25</option>
+          <option value="2575">$25–$75</option>
+          <option value="over75">Over $75</option>
+        </select>
+      </div>
+      <button class="pull-btn" id="pull-btn" onclick="pullRecs()">
+        <span class="spin" id="pull-spin" style="display:none;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>
+        Pull Recommendations
+      </button>
+    </div>
+    <div class="disc-grid" id="disc-grid">
+      <div class="disc-empty">Set filters above and click Pull Recommendations</div>
+    </div>
+  </div>
 
-    <div class="add-bar" style="margin-top:10px;">
-      <input type="text" class="add-input" id="prod-search" placeholder="Search by name, brand, ASIN, or paste Amazon URL..." oninput="handleProdSearch(this.value)">
-      <button class="add-btn btn-archer" onclick="lookupFromProdInput()">Add</button>
+  <!-- ── 02 BUILD QUEUE ────────────────────────────────────────────── -->
+  <div class="section">
+    <div class="flex-b" style="margin-bottom:10px;">
+      <div class="slabel" style="margin-bottom:0;">02 — Build Queue</div>
+      <button onclick="clearQueue()" style="font-size:11px;color:var(--text4);background:none;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Clear All</button>
+    </div>
+    <div class="queue-chips" id="queue-chips">
+      <span class="q-empty">No products selected yet</span>
+    </div>
+    <div class="add-bar">
+      <input type="text" class="add-input" id="prod-search" placeholder="Search by name, brand, ASIN, or paste Amazon URL…" oninput="handleProdSearch(this.value)">
+      <button class="add-btn btn-archer" onclick="lookupFromInput()">Add</button>
       <a href="/archer/products" class="add-btn btn-outline" target="_blank">Browse</a>
     </div>
     <div class="search-drop" id="prod-drop"></div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text4);margin:6px 0 4px;">Or paste ASINs / Amazon URLs — one per line or comma-separated:</div>
+    <div class="bulk-row">
+      <textarea class="bulk-ta" id="bulk-ta" placeholder="B0DKZTSB3K&#10;https://amazon.com/dp/B0BV4X8TTQ&#10;B089D3Q24T, B0CB821FTX"></textarea>
+      <button class="bulk-add-btn" onclick="bulkAdd()">Parse &amp; Add</button>
+    </div>
   </div>
 
-  <!-- ── GENERATE ── -->
+  <!-- ── 03 CONTENT OUTPUT ─────────────────────────────────────────── -->
   <div class="section">
-    <div class="slabel">Generate organic Facebook Group posts</div>
-    <div class="gen-row">
-      <button class="gen-btn" id="gen-btn" onclick="generatePosts()">
-        ✨ Generate 20 Posts
+    <div class="slabel">03 — Content Output</div>
+
+    <!-- Mode selector -->
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="tab-a" onclick="setMode('a')">
+        A — Affiliate Links
+        <small>UTM link per product, no post</small>
       </button>
-      <div class="gen-note" id="gen-note">20 unique angles in Steph's voice. Each post is paired with a URLGenius affiliate link.</div>
+      <button class="mode-tab" id="tab-b" onclick="setMode('b')">
+        B — Social Posts
+        <small>1 post + link per product</small>
+      </button>
+      <button class="mode-tab" id="tab-c" onclick="setMode('c')">
+        C — Collection Page
+        <small>1 post + links for all products</small>
+      </button>
     </div>
-  </div>
 
-  <!-- ── RESULTS ── -->
-  <div class="section">
-    <div id="results-area">
-      <div class="empty">Add at least one product, then click "Generate 20 Posts".</div>
+    <!-- ── MODE A: Links Only ── -->
+    <div id="panel-a">
+      <div class="utm-global">
+        <div class="utm-global-label">Global UTM defaults — applied to all products, editable per card</div>
+        <div class="utm-global-row">
+          <div class="utm-gf">
+            <span class="utm-gl">SOURCE</span>
+            <select class="utm-gsel" id="ga-source" onchange="syncMedium('ga')">
+              <option value="facebook">facebook</option>
+              <option value="instagram">instagram</option>
+              <option value="tiktok">tiktok</option>
+              <option value="linkinbio">linkinbio</option>
+            </select>
+          </div>
+          <div class="utm-gf">
+            <span class="utm-gl">MEDIUM</span>
+            <select class="utm-gsel" id="ga-medium">
+              <option value="organic_social">organic_social</option>
+              <option value="organic_video">organic_video</option>
+              <option value="paid_social">paid_social</option>
+              <option value="boosted_post">boosted_post</option>
+            </select>
+          </div>
+          <div class="utm-gf">
+            <span class="utm-gl">TERM (optional)</span>
+            <input class="utm-gin" id="ga-term" placeholder="e.g. warm_714">
+          </div>
+        </div>
+      </div>
+      <div class="gen-row">
+        <button class="gen-btn" id="a-btn" onclick="genModeA()">Build Affiliate Links</button>
+        <span class="gen-note" id="a-note">UTM tags pre-filled from queue — edit before creating each smart link</span>
+      </div>
+      <div class="errbar" id="a-err"></div>
+      <div id="a-res">
+        <div class="empty">Add products to the queue, then click Build Affiliate Links.</div>
+      </div>
     </div>
-  </div>
 
-</div>
+    <!-- ── MODE B: Social Posts ── -->
+    <div id="panel-b" style="display:none">
+      <div class="utm-global">
+        <div class="utm-global-label">Global UTM defaults — angle from Claude auto-fills utm_content per post</div>
+        <div class="utm-global-row">
+          <div class="utm-gf">
+            <span class="utm-gl">SOURCE</span>
+            <select class="utm-gsel" id="gb-source" onchange="syncMedium('gb')">
+              <option value="facebook">facebook</option>
+              <option value="instagram">instagram</option>
+              <option value="tiktok">tiktok</option>
+            </select>
+          </div>
+          <div class="utm-gf">
+            <span class="utm-gl">MEDIUM</span>
+            <select class="utm-gsel" id="gb-medium">
+              <option value="organic_social">organic_social</option>
+              <option value="organic_video">organic_video</option>
+            </select>
+          </div>
+          <div class="utm-gf">
+            <span class="utm-gl">TERM (optional)</span>
+            <input class="utm-gin" id="gb-term" placeholder="">
+          </div>
+        </div>
+      </div>
+      <div class="gen-row">
+        <button class="gen-btn" id="b-btn" onclick="genModeB()">
+          <span class="spin" id="b-spin" style="display:none;"></span>
+          ✨ Generate Posts
+        </button>
+        <span class="gen-note" id="b-note">1 post per product · different angle each · angle → utm_content</span>
+      </div>
+      <div class="errbar" id="b-err"></div>
+      <div id="b-res">
+        <div class="empty">Add products to the queue, then click Generate Posts.</div>
+      </div>
+    </div>
+
+    <!-- ── MODE C: Collection Page ── -->
+    <div id="panel-c" style="display:none">
+      <div class="col-cfg">
+        <div class="col-cfg-f">
+          <label class="col-cfg-l">Collection Theme Name</label>
+          <input class="col-cfg-i" id="col-name" placeholder="e.g. Summer Camp Essentials">
+        </div>
+        <div class="col-cfg-f">
+          <label class="col-cfg-l">Landing Page Slug</label>
+          <div class="slug-preview">shop.echotribe.ai/<b id="slug-prev">your-slug</b></div>
+          <input class="col-cfg-i" id="col-slug" placeholder="summer-camp-picks" oninput="document.getElementById('slug-prev').textContent=this.value||'your-slug'">
+        </div>
+        <div class="col-cfg-f">
+          <label class="col-cfg-l">Visual Theme</label>
+          <div class="theme-grid" id="theme-grid">
+            <div class="theme-sw active" data-theme="coral"    onclick="pickTheme('coral')">Coral</div>
+            <div class="theme-sw"        data-theme="ocean"    onclick="pickTheme('ocean')">Ocean</div>
+            <div class="theme-sw"        data-theme="lavender" onclick="pickTheme('lavender')">Lavender</div>
+            <div class="theme-sw"        data-theme="forest"   onclick="pickTheme('forest')">Forest</div>
+            <div class="theme-sw"        data-theme="midnight" onclick="pickTheme('midnight')">Midnight</div>
+            <div class="theme-sw"        data-theme="peach"    onclick="pickTheme('peach')">Peach</div>
+            <div class="theme-sw"        data-theme="clean"    onclick="pickTheme('clean')">Clean</div>
+            <div class="theme-sw"        data-theme="bold"     onclick="pickTheme('bold')">Bold</div>
+          </div>
+          <input type="hidden" id="col-theme" value="coral">
+        </div>
+      </div>
+      <div class="utm-global">
+        <div class="utm-global-label">Global UTM defaults — all product links use utm_content = organic_[angle]_collection</div>
+        <div class="utm-global-row">
+          <div class="utm-gf">
+            <span class="utm-gl">SOURCE</span>
+            <select class="utm-gsel" id="gc-source" onchange="syncMedium('gc')">
+              <option value="facebook">facebook</option>
+              <option value="instagram">instagram</option>
+            </select>
+          </div>
+          <div class="utm-gf">
+            <span class="utm-gl">MEDIUM</span>
+            <select class="utm-gsel" id="gc-medium">
+              <option value="organic_social">organic_social</option>
+              <option value="organic_video">organic_video</option>
+            </select>
+          </div>
+          <div class="utm-gf">
+            <span class="utm-gl">TERM (optional)</span>
+            <input class="utm-gin" id="gc-term" placeholder="">
+          </div>
+        </div>
+      </div>
+      <div class="gen-row">
+        <button class="gen-btn" id="c-btn" onclick="genModeC()">
+          <span class="spin" id="c-spin" style="display:none;"></span>
+          ✨ Build Collection
+        </button>
+        <span class="gen-note" id="c-note">1 social post for the collection + affiliate link per product</span>
+      </div>
+      <div class="errbar" id="c-err"></div>
+      <div id="c-res">
+        <div class="empty">Add 2+ products, enter a theme name &amp; slug above, then Build Collection.</div>
+      </div>
+    </div>
+
+  </div><!-- /03 -->
+
+</div><!-- /page -->
 
 <div class="toast" id="toast"></div>
 
 <script>
-  // ── STATE ──────────────────────────────────────────────
-  let state = {
-    products: [],
-    posts: [],
-    searchTimer: null,
-  };
+/* ════════════════════════════════════════════════════════════════
+   STATE
+════════════════════════════════════════════════════════════════ */
+const state = { products: [], discProds: [], searchTimer: null };
 
-  window.onload = () => { renderProductSlots(); };
+window.onload = () => { renderQueueChips(); };
 
-  // ── PRODUCT MANAGEMENT (mirrors archer_ads.html) ──────
-  function renderProductSlots() {
-    const grid = document.getElementById('product-slots');
-    const slots = Math.max(state.products.length + (state.products.length < 3 ? 1 : 0), 1);
-    let html = '';
-    for (let i = 0; i < Math.min(slots, 3); i++) {
-      const p = state.products[i];
-      if (p) {
-        html += `<div class="ps-slot filled">
-          <button class="ps-remove" onclick="removeProduct('${esc(p.asin)}')">✕</button>
-          ${p.image_encoded_string ? `<img class="ps-img" src="${esc(p.image_encoded_string)}" onerror="this.style.display='none'">` : `<div class="ps-img-ph">📦</div>`}
-          <div class="ps-info">
-            <div class="ps-brand">${esc(p.company_name || p.brand || '')}</div>
-            <div class="ps-name">${esc(p.product_name || p.name || '')}</div>
-            <div class="ps-price">${esc(p.price || '')} · ${esc(p.commission_payout || p.commission || '')}</div>
-          </div>
-        </div>`;
-      } else {
-        html += `<div class="ps-slot" onclick="document.getElementById('prod-search').focus()">
-          <div class="ps-empty">
-            <div class="ps-empty-icon">+</div>
-            <div class="ps-empty-text">Add product</div>
-          </div>
-        </div>`;
-      }
-    }
-    grid.innerHTML = html;
-  }
+/* ════════════════════════════════════════════════════════════════
+   UTILITIES
+════════════════════════════════════════════════════════════════ */
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function slugify(s) { return (s||'').toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,15); }
+function asinImg(asin) {
+  return `https://ws-na.amazon-adsystem.com/widgets/q?_encoding=UTF8&ASIN=${asin}&Format=_SL250_&ID=AsinImage&MarketPlace=US&ServiceVersion=20070822&WS=1`;
+}
+function extractAsin(s) {
+  s = (s||'').trim();
+  let m = s.match(/\/dp\/([A-Z0-9]{10})/i); if (m) return m[1].toUpperCase();
+  m = s.match(/\/gp\/product\/([A-Z0-9]{10})/i); if (m) return m[1].toUpperCase();
+  if (/^[A-Z0-9]{10}$/i.test(s)) return s.toUpperCase();
+  return null;
+}
+function buildUtmUrl(asin, utm) {
+  let url = `https://www.amazon.com/dp/${asin}?tag=mommymedeals-20`;
+  if (utm.source)   url += `&utm_source=${encodeURIComponent(utm.source)}`;
+  if (utm.medium)   url += `&utm_medium=${encodeURIComponent(utm.medium)}`;
+  if (utm.campaign) url += `&utm_campaign=${encodeURIComponent(utm.campaign)}`;
+  if (utm.content)  url += `&utm_content=${encodeURIComponent(utm.content)}`;
+  if (utm.term)     url += `&utm_term=${encodeURIComponent(utm.term)}`;
+  return url;
+}
+function autoUtmCampaign(p) {
+  const brand = slugify((p.company_name || p.brand || '').split(' ')[0]).slice(0, 10) || 'brand';
+  const nameWords = (p.product_name || p.name || '').toLowerCase().split(/\s+/)
+    .filter(w => !(p.company_name || p.brand || '').toLowerCase().includes(w));
+  const prod = slugify(nameWords.join(' ')).slice(0, 12) || slugify(p.asin);
+  return `${brand}_${prod}_organic`;
+}
+function showToast(msg, dur = 2200) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+function showErr(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 9000);
+}
+function setLoading(btnId, spinId, on) {
+  const btn = document.getElementById(btnId);
+  const spin = document.getElementById(spinId);
+  btn.disabled = on;
+  if (spin) spin.style.display = on ? 'inline-block' : 'none';
+}
+function skels(n) {
+  return `<div class="out-grid">${Array(n).fill('<div class="skel"></div>').join('')}</div>`;
+}
 
-  async function addProduct(asin) {
-    if (state.products.length >= 3) { showToast('Max 3 products per batch'); return; }
-    if (state.products.find(p => p.asin === asin)) return;
-    try {
-      const res = await fetch(`/archer/product/${asin}`);
-      const data = await res.json();
-      if (data.product) {
-        state.products.push(data.product);
-        renderProductSlots();
-      } else {
-        showToast('Product not found');
-      }
-    } catch (e) { showToast('Product lookup failed'); }
-  }
+/* ════════════════════════════════════════════════════════════════
+   SOURCE → MEDIUM SYNC
+════════════════════════════════════════════════════════════════ */
+const MEDIUMS = {
+  facebook:  ['organic_social', 'paid_social', 'boosted_post'],
+  instagram: ['organic_social', 'organic_video', 'paid_social'],
+  tiktok:    ['organic_video', 'organic_social', 'paid_social'],
+  linkinbio: ['organic_social'],
+  email:     ['email'],
+};
+function syncMedium(prefix) {
+  const src = document.getElementById(`${prefix}-source`).value;
+  const sel = document.getElementById(`${prefix}-medium`);
+  const opts = MEDIUMS[src] || ['organic_social'];
+  const cur = sel.value;
+  sel.innerHTML = opts.map(o => `<option value="${o}"${o === cur ? ' selected' : ''}>${o}</option>`).join('');
+}
 
-  function removeProduct(asin) {
-    state.products = state.products.filter(p => p.asin !== asin);
-    renderProductSlots();
-  }
+/* ════════════════════════════════════════════════════════════════
+   MODES
+════════════════════════════════════════════════════════════════ */
+function setMode(m) {
+  ['a', 'b', 'c'].forEach(x => {
+    document.getElementById(`tab-${x}`).classList.toggle('active', x === m);
+    document.getElementById(`panel-${x}`).style.display = x === m ? 'block' : 'none';
+  });
+}
 
-  async function handleProdSearch(val) {
-    clearTimeout(state.searchTimer);
-    const drop = document.getElementById('prod-drop');
-    if (!val || val.length < 2) { drop.classList.remove('open'); return; }
-    state.searchTimer = setTimeout(async () => {
-      const asinMatch = val.match(/\b(B0[A-Z0-9]{8}|B[A-Z0-9]{9})\b/i);
-      if (asinMatch) {
-        await addProduct(asinMatch[1].toUpperCase());
-        document.getElementById('prod-search').value = '';
-        drop.classList.remove('open');
-        return;
-      }
-      try {
-        const res = await fetch(`/archer/search?q=${encodeURIComponent(val)}&limit=5`);
-        const data = await res.json();
-        if (!data.products?.length) { drop.classList.remove('open'); return; }
-        drop.innerHTML = data.products.map(p => `
-          <div class="sd-item" onclick="selectProduct('${esc(p.asin || p.ASIN)}')">
-            ${p.image_encoded_string ? `<img class="sd-img" src="${esc(p.image_encoded_string)}" onerror="this.src=''">` : '<div class="sd-img" style="display:flex;align-items:center;justify-content:center;font-size:16px;">📦</div>'}
-            <div class="sd-name">${esc(p.product_name || p.name || '')}</div>
-            <div class="sd-comm">${esc(p.commission_payout || p.commission || '')}</div>
-          </div>`).join('');
-        drop.classList.add('open');
-      } catch (e) { drop.classList.remove('open'); }
-    }, 300);
-  }
+/* ════════════════════════════════════════════════════════════════
+   PRODUCT DISCOVERY
+════════════════════════════════════════════════════════════════ */
+async function pullRecs() {
+  const btn = document.getElementById('pull-btn');
+  const spin = document.getElementById('pull-spin');
+  const grid = document.getElementById('disc-grid');
+  btn.disabled = true; spin.style.display = 'inline-block';
+  grid.innerHTML = '<div class="disc-empty">Pulling recommendations…</div>';
 
-  async function selectProduct(asin) {
-    document.getElementById('prod-drop').classList.remove('open');
-    document.getElementById('prod-search').value = '';
-    await addProduct(asin);
-  }
+  const cat    = document.getElementById('df-cat').value;
+  const comm   = document.getElementById('df-comm').value;
+  const signal = document.getElementById('df-signal').value;
+  const price  = document.getElementById('df-price').value;
 
-  async function lookupFromProdInput() {
-    const val = document.getElementById('prod-search').value.trim();
-    const asinMatch = val.match(/\b(B0[A-Z0-9]{8}|B[A-Z0-9]{9})\b/i);
-    if (asinMatch) {
-      await addProduct(asinMatch[1].toUpperCase());
-      document.getElementById('prod-search').value = '';
-      document.getElementById('prod-drop').classList.remove('open');
-    }
-  }
+  const params = new URLSearchParams({ limit: 24 });
+  if (cat) params.set('category', cat);
+  if (comm !== '0') params.set('min_commission', comm);
 
-  // ── GENERATE POSTS ────────────────────────────────────
-  async function generatePosts() {
-    if (!state.products.length) { showToast('Add at least one product'); return; }
-    const btn = document.getElementById('gen-btn');
-    const area = document.getElementById('results-area');
-    btn.textContent = '✨ Generating 20 posts...';
-    btn.classList.add('loading');
-    btn.disabled = true;
-    area.innerHTML = `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;">
-      ${Array(6).fill(0).map(() => '<div class="pc-skeleton"></div>').join('')}
-    </div>`;
+  try {
+    const res = await fetch(`/archer/search?${params}`);
+    let products = (await res.json()).products || [];
 
-    const product_list = state.products.map(p => ({
-      asin: p.asin,
-      product_name: p.product_name || p.name || '',
-      brand: p.company_name || p.brand || '',
-      price: p.price || '',
-      commission: p.commission_payout || p.commission || '',
-    }));
+    if (signal === 'matched')  products = products.filter(p => p.steph_revenue && parseFloat(p.steph_revenue) > 0);
+    if (signal === 'trending') products = products.filter(p => !p.steph_revenue || parseFloat(p.steph_revenue) === 0);
 
-    try {
-      const res = await fetch('/archer/generate_organic_posts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_list }),
+    if (price) {
+      products = products.filter(p => {
+        const v = parseFloat((p.price || '').replace(/[^0-9.]/g, '')) || 0;
+        if (price === 'under25') return v > 0 && v < 25;
+        if (price === '2575')   return v >= 25 && v <= 75;
+        if (price === 'over75') return v > 75;
+        return true;
       });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        area.innerHTML = `<div class="empty" style="color:var(--red);">Generation failed: ${esc(data.error || 'unknown error')}</div>`;
-        showToast('Generation failed');
-      } else {
-        state.posts = data.posts || [];
-        renderResults();
-        showToast(`Generated ${state.posts.length} posts`);
-      }
-    } catch (e) {
-      area.innerHTML = `<div class="empty" style="color:var(--red);">Generation failed — check API connection</div>`;
-      showToast('Generation failed');
     }
-    btn.textContent = '✨ Regenerate 20 Posts';
-    btn.classList.remove('loading');
-    btn.disabled = false;
+
+    state.discProds = products;
+    renderDiscovery();
+  } catch (err) {
+    grid.innerHTML = `<div class="disc-empty">Failed: ${esc(err.message)}</div>`;
   }
+  btn.disabled = false; spin.style.display = 'none';
+}
 
-  function renderResults() {
-    const area = document.getElementById('results-area');
-    if (!state.posts.length) {
-      area.innerHTML = '<div class="empty">No posts to display.</div>';
-      return;
-    }
-    const cards = state.posts.map((p, i) => {
-      const productLabel = p.brand ? `${p.brand} · ${truncate(p.product_name, 28)}` : truncate(p.product_name, 38);
-      return `
-        <div class="post-card">
-          <div class="pc-head">
-            <div class="pc-head-left">
-              <span class="pc-num">#${String(i + 1).padStart(2, '0')}</span>
-              <span class="pc-pill">${esc(p.angle || 'angle')}</span>
-              <span class="pc-product-tag">${esc(productLabel)}</span>
-            </div>
-            <button class="pc-copy-btn" onclick="copyPost(${i})">Copy Post + Link</button>
-          </div>
-          <div class="pc-body">
-            <div class="pc-copy">${esc(p.copy || '')}</div>
-            ${p.image_note ? `<div class="pc-image-note">${esc(p.image_note)}</div>` : ''}
-            <div class="pc-link-row">
-              <div class="pc-link"><a href="${esc(p.genius_url)}" target="_blank" rel="noopener">${esc(p.genius_url || '')}</a></div>
-              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                <span class="pc-tag">tag: ${esc(p.urlgenius_tag || '—')}</span>
-                <span class="pc-status ${p.urlgenius_active ? 'on' : 'off'}">URLGenius ${p.urlgenius_active ? 'ON' : 'fallback'}</span>
-                ${p.asin ? `<a class="pc-amazon-link" href="https://www.amazon.com/dp/${esc(p.asin)}" target="_blank" rel="noopener">View on Amazon ↗</a>` : ''}
-              </div>
-            </div>
-          </div>
-        </div>`;
-    }).join('');
-
-    area.innerHTML = `
-      <div class="results-toolbar">
-        <div class="rt-stats"><strong>${state.posts.length}</strong> posts · <strong>${state.products.length}</strong> product${state.products.length === 1 ? '' : 's'}</div>
-        <button class="rt-btn" onclick="copyAllPosts()">📋 Copy All Posts</button>
-        <button class="rt-btn green" onclick="exportForSteph()">⬇ Export for Steph</button>
-      </div>
-      <div class="posts-grid">${cards}</div>
-    `;
-  }
-
-  function copyPost(i) {
-    const p = state.posts[i];
-    if (!p) return;
-    const text = `${p.copy}\n\n${p.genius_url || ''}`;
-    copyToClipboard(text);
-    showToast(`Post #${i + 1} copied`);
-  }
-
-  function copyAllPosts() {
-    if (!state.posts.length) return;
-    const out = state.posts.map((p, i) =>
-      `─── POST #${String(i + 1).padStart(2, '0')} — ${p.angle || ''} ───\n` +
-      `${p.copy}\n\n` +
-      `Image: ${p.image_note || '—'}\n` +
-      `Link:  ${p.genius_url || ''}\n` +
-      `Tag:   ${p.urlgenius_tag || '—'}\n`
-    ).join('\n');
-    copyToClipboard(out);
-    showToast(`All ${state.posts.length} posts copied`);
-  }
-
-  // ── EXPORT FOR STEPH (standalone HTML, no JS deps, no API key) ──
-  function exportForSteph() {
-    if (!state.posts.length) return;
-    const today = new Date();
-    const dateStr = today.toISOString().slice(0, 10);
-    const productLine = state.products.map(p =>
-      `${p.product_name || p.name} (${p.asin})`).join(' · ');
-
-    const cardsHtml = state.posts.map((p, i) => `
-      <div class="card">
-        <div class="card-head">
-          <span class="num">#${String(i + 1).padStart(2, '0')}</span>
-          <span class="pill">${escForHtml(p.angle || '')}</span>
-          <button class="copy" onclick="copy(${i})">Copy</button>
+function renderDiscovery() {
+  const grid = document.getElementById('disc-grid');
+  if (!state.discProds.length) { grid.innerHTML = '<div class="disc-empty">No products found — try different filters.</div>'; return; }
+  grid.innerHTML = state.discProds.map((p, i) => {
+    const asin = (p.asin || p.ASIN || '').trim();
+    const inQ = !!state.products.find(q => q.asin === asin);
+    const comm = p.commission_payout || p.commission || '';
+    const isMatched = p.steph_revenue && parseFloat(p.steph_revenue) > 0;
+    const img = asin ? asinImg(asin) : '';
+    return `<div class="dc${inQ ? ' dc-sel' : ''}" onclick="toggleDisc(${i})">
+      <div class="dc-check">✓</div>
+      ${img ? `<div class="dc-img-wrap"><img class="dc-img" src="${esc(img)}" onerror="this.parentElement.style.display='none'" alt=""></div>` : ''}
+      <div class="dc-body">
+        <div class="dc-brand">${esc(p.company_name || p.brand || '')}</div>
+        <div class="dc-name">${esc(p.product_name || p.name || '')}</div>
+        <div class="dc-pills">
+          ${p.price ? `<span class="dc-pill">${esc(p.price)}</span>` : ''}
+          ${comm    ? `<span class="dc-pill green">${esc(comm)}</span>` : ''}
+          <span class="dc-pill ${isMatched ? 'blue' : 'amber'}">${isMatched ? 'steph matched' : 'trending'}</span>
         </div>
-        <div class="copy-text" id="t${i}">${escForHtml(p.copy || '')}</div>
-        ${p.image_note ? `<div class="img-note">🖼 ${escForHtml(p.image_note)}</div>` : ''}
-        <div class="link"><a href="${escForHtml(p.genius_url)}" target="_blank">${escForHtml(p.genius_url || '')}</a></div>
+        <div class="dc-asin">${esc(asin)}</div>
+        ${isMatched && p.steph_revenue ? `<div class="dc-why">$${parseFloat(p.steph_revenue).toFixed(0)} earned</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function toggleDisc(i) {
+  const p = state.discProds[i];
+  const asin = (p.asin || p.ASIN || '').trim();
+  if (!asin) return;
+  if (state.products.find(q => q.asin === asin)) {
+    removeProduct(asin);
+  } else {
+    await addProduct(asin, p);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   BUILD QUEUE
+════════════════════════════════════════════════════════════════ */
+async function addProduct(asin, fallback = {}) {
+  if (state.products.find(p => p.asin === asin)) return;
+  try {
+    const res = await fetch(`/archer/product/${asin}`);
+    const data = await res.json();
+    state.products.push(data.product || {
+      asin,
+      product_name: fallback.product_name || fallback.name || asin,
+      company_name: fallback.company_name || fallback.brand || '',
+      price: fallback.price || '',
+      commission_payout: fallback.commission_payout || fallback.commission || '',
+      image_encoded_string: '',
+    });
+  } catch {
+    state.products.push({ asin, product_name: asin, company_name: '', price: '', commission_payout: '', image_encoded_string: '' });
+  }
+  renderQueueChips();
+  renderDiscovery();
+}
+
+function removeProduct(asin) {
+  state.products = state.products.filter(p => p.asin !== asin);
+  renderQueueChips();
+  renderDiscovery();
+}
+
+function clearQueue() {
+  state.products = [];
+  renderQueueChips();
+  renderDiscovery();
+}
+
+function renderQueueChips() {
+  const el = document.getElementById('queue-chips');
+  if (!state.products.length) { el.innerHTML = '<span class="q-empty">No products selected yet</span>'; return; }
+  el.innerHTML = state.products.map(p => {
+    const imgSrc = p.image_encoded_string || (p.asin ? asinImg(p.asin) : '');
+    return `<div class="q-chip">
+      ${imgSrc ? `<img class="q-chip-img" src="${esc(imgSrc)}" onerror="this.style.display='none'" alt="">` : ''}
+      <div class="q-chip-info">
+        <div class="q-chip-name">${esc(p.product_name || p.name || p.asin)}</div>
+        <div class="q-chip-asin">${esc(p.asin)}${p.commission_payout ? ' · ' + esc(p.commission_payout) : ''}</div>
+      </div>
+      <span class="q-chip-x" onclick="removeProduct('${esc(p.asin)}')">×</span>
+    </div>`;
+  }).join('');
+}
+
+async function handleProdSearch(val) {
+  clearTimeout(state.searchTimer);
+  const drop = document.getElementById('prod-drop');
+  if (!val || val.length < 2) { drop.classList.remove('open'); return; }
+  state.searchTimer = setTimeout(async () => {
+    const m = val.match(/\b([A-Z0-9]{10})\b/i);
+    if (m) { await addProduct(m[1].toUpperCase()); document.getElementById('prod-search').value = ''; drop.classList.remove('open'); return; }
+    try {
+      const res = await fetch(`/archer/search?q=${encodeURIComponent(val)}&limit=5`);
+      const data = await res.json();
+      if (!data.products?.length) { drop.classList.remove('open'); return; }
+      const imgSrc = p => p.image_encoded_string || (p.asin ? asinImg(p.asin) : '');
+      drop.innerHTML = data.products.map(p => `<div class="sd-item" onclick="selectProd('${esc(p.asin||p.ASIN)}')">
+        <img class="sd-img" src="${esc(imgSrc(p))}" onerror="this.src=''" alt="">
+        <div class="sd-name">${esc(p.product_name||p.name||'')}</div>
+        <div class="sd-comm">${esc(p.commission_payout||p.commission||'')}</div>
       </div>`).join('');
+      drop.classList.add('open');
+    } catch { drop.classList.remove('open'); }
+  }, 300);
+}
 
-    const fullHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Organic Posts for Steph — ${dateStr}</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: #f7f7f5; color: #1a1a17; padding: 32px 20px; line-height: 1.55; }
-  .wrap { max-width: 720px; margin: 0 auto; }
-  h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
-  .meta { color: #606058; font-size: 13px; margin-bottom: 4px; }
-  .products { color: #606058; font-size: 12px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 0.5px solid rgba(0,0,0,0.1); }
-  .card { background: #fff; border: 0.5px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
-  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-  .num { font-family: 'SF Mono', monospace; font-size: 11px; color: #999890; }
-  .pill { font-family: 'SF Mono', monospace; font-size: 9px; letter-spacing: 0.8px; text-transform: uppercase; padding: 3px 9px; border-radius: 20px; background: #fdf0ea; color: #e85d26; border: 0.5px solid rgba(232,93,38,0.25); }
-  .copy { margin-left: auto; font-size: 11px; padding: 5px 12px; border-radius: 6px; border: 0.5px solid rgba(0,0,0,0.15); background: #fff; color: #3c3c38; cursor: pointer; }
-  .copy:hover { background: #2e7dd4; color: #fff; border-color: #2e7dd4; }
-  .copy.copied { background: #27693a; color: #fff; border-color: #27693a; }
-  .copy-text { font-size: 14px; color: #1a1a17; line-height: 1.6; white-space: pre-wrap; margin-bottom: 10px; }
-  .img-note { font-size: 12px; color: #5a3d8a; font-style: italic; padding: 7px 10px; background: #f0eafa; border-radius: 6px; margin-bottom: 10px; }
-  .link { font-family: 'SF Mono', monospace; font-size: 11px; word-break: break-all; padding: 7px 9px; background: #f2f2ef; border-radius: 6px; }
-  .link a { color: #0f4a8a; text-decoration: none; }
-  .link a:hover { text-decoration: underline; }
-  .footer { margin-top: 24px; padding-top: 16px; border-top: 0.5px solid rgba(0,0,0,0.1); font-size: 11px; color: #999890; text-align: center; }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <h1>Organic posts for Steph</h1>
-  <div class="meta">Generated ${dateStr} · ${state.posts.length} posts</div>
-  <div class="products">Products: ${escForHtml(productLine)}</div>
-  ${cardsHtml}
-  <div class="footer">EchoTribe · @EverydaywithSteph · Mommy &amp; Me Collective</div>
-</div>
-<script>
-  function copy(i) {
-    var el = document.getElementById('t' + i);
-    var card = el.closest('.card');
-    var link = card.querySelector('.link a').href;
-    var text = el.textContent + '\\n\\n' + link;
-    var btn = card.querySelector('.copy');
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(function() {
-        btn.textContent = 'Copied!'; btn.classList.add('copied');
-        setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
-      });
-    } else {
-      var ta = document.createElement('textarea');
-      ta.value = text; document.body.appendChild(ta); ta.select();
-      document.execCommand('copy'); document.body.removeChild(ta);
-      btn.textContent = 'Copied!'; btn.classList.add('copied');
-      setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+async function selectProd(asin) {
+  document.getElementById('prod-drop').classList.remove('open');
+  document.getElementById('prod-search').value = '';
+  await addProduct(asin);
+}
+
+async function lookupFromInput() {
+  const val = document.getElementById('prod-search').value.trim();
+  const m = val.match(/\b([A-Z0-9]{10})\b/i);
+  if (m) { await addProduct(m[1].toUpperCase()); document.getElementById('prod-search').value = ''; document.getElementById('prod-drop').classList.remove('open'); }
+}
+
+async function bulkAdd() {
+  const raw = document.getElementById('bulk-ta').value;
+  const lines = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  let added = 0, skipped = 0;
+  for (const line of lines) {
+    const asin = extractAsin(line);
+    if (!asin) { skipped++; continue; }
+    if (state.products.find(p => p.asin === asin)) continue;
+    await addProduct(asin);
+    added++;
+  }
+  if (added) { document.getElementById('bulk-ta').value = ''; showToast(`Added ${added} product${added===1?'':'s'}${skipped?`, ${skipped} invalid`:''}`); }
+  else showToast('No valid ASINs found — paste 10-char ASINs or Amazon URLs');
+}
+
+/* ════════════════════════════════════════════════════════════════
+   UTM CARD (shared)
+════════════════════════════════════════════════════════════════ */
+function utmCardHtml(asin, utm) {
+  const previewUrl = buildUtmUrl(asin, utm);
+  return `<div class="utm-builder">
+    <div class="utm-blabel">UTM Tags — edit before creating smart link</div>
+    <div class="utm-fields">
+      <div class="utm-field">
+        <span class="utm-fl">utm_source</span>
+        <input class="utm-val" id="us-${asin}" value="${esc(utm.source||'')}" oninput="refreshUtmPreview('${asin}')">
+      </div>
+      <div class="utm-field">
+        <span class="utm-fl">utm_medium</span>
+        <input class="utm-val" id="um-${asin}" value="${esc(utm.medium||'')}" oninput="refreshUtmPreview('${asin}')">
+      </div>
+      <div class="utm-field">
+        <span class="utm-fl">utm_campaign</span>
+        <input class="utm-val" id="uc-${asin}" value="${esc(utm.campaign||'')}" oninput="refreshUtmPreview('${asin}')">
+      </div>
+      <div class="utm-field">
+        <span class="utm-fl">utm_content</span>
+        <input class="utm-val" id="ut-${asin}" value="${esc(utm.content||'')}" oninput="refreshUtmPreview('${asin}')">
+      </div>
+      <div class="utm-field full">
+        <span class="utm-fl">utm_term (optional)</span>
+        <input class="utm-val" id="ux-${asin}" value="${esc(utm.term||'')}" oninput="refreshUtmPreview('${asin}')">
+      </div>
+    </div>
+    <div class="utm-preview" id="uprev-${asin}"><b>Preview:</b> ${esc(previewUrl)}</div>
+    <div class="smart-row">
+      <button class="smart-btn" id="sb-${asin}" onclick="fireSmartLink('${asin}')">
+        <span class="spin" id="sg-${asin}" style="display:none;"></span>
+        ⚡ Create Smart Link
+      </button>
+      <button class="copy-utm-btn" onclick="copyUtmUrl('${asin}')">Copy UTM URL</button>
+      <div class="genius-pill" id="gp-${asin}"></div>
+    </div>
+  </div>`;
+}
+
+function getUtm(asin) {
+  return {
+    source:   document.getElementById(`us-${asin}`)?.value || '',
+    medium:   document.getElementById(`um-${asin}`)?.value || '',
+    campaign: document.getElementById(`uc-${asin}`)?.value || '',
+    content:  document.getElementById(`ut-${asin}`)?.value || '',
+    term:     document.getElementById(`ux-${asin}`)?.value || '',
+  };
+}
+
+function refreshUtmPreview(asin) {
+  const prev = document.getElementById(`uprev-${asin}`);
+  if (prev) prev.innerHTML = `<b>Preview:</b> ${esc(buildUtmUrl(asin, getUtm(asin)))}`;
+}
+
+function copyUtmUrl(asin) {
+  const url = buildUtmUrl(asin, getUtm(asin));
+  navigator.clipboard?.writeText(url) || fallbackCopy(url);
+  const btn = event.target; btn.textContent = 'Copied!';
+  setTimeout(() => btn.textContent = 'Copy UTM URL', 1800);
+}
+
+async function fireSmartLink(asin) {
+  const utm = getUtm(asin);
+  const btn  = document.getElementById(`sb-${asin}`);
+  const spin = document.getElementById(`sg-${asin}`);
+  const pill = document.getElementById(`gp-${asin}`);
+  btn.disabled = true; spin.style.display = 'inline-block';
+  pill.className = 'genius-pill'; pill.innerHTML = '';
+
+  try {
+    const res = await fetch('/urlgenius/smart_link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        asin,
+        network: 'amazon',
+        placement: {
+          source:   utm.source,
+          medium:   utm.medium,
+          campaign: utm.campaign,
+          content:  utm.content,   // caller-supplied utm_content
+          term:     utm.term || undefined,
+        }
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+
+    const gUrl = data.genius_url || data.affiliate_url;
+    pill.innerHTML = `<a href="${esc(gUrl)}" target="_blank">${esc(gUrl)}</a><span class="cp-icon" onclick="navigator.clipboard?.writeText('${esc(gUrl)}')" title="Copy">📋</span>`;
+    pill.classList.add('show');
+    btn.classList.add('done'); btn.innerHTML = '✓ Created';
+  } catch (err) {
+    const fallback = buildUtmUrl(asin, utm);
+    pill.innerHTML = `<span>⚠ ${esc(err.message)} · <a href="${esc(fallback)}" target="_blank">use UTM URL</a></span>`;
+    pill.classList.add('show', 'warn');
+    btn.disabled = false; spin.style.display = 'none';
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MODE A — LINKS ONLY (synchronous, no AI)
+════════════════════════════════════════════════════════════════ */
+function genModeA() {
+  if (!state.products.length) { showErr('a-err', 'Add at least one product to the Build Queue first.'); return; }
+  const source = document.getElementById('ga-source').value;
+  const medium = document.getElementById('ga-medium').value;
+  const term   = document.getElementById('ga-term').value.trim();
+
+  const cards = state.products.map(p => {
+    const campaign = autoUtmCampaign(p);
+    const content  = `organic_${slugify(p.product_name || p.name || p.asin)}_static`;
+    const utm = { source, medium, campaign, content, term };
+    const imgSrc = p.image_encoded_string || (p.asin ? asinImg(p.asin) : '');
+    return `<div class="ocard">
+      <div class="ocard-head">
+        ${imgSrc ? `<img class="ocard-img" src="${esc(imgSrc)}" onerror="this.style.display='none'" alt="">` : ''}
+        <div class="ocard-meta">
+          <div class="ocard-brand">${esc(p.company_name||p.brand||'')}</div>
+          <div class="ocard-name">${esc(p.product_name||p.name||p.asin)}</div>
+          <div class="ocard-pills">
+            ${p.price ? `<span class="opill">${esc(p.price)}</span>` : ''}
+            ${p.commission_payout ? `<span class="opill green">${esc(p.commission_payout)}</span>` : ''}
+            <span class="opill blue">${esc(p.asin)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="ocard-body">
+        ${utmCardHtml(p.asin, utm)}
+        <div class="card-actions">
+          <a href="https://www.amazon.com/dp/${p.asin}" target="_blank" class="ca-btn">View on Amazon ↗</a>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('a-res').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--text4);">${state.products.length} product${state.products.length===1?'':'s'} · edit UTM tags per card then click ⚡ Create Smart Link</span>
+    </div>
+    <div class="out-grid">${cards}</div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MODE B — SOCIAL POSTS (1 per product)
+════════════════════════════════════════════════════════════════ */
+async function genModeB() {
+  if (!state.products.length) { showErr('b-err', 'Add at least one product to the Build Queue first.'); return; }
+  setLoading('b-btn', 'b-spin', true);
+  document.getElementById('b-res').innerHTML = skels(state.products.length);
+
+  const source = document.getElementById('gb-source').value;
+  const medium = document.getElementById('gb-medium').value;
+  const term   = document.getElementById('gb-term').value.trim();
+
+  const product_list = state.products.map(p => ({
+    asin: p.asin,
+    product_name: p.product_name || p.name || '',
+    brand: p.company_name || p.brand || '',
+    price: p.price || '',
+    commission: p.commission_payout || p.commission || '',
+    image_encoded_string: p.image_encoded_string || (p.asin ? asinImg(p.asin) : ''),
+  }));
+
+  try {
+    const res = await fetch('/archer/generate_posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'b', product_list }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    // Prefer persisted_posts (have id+slug) when present; fall back to raw posts
+    const persisted = data.persisted_posts || [];
+    const posts = persisted.length ? persisted : (data.posts || []);
+    renderModeB(posts, source, medium, term);
+    showToast(`${posts.length} posts generated · ${data.persisted_count||0} saved as draft`);
+  } catch (err) {
+    showErr('b-err', err.message);
+    document.getElementById('b-res').innerHTML = '<div class="empty">Generation failed — see error above.</div>';
+  }
+  setLoading('b-btn', 'b-spin', false);
+}
+
+const QUEUE_STATUSES = {
+  draft:    { label: 'Draft',    color: '#a8a6a0', bg: '#f5f4f0' },
+  approved: { label: 'Approved', color: '#27693a', bg: '#e8f4ec' },
+  posted:   { label: 'Posted',   color: '#1c5fa6', bg: '#e8f0f8' },
+  archived: { label: 'Archived', color: '#a02828', bg: '#fff0f0' },
+};
+
+function renderModeB(posts, source, medium, term) {
+  if (!posts.length) { document.getElementById('b-res').innerHTML = '<div class="empty">No posts returned.</div>'; return; }
+  state.modeB = { posts, source, medium, term };
+
+  const cards = posts.map(post => _renderPostCard(post, source, medium, term)).join('');
+
+  document.getElementById('b-res').innerHTML = `
+    <div class="queue-toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;background:var(--surface);border:0.5px solid var(--border);border-radius:var(--rlg);padding:10px 14px;">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;font-family:var(--mono);color:var(--text3);cursor:pointer;">
+          <input type="checkbox" id="q-select-all" onchange="toggleAllQueue(this.checked)"> Select all
+        </label>
+        <span id="q-count" style="font-family:var(--mono);font-size:11px;color:var(--text4);">${posts.length} post${posts.length===1?'':'s'} · 1 per product</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="ca-btn" onclick="loadSavedQueue()">📂 View Saved Queue</button>
+        <button class="ca-btn" onclick="exportQueueCSV()">⬇️ Export CSV</button>
+        <button class="ca-btn" onclick="bulkSetQueueStatus('approved')">✓ Approve selected</button>
+        <button class="ca-btn" onclick="bulkSetQueueStatus('archived')" style="color:var(--red);">🗑 Archive selected</button>
+        <button class="ca-btn primary" onclick="copyAllPosts()">Copy all</button>
+      </div>
+    </div>
+    <div class="out-grid" id="b-grid">${cards}</div>`;
+}
+
+function _renderPostCard(post, source, medium, term) {
+  const asin = post.asin || '';
+  const prod = state.products.find(p => p.asin === asin) || {
+    asin,
+    product_name: post.product_name || asin,
+    company_name: post.product_brand || '',
+    price: post.product_price || '',
+    image_encoded_string: post.product_image || '',
+    commission_payout: '',
+  };
+  const imgSrc = prod.image_encoded_string || (asin ? asinImg(asin) : '');
+  const angle  = (post.angle || 'organic').toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  const utm = {
+    source, medium,
+    campaign: autoUtmCampaign(prod),
+    content:  `organic_${slugify(angle)}_static`,
+    term,
+  };
+  const postId = post.id || '';
+  const status = post.status || 'draft';
+  const stMeta = QUEUE_STATUSES[status] || QUEUE_STATUSES.draft;
+  const cardId = postId ? `post-card-${postId}` : `post-${asin}`;
+  const checkbox = postId
+    ? `<input type="checkbox" class="q-checkbox" data-post-id="${postId}" style="margin-right:6px;">`
+    : '';
+
+  return `<div class="ocard" id="${cardId}" data-post-id="${esc(String(postId))}" data-asin="${esc(asin)}">
+    <div class="ocard-head" style="position:relative;">
+      ${checkbox}
+      ${imgSrc ? `<img class="ocard-img" src="${esc(imgSrc)}" onerror="this.style.display='none'" alt="">` : ''}
+      <div class="ocard-meta">
+        <div class="ocard-brand">${esc(prod.company_name||prod.brand||'')}</div>
+        <div class="ocard-name">${esc(prod.product_name||prod.name||asin)}</div>
+        <div class="ocard-pills">
+          ${prod.price ? `<span class="opill">${esc(prod.price)}</span>` : ''}
+          ${prod.commission_payout ? `<span class="opill green">${esc(prod.commission_payout)}</span>` : ''}
+          ${postId ? `<span class="opill" style="background:${stMeta.bg};color:${stMeta.color};border-color:${stMeta.color}33;" id="status-${postId}">${stMeta.label}</span>` : ''}
+        </div>
+      </div>
+    </div>
+    <div class="ocard-body">
+      <div><span class="angle-badge">📐 ${esc(post.angle||'')}</span></div>
+      ${post.image_note ? `<div class="image-note">🖼 ${esc(post.image_note)}</div>` : ''}
+      <div class="post-copy" contenteditable="true" id="copy-${esc(asin)}" oninput="markPostDirty(${postId||0})">${esc(post.copy||'')}</div>
+      ${utmCardHtml(asin, utm)}
+      <div class="card-actions">
+        <button class="ca-btn primary" onclick="copyPost('${esc(asin)}')">Copy Post + Link</button>
+        ${postId ? `<button class="ca-btn" onclick="savePostEdit(${postId}, '${esc(asin)}')">💾 Save Edit</button>` : ''}
+        ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'approved')" style="background:var(--green-light);color:var(--green);">✓ Approve</button>` : ''}
+        ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'archived')" style="color:var(--red);">🗑 Archive</button>` : ''}
+        <a href="https://www.amazon.com/dp/${esc(asin)}" target="_blank" class="ca-btn">Amazon ↗</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ─── QUEUE ACTIONS ───────────────────────────────────────────── */
+function _selectedPostIds() {
+  return Array.from(document.querySelectorAll('.q-checkbox:checked')).map(el => parseInt(el.dataset.postId));
+}
+
+function toggleAllQueue(on) {
+  document.querySelectorAll('.q-checkbox').forEach(el => { el.checked = on; });
+}
+
+async function setPostStatus(postId, status) {
+  try {
+    const res = await fetch(`/archer/posts/${postId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const stMeta = QUEUE_STATUSES[status] || QUEUE_STATUSES.draft;
+    const pill = document.getElementById(`status-${postId}`);
+    if (pill) {
+      pill.textContent = stMeta.label;
+      pill.style.background = stMeta.bg;
+      pill.style.color = stMeta.color;
+      pill.style.borderColor = stMeta.color + '33';
     }
+    showToast(`Marked ${stMeta.label.toLowerCase()}`);
+  } catch (e) {
+    showErr('b-err', `Status update failed: ${e.message}`);
   }
-<\/script>
-</body>
-</html>`;
+}
 
-    const blob = new Blob([fullHtml], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `steph-organic-posts-${dateStr}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('Export downloaded');
+async function bulkSetQueueStatus(status) {
+  const ids = _selectedPostIds();
+  if (!ids.length) { showToast('Select posts first (checkboxes)'); return; }
+  try {
+    const res = await fetch('/archer/posts/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, status }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    showToast(`${data.updated} updated`);
+    // Re-render local pills + clear selection
+    const stMeta = QUEUE_STATUSES[status] || QUEUE_STATUSES.draft;
+    ids.forEach(id => {
+      const pill = document.getElementById(`status-${id}`);
+      if (pill) {
+        pill.textContent = stMeta.label;
+        pill.style.background = stMeta.bg;
+        pill.style.color = stMeta.color;
+      }
+      // If archived, hide the card
+      if (status === 'archived') {
+        const card = document.getElementById(`post-card-${id}`);
+        if (card) card.style.display = 'none';
+      }
+    });
+    document.getElementById('q-select-all').checked = false;
+    document.querySelectorAll('.q-checkbox').forEach(el => { el.checked = false; });
+  } catch (e) {
+    showErr('b-err', `Bulk update failed: ${e.message}`);
   }
+}
 
-  // ── UTILITIES ─────────────────────────────────────────
-  function copyToClipboard(text) {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
-    } else {
-      fallbackCopy(text);
-    }
+function markPostDirty(postId) {
+  if (!postId) return;
+  const card = document.getElementById(`post-card-${postId}`);
+  if (card) card.dataset.dirty = '1';
+}
+
+async function savePostEdit(postId, asin) {
+  const el = document.getElementById(`copy-${asin}`);
+  const newCopy = (el?.innerText || el?.textContent || '').trim();
+  try {
+    const res = await fetch(`/archer/posts/${postId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ copy: newCopy }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const card = document.getElementById(`post-card-${postId}`);
+    if (card) delete card.dataset.dirty;
+    showToast('Saved');
+  } catch (e) {
+    showErr('b-err', `Edit save failed: ${e.message}`);
   }
-  function fallbackCopy(text) {
-    const ta = document.createElement('textarea');
-    ta.value = text; document.body.appendChild(ta); ta.select();
-    document.execCommand('copy'); document.body.removeChild(ta);
+}
+
+async function loadSavedQueue() {
+  try {
+    const res = await fetch('/archer/posts');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const posts = data.posts || [];
+    if (!posts.length) { showToast('No saved posts in queue yet'); return; }
+    const source = document.getElementById('gb-source').value;
+    const medium = document.getElementById('gb-medium').value;
+    const term   = document.getElementById('gb-term').value.trim();
+    renderModeB(posts, source, medium, term);
+    showToast(`${posts.length} saved post${posts.length===1?'':'s'} loaded`);
+  } catch (e) {
+    showErr('b-err', `Failed to load queue: ${e.message}`);
   }
-  function showToast(msg) {
-    const t = document.getElementById('toast');
-    t.textContent = msg; t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function exportQueueCSV() {
+  window.open('/archer/posts/export.csv', '_blank');
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MODE C — COLLECTION PAGE
+════════════════════════════════════════════════════════════════ */
+async function genModeC() {
+  if (state.products.length < 2) { showErr('c-err', 'Add at least 2 products for a collection.'); return; }
+  const nm = document.getElementById('col-name').value.trim();
+  const sl = document.getElementById('col-slug').value.trim();
+  if (!nm) { showErr('c-err', 'Enter a collection theme name.'); return; }
+  if (!sl) { showErr('c-err', 'Enter a landing page slug.'); return; }
+
+  setLoading('c-btn', 'c-spin', true);
+  document.getElementById('c-res').innerHTML = skels(3);
+
+  const source = document.getElementById('gc-source').value;
+  const medium = document.getElementById('gc-medium').value;
+  const term   = document.getElementById('gc-term').value.trim();
+
+  const product_list = state.products.map(p => ({
+    asin: p.asin,
+    product_name: p.product_name || p.name || '',
+    brand: p.company_name || p.brand || '',
+    price: p.price || '',
+    commission: p.commission_payout || p.commission || '',
+  }));
+
+  try {
+    const res = await fetch('/archer/generate_posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'c', product_list, collection_name: nm, collection_slug: sl }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    renderModeC(data.collection || {}, data.url || '', source, medium, term);
+    showToast('Collection built');
+  } catch (err) {
+    showErr('c-err', err.message);
+    document.getElementById('c-res').innerHTML = '<div class="empty">Generation failed — see error above.</div>';
   }
-  function esc(s) { return (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-  function escForHtml(s) { return esc(s); }
-  function truncate(s, n) { s = (s || '').toString(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  setLoading('c-btn', 'c-spin', false);
+}
+
+function pickTheme(name) {
+  document.getElementById('col-theme').value = name;
+  document.querySelectorAll('#theme-grid .theme-sw').forEach(el => {
+    el.classList.toggle('active', el.dataset.theme === name);
+  });
+}
+
+function renderModeC(col, url, source, medium, term) {
+  const angle = ((col.angle || 'collection').toLowerCase().replace(/[^a-z0-9-]/g, '-'));
+  const colContent = `organic_${slugify(angle)}_collection`;
+
+  const prodCards = state.products.map(p => {
+    const tagline = (col.product_taglines || []).find(t => t.asin === p.asin)?.tagline || '';
+    const imgSrc  = p.image_encoded_string || (p.asin ? asinImg(p.asin) : '');
+    const utm = {
+      source, medium,
+      campaign: autoUtmCampaign(p),
+      content:  colContent,
+      term,
+    };
+    return `<div class="ocard">
+      <div class="ocard-head">
+        ${imgSrc ? `<img class="ocard-img" src="${esc(imgSrc)}" onerror="this.style.display='none'" alt="">` : ''}
+        <div class="ocard-meta">
+          <div class="ocard-brand">${esc(p.company_name||p.brand||'')}</div>
+          <div class="ocard-name">${esc(p.product_name||p.name||p.asin)}</div>
+          ${tagline ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;font-style:italic;line-height:1.4;">${esc(tagline)}</div>` : ''}
+        </div>
+      </div>
+      <div class="ocard-body">
+        ${utmCardHtml(p.asin, utm)}
+        <div class="card-actions">
+          <a href="https://www.amazon.com/dp/${esc(p.asin)}" target="_blank" class="ca-btn">Amazon ↗</a>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('c-res').innerHTML = `
+    <div id="lp-pill-slot"></div>
+    <div class="col-out">
+      <div class="col-out-hdr">
+        <div class="col-out-title">${esc(document.getElementById('col-name').value)}</div>
+        <div class="col-out-url">${esc(url)}</div>
+      </div>
+      <div class="col-sec">
+        <div class="col-sec-label">Collection Social Post</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+          <span class="angle-badge">📐 ${esc(col.angle||'')}</span>
+          <span style="font-family:var(--mono);font-size:9.5px;color:var(--text4);">utm_content → <b style="color:var(--text2);">${esc(colContent)}</b></span>
+        </div>
+        <div class="post-copy" contenteditable="true" id="col-copy">${esc(col.copy||'')}</div>
+        ${col.image_note ? `<div class="image-note mt8">🖼 ${esc(col.image_note)}</div>` : ''}
+        <div class="card-actions mt8">
+          <button class="ca-btn primary" onclick="copyEl('col-copy', this)">Copy Post</button>
+          <button class="ca-btn" onclick="copyToClipboard('${esc(url)}')">Copy URL</button>
+          <button class="ca-btn" onclick="saveDraftLandingPage(this)">💾 Save Draft</button>
+          <button class="ca-btn" onclick="previewDraftLandingPage(this)">👁 Preview</button>
+          <button class="ca-btn" onclick="publishLandingPage(this)" style="background:var(--green-light);color:var(--green);border-color:rgba(39,105,58,0.3);">🚀 Publish</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text4);margin-bottom:12px;">
+        Product Links — all tagged <b style="color:var(--text2);">${esc(colContent)}</b>
+      </div>
+      <div class="out-grid">${prodCards}</div>
+    </div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LANDING PAGE — Save Draft / Preview / Publish (3-state)
+════════════════════════════════════════════════════════════════ */
+function _collectLpPayload() {
+  const slug  = (document.getElementById('col-slug').value  || '').trim().toLowerCase().replace(/\s+/g, '-');
+  const theme = (document.getElementById('col-theme').value || 'coral');
+  const name  = (document.getElementById('col-name').value  || '').trim();
+  const caption = (document.getElementById('col-copy')?.innerText || '').trim();
+  if (!slug)  { showErr('c-err', 'Enter a landing page slug.'); return null; }
+  if (state.products.length < 2) { showErr('c-err', 'Need at least 2 products.'); return null; }
+  const products = state.products.map(p => ({
+    asin: p.asin,
+    product_name: p.product_name || p.name || '',
+    company_name: p.company_name || p.brand || '',
+    brand: p.brand || p.company_name || '',
+    price: p.price || '',
+    image_encoded_string: p.image_encoded_string || (p.asin ? asinImg(p.asin) : ''),
+    deal: p.deal || null,
+    attribution_link: p.attribution_link || '',
+  }));
+  return { slug, theme, name, caption, products };
+}
+
+async function _saveCollage(status, btn, busyLabel, restoreLabel) {
+  const p = _collectLpPayload();
+  if (!p) return null;
+  if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
+  try {
+    const res = await fetch('/archer/collage/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slug: p.slug, theme: p.theme,
+        layout: p.products.length >= 6 ? 'layout-3' : 'layout-2',
+        caption: p.caption,
+        direct_to_amazon: false,
+        products: p.products,
+        status,
+        hero_title: p.name,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  } catch (err) {
+    showErr('c-err', `${restoreLabel.replace(/[^a-zA-Z ]/g,'').trim() || 'Save'} failed: ${err.message}`);
+    return null;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = restoreLabel; }
+  }
+}
+
+async function saveDraftLandingPage(btn) {
+  const data = await _saveCollage('draft', btn, 'Saving…', '💾 Save Draft');
+  if (!data) return;
+  _renderDraftPill(data);
+  showToast('Draft saved (no Archer links generated yet)');
+}
+
+async function previewDraftLandingPage(btn) {
+  // Save as draft first (no archer link gen), then open ?preview=1 page.
+  const data = await _saveCollage('draft', btn, 'Saving…', '👁 Preview');
+  if (!data) return;
+  _renderDraftPill(data);
+  const slug = data.slug;
+  window.open(`/shop/${slug}?preview=1`, '_blank', 'noopener');
+}
+
+async function publishLandingPage(btn) {
+  // 1. Save final state as published (this generates Archer links)
+  const data = await _saveCollage('published', btn, 'Publishing…', '🚀 Publish');
+  if (!data) return;
+  // 2. (Belt-and-suspenders) call /publish to backfill any missed links
+  try {
+    await fetch('/archer/collage/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: data.slug }),
+    });
+  } catch (_e) { /* non-fatal — save already wrote the row */ }
+  _renderPublishedPill(data);
+  showToast('Landing page published');
+}
+
+function _renderDraftPill(data) {
+  const slug = data.slug;
+  const slot = document.getElementById('lp-pill-slot');
+  if (!slot) return;
+  const previewUrl = `/shop/${slug}?preview=1`;
+  slot.innerHTML = `<div class="lp-pill" style="background:#fff3e0;border-color:#ffb74d;">
+    <span class="lp-pill-label" style="color:#e65100;">📝 Draft saved</span>
+    <span class="lp-pill-url" style="color:#e65100;">/shop/${esc(slug)} (preview only)</span>
+    <div class="lp-pill-actions">
+      <a class="ca-btn" href="${esc(previewUrl)}" target="_blank" rel="noopener">Preview ↗</a>
+      <button class="ca-btn primary" onclick="publishLandingPage(this)">🚀 Publish</button>
+    </div>
+  </div>`;
+}
+
+function _renderPublishedPill(data) {
+  const slug = data.slug;
+  const publicUrl = data.public_url || `${location.origin}/shop/${slug}`;
+  const slot = document.getElementById('lp-pill-slot');
+  if (!slot) return;
+  slot.innerHTML = `<div class="lp-pill">
+    <span class="lp-pill-label">✓ Published</span>
+    <span class="lp-pill-url">${esc(publicUrl)}</span>
+    <div class="lp-pill-actions">
+      <button class="ca-btn primary" onclick="copyToClipboard('${esc(publicUrl)}')">Copy URL</button>
+      <a class="ca-btn" href="${esc(publicUrl)}" target="_blank" rel="noopener">Open ↗</a>
+      <a class="ca-btn" href="/archer/collage?slug=${esc(slug)}" target="_blank" rel="noopener">✏️ Edit</a>
+      <a class="ca-btn" href="/archer/ads?collection=${esc(slug)}" style="background:var(--blue-light);color:var(--blue);border-color:rgba(28,95,166,0.3);">🚀 Promote</a>
+    </div>
+  </div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   COPY HELPERS
+════════════════════════════════════════════════════════════════ */
+function copyPost(asin) {
+  const el = document.getElementById(`copy-${asin}`);
+  if (!el) return;
+  const text = el.innerText || el.textContent;
+  const pill = document.getElementById(`gp-${asin}`);
+  const link = (pill?.classList.contains('show') && !pill.classList.contains('warn'))
+    ? (pill.querySelector('a')?.href || '')
+    : buildUtmUrl(asin, getUtm(asin));
+  copyToClipboard(`${text}\n\n${link}`);
+  const btn = event.target;
+  btn.textContent = 'Copied!'; btn.classList.add('ok');
+  setTimeout(() => { btn.textContent = 'Copy Post + Link'; btn.classList.remove('ok'); }, 2000);
+}
+
+function copyEl(id, btn) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  copyToClipboard(el.innerText || el.textContent);
+  if (btn) { btn.textContent = 'Copied!'; btn.classList.add('ok'); setTimeout(() => { btn.textContent = 'Copy Post'; btn.classList.remove('ok'); }, 2000); }
+}
+
+function copyAllPosts() {
+  const cards = document.querySelectorAll('[id^="post-"]');
+  const lines = [];
+  cards.forEach((card, i) => {
+    const copyEl = card.querySelector('.post-copy');
+    const asin   = card.id.replace('post-', '');
+    const text   = copyEl?.innerText || '';
+    const pill   = document.getElementById(`gp-${asin}`);
+    const link   = (pill?.classList.contains('show') && !pill.classList.contains('warn'))
+      ? (pill.querySelector('a')?.href || '')
+      : buildUtmUrl(asin, getUtm(asin));
+    lines.push(`─── Post ${i+1} · ${asin} ───\n${text}\n\n${link}`);
+  });
+  copyToClipboard(lines.join('\n\n' + '─'.repeat(36) + '\n\n'));
+  const btn = event.target;
+  btn.textContent = 'All Copied!'; btn.classList.add('ok');
+  setTimeout(() => { btn.textContent = 'Copy All Posts + Links'; btn.classList.remove('ok'); }, 2000);
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard) { navigator.clipboard.writeText(text).catch(() => fallbackCopy(text)); }
+  else fallbackCopy(text);
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea'); ta.value = text;
+  document.body.appendChild(ta); ta.select();
+  document.execCommand('copy'); document.body.removeChild(ta);
+}
 </script>
 </body>
 </html>

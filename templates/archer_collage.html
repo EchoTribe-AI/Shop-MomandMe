@@ -285,7 +285,7 @@
     <!-- SLUG / URL -->
     <div class="section-label" style="margin-top:20px;">Landing Page URL</div>
     <div class="slug-row">
-      <div class="slug-prefix">mommyandmecollective.com/shop/</div>
+      <div class="slug-prefix">shop.echotribe.ai/</div>
       <input type="text" class="slug-input" id="slug-input" placeholder="e.g. beach-toys-apr1" oninput="updatePreview()">
     </div>
 
@@ -545,7 +545,7 @@
     if (state.slug) {
       const url = state.directToAmazon && state.products.length === 1
         ? `amazon.com/dp/${state.products[0].asin}`
-        : `mommyandmecollective.com/shop/${state.slug}`;
+        : `shop.echotribe.ai/${state.slug}`;
       document.getElementById('pp-url-text').textContent = url;
       urlBar.style.display = 'flex';
     } else {
@@ -672,7 +672,7 @@
           </div>
           <div class="ci-actions">
             <button class="ci-btn open" onclick="window.open('/shop/${c.slug}','_blank')">View</button>
-            <button class="ci-btn" onclick="copyToClipboard(window.location.origin+'/shop/${c.slug}');showToast('URL copied!')">Copy</button>
+            <button class="ci-btn" onclick="copyToClipboard('https://shop.echotribe.ai/${c.slug}');showToast('URL copied!')">Copy</button>
           </div>
         </div>`).join('');
     } catch(e) {}
@@ -695,7 +695,7 @@
   function copyUrl() {
     const slug = document.getElementById('slug-input').value.trim();
     if (!slug) return;
-    const url = `${window.location.origin}/shop/${slug}`;
+    const url = `https://shop.echotribe.ai/${slug}`;
     copyToClipboard(url);
     showToast('URL copied!');
   }

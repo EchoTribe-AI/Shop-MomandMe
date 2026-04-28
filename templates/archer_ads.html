@@ -272,13 +272,27 @@
         <div class="routing-card active" onclick="setRouting('landing', this)" data-routing="landing">
           <div class="rc-icon">📄</div>
           <div class="rc-title">Landing page</div>
-          <div class="rc-desc">Ad traffic goes to a Mommy & Me shoppable page. Captures fbclid, fires Facebook Pixel events, then routes to Amazon. Best for data collection and retargeting.</div>
+          <div class="rc-desc">Ad traffic goes to a shop.echotribe.ai collection. Captures fbclid, fires Facebook Pixel events, then routes to Amazon. Best for data collection and retargeting.</div>
         </div>
         <div class="routing-card" onclick="setRouting('direct', this)" data-routing="direct">
           <div class="rc-icon">⚡</div>
           <div class="rc-title">Direct to Amazon</div>
           <div class="rc-desc">Ad traffic goes straight to the Amazon product page. Fewer clicks in the funnel. Less data. Test both to see which converts better for your audience.</div>
         </div>
+      </div>
+
+      <!-- Collection picker — only relevant for routing='landing' -->
+      <div id="collection-picker-row" style="margin-top:14px;">
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text4);margin-bottom:6px;">
+          Use existing collection <span style="text-transform:none;letter-spacing:0;color:var(--text3);">(optional — leave blank to build per-product)</span>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <select id="collection-pick" style="border:0.5px solid var(--border2);border-radius:var(--r);padding:8px 10px;font-size:13px;background:var(--surface);outline:none;min-width:280px;" onchange="onCollectionPick(this.value)">
+            <option value="">— None: build per-product CTA —</option>
+          </select>
+          <a href="/archer/organic" target="_blank" style="font-size:11px;color:var(--blue);text-decoration:none;">+ Build new collection ↗</a>
+        </div>
+        <div id="collection-pick-info" style="margin-top:6px;font-size:11px;color:var(--text4);"></div>
       </div>
     </div>
 
@@ -498,20 +512,60 @@
     products: [],
     variants: [],
     searchTimer: null,
-    currentStep: 1
+    currentStep: 1,
+    collection_slug: '',
   };
 
   // ── INIT ──────────────────────────────────────────────
-  window.onload = () => {
+  window.onload = async () => {
     renderProductSlots();
     calcForecast();
     loadCampaigns();
+    await loadCollectionsIntoPicker();
     // Auto-generate slug
     const d = new Date();
     const mon = d.toLocaleString('default',{month:'short'}).toLowerCase();
     document.getElementById('campaign-slug').value = `${mon}${d.getDate()}-a`;
     state.slug = document.getElementById('campaign-slug').value;
+
+    // Branch 2B: ?collection=<slug> deep-link from Mode C "Promote" button.
+    // Pre-select the collection in the picker AND auto-load its products
+    // into Step 2 so Generate Variants is one click away.
+    const params = new URLSearchParams(location.search);
+    const presetCollection = (params.get('collection') || '').trim().toLowerCase();
+    if (presetCollection) {
+      await preloadFromCollection(presetCollection);
+    }
   };
+
+  async function preloadFromCollection(slug) {
+    try {
+      // 1. Pre-select in the picker
+      const sel = document.getElementById('collection-pick');
+      if (sel) {
+        sel.value = slug;
+        onCollectionPick(slug);
+      }
+      // 2. Fetch the collection record and add each product to state
+      const res = await fetch(`/archer/collage/${encodeURIComponent(slug)}`);
+      const data = await res.json();
+      if (!res.ok || !data.collage) {
+        showToast(`Collection "${slug}" not found`);
+        return;
+      }
+      const products = data.collage.products || [];
+      for (const p of products) {
+        if (!p.asin || state.products.find(x => x.asin === p.asin)) continue;
+        state.products.push(p);
+      }
+      renderProductSlots();
+      // 3. Jump to Step 2 so user sees the loaded queue
+      goStep(2);
+      showToast(`Loaded ${products.length} products from "${slug}"`);
+    } catch (e) {
+      showToast(`Failed to load collection: ${e.message}`);
+    }
+  }
 
   // ── STEP NAVIGATION ───────────────────────────────────
   function goStep(n) {
@@ -539,6 +593,42 @@
     state.routing = routing;
     document.querySelectorAll('.routing-card').forEach(c => c.classList.remove('active'));
     el.classList.add('active');
+    // Hide collection picker when going Direct to Amazon
+    const cp = document.getElementById('collection-picker-row');
+    if (cp) cp.style.display = routing === 'landing' ? '' : 'none';
+    if (routing !== 'landing') {
+      state.collection_slug = '';
+      const sel = document.getElementById('collection-pick');
+      if (sel) sel.value = '';
+      const info = document.getElementById('collection-pick-info');
+      if (info) info.textContent = '';
+    }
+  }
+
+  // ── COLLECTION PICKER (Ad Builder Step 1) ─────────────
+  async function loadCollectionsIntoPicker() {
+    const sel = document.getElementById('collection-pick');
+    if (!sel) return;
+    try {
+      const res = await fetch('/archer/collages');
+      const data = await res.json();
+      const list = Array.isArray(data.collages) ? data.collages : [];
+      // Preserve the leading "None" option, then add saved collections
+      sel.innerHTML = '<option value="">— None: build per-product CTA —</option>' +
+        list.map(c => `<option value="${esc(c.slug)}">${esc(c.slug)} · ${c.product_count} products · ${esc(c.theme)}</option>`).join('');
+    } catch (e) { /* picker stays empty; not fatal */ }
+  }
+
+  function onCollectionPick(slug) {
+    state.collection_slug = slug || '';
+    const info = document.getElementById('collection-pick-info');
+    if (!info) return;
+    if (!slug) {
+      info.textContent = '';
+      return;
+    }
+    const url = `https://shop.echotribe.ai/${slug}`;
+    info.innerHTML = `CTA destination → <span style="color:var(--blue);font-family:var(--mono);">${esc(url)}</span> · all 5 layers will tag <code style="font-family:var(--mono);">utm_content=l[N]_collection</code>`;
   }
 
   // ── PRODUCT MANAGEMENT ────────────────────────────────
@@ -839,7 +929,7 @@
   }
 
   function resetBuilder() {
-    state = { campaignType: 'organic', routing: 'landing', slug: '', products: [], variants: [], searchTimer: null, currentStep: 1 };
+    state = { campaignType: 'organic', routing: 'landing', slug: '', products: [], variants: [], searchTimer: null, currentStep: 1, collection_slug: '' };
     goStep(1);
     const d = new Date();
     const mon = d.toLocaleString('default',{month:'short'}).toLowerCase();
@@ -898,7 +988,11 @@
       const res = await fetch('/archer/generate_campaign_package', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_list, slug: state.slug }),
+        body: JSON.stringify({
+          product_list,
+          slug: state.slug,
+          collection_slug: state.collection_slug || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {

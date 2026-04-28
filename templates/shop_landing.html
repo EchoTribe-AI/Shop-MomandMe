@@ -3,9 +3,58 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{ collage.slug | title }} — Mommy & Me Collective</title>
+
+{# SEO + social-share metadata (Phase 2A) #}
+{% set _title = (seo.title if seo and seo.title else (collage.slug | replace('-', ' ') | title)) %}
+{% set _brand = (creator.brand_label if creator and creator.brand_label else 'Mommy & Me Collective') %}
+{% set _handle = (creator.handle if creator and creator.handle else '@EverydaywithSteph') %}
+<title>{{ _title }} — {{ _brand }}</title>
+<meta name="description" content="{{ seo.description if seo else '' }}">
+<link rel="canonical" href="{{ seo.canonical_url if seo else '' }}">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ _title }}">
+<meta property="og:description" content="{{ seo.description if seo else '' }}">
+<meta property="og:url" content="{{ seo.canonical_url if seo else '' }}">
+{% if seo and seo.og_image %}<meta property="og:image" content="{{ seo.og_image }}">{% endif %}
+<meta property="og:site_name" content="{{ _brand }}">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ _title }}">
+<meta name="twitter:description" content="{{ seo.description if seo else '' }}">
+{% if seo and seo.og_image %}<meta name="twitter:image" content="{{ seo.og_image }}">{% endif %}
+
+<!-- Schema.org CollectionPage -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  "name": "{{ _title|e }}",
+  "description": "{{ (seo.description if seo else '')|e }}",
+  "url": "{{ seo.canonical_url if seo else '' }}",
+  "creator": { "@type": "Person", "name": "{{ _handle|e }}" },
+  "hasPart": [
+    {%- for p in products -%}
+    {
+      "@type": "Product",
+      "name": "{{ (p.product_name or p.name or p.asin)|e }}",
+      "image": "{{ p.image_encoded_string or '' }}",
+      "sku": "{{ p.asin or '' }}",
+      "brand": { "@type": "Brand", "name": "{{ (p.company_name or p.brand or '')|e }}" }
+      {%- if p.price -%}, "offers": { "@type": "Offer", "price": "{{ p.price|replace('$','') }}", "priceCurrency": "USD" }{%- endif -%}
+    }{% if not loop.last %},{% endif %}
+    {%- endfor -%}
+  ]
+}
+</script>
+
 {% set theme = themes[collage.theme] %}
 <style>
+  /* Draft watermark for ?preview=1 */
+  .draft-banner { position: fixed; top: 0; left: 0; right: 0; background: #fff3e0; color: #e65100; text-align: center; padding: 6px 12px; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: 1px; z-index: 999; border-bottom: 1px solid #ffb74d; }
+  body.is-preview { padding-top: 28px; }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
     --bg: {{ theme.bg }};
@@ -79,13 +128,17 @@ fbq('track', 'PageView');
 })();
 </script>
 </head>
-<body>
+<body class="{% if is_preview %}is-preview{% endif %}">
+
+{% if is_preview %}
+<div class="draft-banner">⚠️ DRAFT PREVIEW — not visible to public · status: {{ collage.status or 'draft' }}</div>
+{% endif %}
 
 <div class="header">
   <div class="header-inner">
     <div>
-      <div class="brand">Mommy & Me Collective</div>
-      <div class="handle">@EverydaywithSteph</div>
+      <div class="brand">{{ _brand }}</div>
+      <div class="handle">{{ _handle }}</div>
     </div>
     <div class="header-avatar">🛍️</div>
   </div>
@@ -146,8 +199,14 @@ fbq('track', 'PageView');
 
 <div class="footer">
   <div class="footer-text">
-    Curated by <a class="footer-link" href="https://shopltk.com/EverydaywithSteph" target="_blank">@EverydaywithSteph</a><br>
-    Follow on <a class="footer-link" href="https://www.facebook.com/TheMommyandMeCollective" target="_blank">Facebook</a> for daily deals 🛍️
+    {% if creator and creator.ltk_url %}
+    Curated by <a class="footer-link" href="{{ creator.ltk_url }}" target="_blank" rel="noopener">{{ _handle }}</a><br>
+    {% else %}
+    Curated by {{ _handle }}<br>
+    {% endif %}
+    {% if creator and creator.facebook_url %}
+    Follow on <a class="footer-link" href="{{ creator.facebook_url }}" target="_blank" rel="noopener">Facebook</a> for daily deals 🛍️
+    {% endif %}
   </div>
 </div>
 

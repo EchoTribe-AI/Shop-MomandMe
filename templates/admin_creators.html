@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin · Creators · EchoTribe</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #faf9f6;
+    --surface: #fff;
+    --surface2: #f5f4f0;
+    --border: #e8e6e0;
+    --border2: #d4d2cc;
+    --text: #1a1a17;
+    --text2: #4a4a45;
+    --text3: #7a7873;
+    --text4: #a8a6a0;
+    --archer: #e85d26;
+    --archer-light: #fff3eb;
+    --blue: #1c5fa6;
+    --blue-mid: #2e7dd4;
+    --blue-light: #e8f0f8;
+    --green: #27693a;
+    --green-light: #e8f4ec;
+    --red: #a02828;
+    --r: 6px;
+    --rlg: 10px;
+    --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+  .topbar { position: fixed; top: 0; left: 0; right: 0; height: 56px; background: var(--surface); border-bottom: 0.5px solid var(--border2); display: flex; align-items: center; padding: 0 20px; gap: 16px; z-index: 100; }
+  .tb-brand { font-weight: 600; font-size: 14px; }
+  .tb-link { color: var(--text3); text-decoration: none; font-size: 13px; padding: 6px 10px; border-radius: 5px; }
+  .tb-link.active { color: var(--archer); background: var(--archer-light); }
+  .tb-link:hover { color: var(--text); }
+
+  .page { max-width: 1100px; margin: 0 auto; padding: 80px 24px 80px; }
+  .h1 { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
+  .sub { font-size: 13px; color: var(--text3); margin-bottom: 24px; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 24px; align-items: flex-start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); padding: 18px 20px; }
+  .card-h { font-family: var(--mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text4); margin-bottom: 14px; }
+
+  .creator-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 0.5px solid var(--border); cursor: pointer; }
+  .creator-row:last-child { border-bottom: none; }
+  .creator-row:hover { background: var(--surface2); }
+  .creator-row.active { background: var(--archer-light); border-left: 3px solid var(--archer); margin-left: -20px; padding-left: 17px; }
+  .cr-name { font-weight: 500; font-size: 14px; }
+  .cr-id { font-family: var(--mono); font-size: 11px; color: var(--text4); }
+  .cr-handle { font-size: 12px; color: var(--text3); margin-left: auto; }
+
+  .field { margin-bottom: 14px; }
+  .field-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text4); margin-bottom: 4px; display: block; }
+  .field-input, .field-textarea { width: 100%; border: 0.5px solid var(--border2); border-radius: var(--r); padding: 8px 11px; font-size: 13px; font-family: inherit; color: var(--text); background: var(--bg); outline: none; }
+  .field-input:focus, .field-textarea:focus { border-color: var(--archer); background: var(--surface); }
+  .field-textarea { font-family: inherit; line-height: 1.5; resize: vertical; min-height: 90px; }
+  .field-mono { font-family: var(--mono); font-size: 12px; }
+  .field-help { font-size: 11px; color: var(--text4); margin-top: 4px; }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .actions { display: flex; gap: 10px; margin-top: 18px; }
+  .btn { padding: 9px 18px; border-radius: var(--r); border: none; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .btn-primary { background: var(--archer); color: #fff; }
+  .btn-primary:hover { background: #c94d1c; }
+  .btn-secondary { background: transparent; color: var(--text2); border: 0.5px solid var(--border2); }
+  .btn-secondary:hover { background: var(--surface2); }
+
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--text); color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+
+  .err { background: #fff0f0; border: 0.5px solid #ffcccc; color: var(--red); padding: 8px 12px; border-radius: var(--r); font-size: 12px; margin-bottom: 12px; display: none; }
+  .err.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="tb-brand">EchoTribe Admin</div>
+  <a href="/dashboard" class="tb-link">Dashboard</a>
+  <a href="/archer/organic" class="tb-link">Organic</a>
+  <a href="/archer/ads" class="tb-link">Ads</a>
+  <a href="/archer/collage" class="tb-link">Collage</a>
+  <a href="/insights" class="tb-link">Insights</a>
+  <a href="/admin/creators" class="tb-link active">Creators</a>
+</div>
+
+<div class="page">
+  <div class="h1">Creators</div>
+  <div class="sub">Manage per-creator brand identity, voice prompts, affiliate tags, and Meta ad-account links. The selected creator drives prompts.py + landing-page templates + UTM defaults.</div>
+
+  <div class="grid">
+
+    <!-- LEFT: list -->
+    <div class="card">
+      <div class="card-h">All Creators</div>
+      <div id="creator-list">
+        {% for c in creators %}
+        <div class="creator-row" data-id="{{ c.id }}" onclick="loadCreator('{{ c.id }}')">
+          <div>
+            <div class="cr-name">{{ c.display_name }}</div>
+            <div class="cr-id">{{ c.id }}</div>
+          </div>
+          <div class="cr-handle">{{ c.handle or '' }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div style="margin-top:14px;">
+        <button class="btn btn-secondary" onclick="newCreator()">+ New Creator</button>
+      </div>
+    </div>
+
+    <!-- RIGHT: form -->
+    <div class="card">
+      <div class="card-h">Edit Creator</div>
+      <div class="err" id="form-err"></div>
+
+      <div class="row2">
+        <div class="field">
+          <label class="field-label">ID (slug)</label>
+          <input class="field-input field-mono" id="f-id" placeholder="e.g. everydaywithsteph" />
+          <div class="field-help">Lowercase, hyphenated. Used internally everywhere — change with caution.</div>
+        </div>
+        <div class="field">
+          <label class="field-label">Display Name</label>
+          <input class="field-input" id="f-display_name" placeholder="e.g. Steph" />
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label class="field-label">Handle</label>
+          <input class="field-input" id="f-handle" placeholder="@EverydaywithSteph" />
+        </div>
+        <div class="field">
+          <label class="field-label">Brand Label</label>
+          <input class="field-input" id="f-brand_label" placeholder="Mommy & Me Collective" />
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label class="field-label">Amazon Affiliate Tag</label>
+          <input class="field-input field-mono" id="f-amazon_tag" placeholder="mommymedeals-20" />
+        </div>
+        <div class="field">
+          <label class="field-label">FB Pixel ID</label>
+          <input class="field-input field-mono" id="f-fb_pixel_id" placeholder="1559451780790812" />
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label class="field-label">Meta Ad Account ID</label>
+          <input class="field-input field-mono" id="f-meta_ad_account_id" placeholder="act_573934886369270" />
+        </div>
+        <div class="field">
+          <label class="field-label">Default Theme</label>
+          <select class="field-input field-mono" id="f-theme_default">
+            <option value="coral">coral</option>
+            <option value="ocean">ocean</option>
+            <option value="lavender">lavender</option>
+            <option value="forest">forest</option>
+            <option value="midnight">midnight</option>
+            <option value="peach">peach</option>
+            <option value="clean">clean</option>
+            <option value="bold">bold</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label class="field-label">LTK URL</label>
+          <input class="field-input" id="f-ltk_url" placeholder="https://shopltk.com/..." />
+        </div>
+        <div class="field">
+          <label class="field-label">Facebook URL</label>
+          <input class="field-input" id="f-facebook_url" placeholder="https://www.facebook.com/..." />
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Voice Prompt (Claude system prompt prefix)</label>
+        <textarea class="field-textarea" id="f-voice_prompt" placeholder="You are [name], the creator behind [handle]..."></textarea>
+        <div class="field-help">This becomes the persona prefix for chat/captions/ad copy. Templates inject this verbatim.</div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" onclick="save()">Save Creator</button>
+        <button class="btn btn-secondary" onclick="newCreator()">New / Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const fields = ['id','display_name','handle','brand_label','fb_pixel_id','amazon_tag','meta_ad_account_id','ltk_url','facebook_url','voice_prompt','theme_default'];
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2000);
+  }
+
+  function setErr(msg) {
+    const el = document.getElementById('form-err');
+    if (!msg) { el.classList.remove('show'); el.textContent = ''; return; }
+    el.classList.add('show'); el.textContent = msg;
+  }
+
+  function newCreator() {
+    fields.forEach(f => {
+      const el = document.getElementById('f-' + f);
+      if (el.tagName === 'SELECT') el.value = 'coral';
+      else el.value = '';
+    });
+    document.getElementById('f-id').focus();
+    document.querySelectorAll('.creator-row').forEach(r => r.classList.remove('active'));
+    setErr('');
+  }
+
+  async function loadCreator(id) {
+    setErr('');
+    try {
+      const res = await fetch(`/admin/creators/${encodeURIComponent(id)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'load failed');
+      const c = data.creator || {};
+      fields.forEach(f => {
+        const el = document.getElementById('f-' + f);
+        if (el) el.value = c[f] || '';
+      });
+      document.querySelectorAll('.creator-row').forEach(r => {
+        r.classList.toggle('active', r.dataset.id === id);
+      });
+    } catch (e) { setErr(e.message); }
+  }
+
+  async function save() {
+    setErr('');
+    const payload = {};
+    fields.forEach(f => { payload[f] = (document.getElementById('f-' + f).value || '').trim(); });
+    if (!payload.id) { setErr('ID is required'); return; }
+    if (!payload.display_name) { setErr('Display Name is required'); return; }
+    try {
+      const res = await fetch('/admin/creators', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'save failed');
+      showToast('Saved');
+      // refresh list (cheap: reload page)
+      setTimeout(() => location.reload(), 600);
+    } catch (e) { setErr(e.message); }
+  }
+
+  // Auto-load first creator on page load
+  window.onload = () => {
+    const first = document.querySelector('.creator-row');
+    if (first) loadCreator(first.dataset.id);
+  };
+</script>
+
+</body>
+</html>

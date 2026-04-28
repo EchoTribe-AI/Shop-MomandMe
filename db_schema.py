@@ -1,0 +1,297 @@
+"""
+Multi-creator + insights schema migrations.
+
+Runs idempotent CREATE TABLE / ADD COLUMN statements against the existing
+sqlite database (data/archer_catalog.db). Safe to call on every app boot.
+
+Tables introduced
+-----------------
+creators          — per-creator brand/voice/auth config (Steph seeded by default)
+earnings_amazon   — Amazon Associates earnings rows from manual CSV uploads
+attribution_paid  — Archer (and later Impact) paid-ad attribution snapshots
+
+Columns added to collages
+-------------------------
+creator_id      — FK-by-convention to creators.id (default 'everydaywithsteph')
+status          — 'draft' | 'published' (existing rows backfilled to 'published')
+campaign_types  — JSON array of {'organic','paid'} signaling where the
+                  collection has been used (auto-tagged on Mode C save / Ad
+                  Builder use)
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sqlite3
+
+DB_PATH = os.environ.get('CACHE_DB_PATH', 'data/archer_catalog.db')
+
+DEFAULT_CREATOR = {
+    'id':                 'everydaywithsteph',
+    'display_name':       'Steph',
+    'handle':             '@EverydaywithSteph',
+    'brand_label':        'Mommy & Me Collective',
+    'fb_pixel_id':        os.environ.get('FB_PIXEL_ID', '1559451780790812'),
+    'amazon_tag':         'mommymedeals-20',
+    'meta_ad_account_id': 'act_573934886369270',
+    'ltk_url':            'https://shopltk.com/EverydaywithSteph',
+    'facebook_url':       'https://www.facebook.com/TheMommyandMeCollective',
+    'voice_prompt':       (
+        "You are Steph, the creator behind @EverydaywithSteph and the Mommy & Me "
+        "Collective. You talk mom-to-mom: warm, enthusiastic, concise, and "
+        "occasionally use light emojis (but not excessively). You share deals "
+        "and product recommendations like a trusted friend who happens to know "
+        "every sale happening right now."
+    ),
+    'theme_default':      'coral',
+}
+
+
+def _connect(timeout: int = 30) -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=timeout)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        pass
+    return conn
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, col_def: str) -> None:
+    """Run ALTER TABLE … ADD COLUMN, swallowing 'duplicate column name' errors."""
+    col_name = col_def.split()[0]
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in cur.fetchall()}
+    if col_name not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+
+
+def init_schema() -> None:
+    """Create new tables and patch collages columns. Idempotent."""
+    conn = _connect()
+    try:
+        # ── creators ──────────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS creators (
+                id                 TEXT PRIMARY KEY,
+                display_name       TEXT NOT NULL,
+                handle             TEXT,
+                brand_label        TEXT,
+                fb_pixel_id        TEXT,
+                amazon_tag         TEXT,
+                meta_ad_account_id TEXT,
+                ltk_url            TEXT,
+                facebook_url       TEXT,
+                voice_prompt       TEXT,
+                theme_default      TEXT DEFAULT 'coral',
+                created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # ── earnings_amazon (manual CSV uploads) ─────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS earnings_amazon (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                creator_id   TEXT NOT NULL,
+                asin         TEXT NOT NULL,
+                product_name TEXT,
+                period_start DATE,
+                period_end   DATE,
+                earnings     REAL DEFAULT 0,
+                units        INTEGER DEFAULT 0,
+                source_file  TEXT,
+                uploaded_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_earnings_amazon_asin ON earnings_amazon(asin)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_earnings_amazon_creator ON earnings_amazon(creator_id)")
+
+        # ── attribution_paid (Archer + future Impact pulls) ──────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS attribution_paid (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                creator_id   TEXT NOT NULL,
+                network      TEXT NOT NULL,    -- 'archer' | 'impact'
+                label        TEXT,             -- maps to utm_campaign / layer label
+                clicks       INTEGER DEFAULT 0,
+                conversions  INTEGER DEFAULT 0,
+                revenue      REAL DEFAULT 0,
+                period_start DATE,
+                period_end   DATE,
+                pulled_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_attribution_label ON attribution_paid(label)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_attribution_creator ON attribution_paid(creator_id)")
+
+        # ── collages: ADD COLUMN backfills ───────────────────────────────
+        _add_column_if_missing(conn, 'collages', "creator_id TEXT DEFAULT 'everydaywithsteph'")
+        _add_column_if_missing(conn, 'collages', "status TEXT DEFAULT 'published'")
+        _add_column_if_missing(conn, 'collages', "campaign_types TEXT DEFAULT '[\"organic\"]'")
+        _add_column_if_missing(conn, 'collages', "hero_title TEXT")
+        _add_column_if_missing(conn, 'collages', "hero_subtitle TEXT")
+
+        # ── posts (Branch 2B) ────────────────────────────────────────────
+        # Persists Mode B individual social posts (1 per product). Optional
+        # foreign key to a collection slug so a "Mother's Day" gift guide
+        # can have N individual posts AND one collection landing page, all
+        # queryable together.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS posts (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                creator_id      TEXT NOT NULL DEFAULT 'everydaywithsteph',
+                asin            TEXT,
+                network         TEXT DEFAULT 'amazon',
+                angle           TEXT,
+                copy            TEXT,
+                image_note      TEXT,
+                collection_slug TEXT,
+                status          TEXT DEFAULT 'draft',
+                utm_source      TEXT,
+                utm_medium      TEXT,
+                utm_campaign    TEXT,
+                utm_content     TEXT,
+                utm_term        TEXT,
+                smart_link      TEXT,
+                product_name    TEXT,
+                product_brand   TEXT,
+                product_price   TEXT,
+                product_image   TEXT,
+                slug            TEXT,
+                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                posted_at       TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_creator ON posts(creator_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_collection ON posts(collection_slug)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)")
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def seed_default_creator() -> None:
+    """Insert the default Steph row if creators is empty. Idempotent."""
+    conn = _connect()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM creators").fetchone()[0]
+        if count == 0:
+            cols = list(DEFAULT_CREATOR.keys())
+            placeholders = ', '.join('?' for _ in cols)
+            conn.execute(
+                f"INSERT INTO creators ({', '.join(cols)}) VALUES ({placeholders})",
+                [DEFAULT_CREATOR[c] for c in cols],
+            )
+            conn.commit()
+            logging.info("[DB_SCHEMA] Seeded default creator: everydaywithsteph")
+    finally:
+        conn.close()
+
+
+def get_creator(creator_id: str = 'everydaywithsteph') -> dict:
+    """Fetch a creator row as a dict. Falls back to DEFAULT_CREATOR if the row
+    is missing OR if the table itself doesn't exist yet (e.g. during a boot
+    race before bootstrap() has run)."""
+    try:
+        conn = _connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM creators WHERE id = ?", (creator_id,)
+            ).fetchone()
+            if row:
+                return dict(row)
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as e:
+        # Table doesn't exist yet — safe fallback during boot
+        logging.warning(f"[DB_SCHEMA] get_creator fallback (table missing): {e}")
+    return dict(DEFAULT_CREATOR)
+
+
+def list_creators() -> list[dict]:
+    """Return all creators, ordered by display_name. Defensive: returns
+    [DEFAULT_CREATOR] if the table doesn't exist yet."""
+    try:
+        conn = _connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM creators ORDER BY display_name"
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as e:
+        logging.warning(f"[DB_SCHEMA] list_creators fallback (table missing): {e}")
+        return [dict(DEFAULT_CREATOR)]
+
+
+def upsert_creator(creator: dict) -> dict:
+    """Insert or update a creator. Returns the saved row."""
+    if not creator.get('id'):
+        raise ValueError("creator.id is required")
+    conn = _connect()
+    try:
+        # Build the canonical column set so we never silently drop fields
+        cols = [
+            'id', 'display_name', 'handle', 'brand_label', 'fb_pixel_id',
+            'amazon_tag', 'meta_ad_account_id', 'ltk_url', 'facebook_url',
+            'voice_prompt', 'theme_default',
+        ]
+        values = [creator.get(c) for c in cols]
+        placeholders = ', '.join('?' for _ in cols)
+        conn.execute(
+            f"INSERT OR REPLACE INTO creators ({', '.join(cols)}, updated_at) "
+            f"VALUES ({placeholders}, CURRENT_TIMESTAMP)",
+            values,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_creator(creator['id'])
+
+
+def add_campaign_type_to_collage(slug: str, campaign_type: str) -> None:
+    """Append 'organic' or 'paid' to a collage's campaign_types JSON array (dedup)."""
+    if campaign_type not in ('organic', 'paid'):
+        return
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT campaign_types FROM collages WHERE slug = ?", (slug,)
+        ).fetchone()
+        if not row:
+            return
+        try:
+            current = json.loads(row[0] or '[]')
+            if not isinstance(current, list):
+                current = []
+        except (json.JSONDecodeError, TypeError):
+            current = []
+        if campaign_type not in current:
+            current.append(campaign_type)
+            conn.execute(
+                "UPDATE collages SET campaign_types = ? WHERE slug = ?",
+                (json.dumps(current), slug),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def bootstrap() -> None:
+    """One-shot initializer called at app boot."""
+    init_schema()
+    seed_default_creator()
+
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    bootstrap()
+    print(f"[DB_SCHEMA] Bootstrap complete. Creators: {len(list_creators())}")
