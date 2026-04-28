@@ -32,6 +32,37 @@ THEMES = {
 
 PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
 
+# ── shop.echotribe.ai subdomain ──────────────────────────────────────────────
+# When DNS for shop.echotribe.ai points to this Flask app, requests like
+# https://shop.echotribe.ai/summer-essentials are rewritten so the existing
+# /shop/<slug> handler renders. Cleaner share URLs without a /shop/ prefix.
+SHOP_SUBDOMAIN = os.environ.get('SHOP_SUBDOMAIN', 'shop.echotribe.ai').lower()
+
+
+@app.before_request
+def _route_shop_subdomain():
+    """If host == shop.echotribe.ai, rewrite GET /<slug> → shop_landing(slug)."""
+    host = (request.host or '').split(':')[0].lower()
+    if host != SHOP_SUBDOMAIN:
+        return  # normal routing for the dashboard host
+
+    path = request.path or '/'
+
+    # Pass-through paths that the public landing page itself needs
+    if path == '/archer/track_click':
+        return
+    if path.startswith('/static/'):
+        return
+
+    if request.method == 'GET':
+        slug = path.lstrip('/').split('/')[0]
+        if not slug or slug.startswith('favicon'):
+            return jsonify({'error': 'Not found'}), 404
+        return shop_landing(slug)
+
+    return jsonify({'error': 'Not found'}), 404
+
+
 # ── Chat prompt cache (2-hour TTL) ───────────────────────────────────────────
 _CHAT_CACHE: dict = {'prompt': None, 'products': None, 'expires': 0.0}
 
@@ -629,7 +660,8 @@ def archer_generate_posts():
         elif mode == 'c':
             collection_name = data.get('collection_name', 'Collection')
             collection_slug = data.get('collection_slug', 'collection')
-            url = f"go.echotribe.com/steph-{collection_slug}"
+            # Public landing-page URL on the shop subdomain (configured via SHOP_SUBDOMAIN env)
+            url = f"https://{SHOP_SUBDOMAIN}/{collection_slug}"
             system = (
                 f"You build themed shoppable collection posts for Steph (@EverydaywithSteph). "
                 "Voice: warm, enthusiastic, mom-to-mom. 2-4 sentences. Naturally mentions the URL.\n\n"
@@ -672,10 +704,15 @@ def archer_generate_campaign_package():
       - Real link labels surfaced (not fabricated strings).
     """
     from datetime import datetime as _dt
+    from urllib.parse import urlencode
     data = request.get_json() or {}
     product_list = data.get('product_list', [])
     layers = data.get('layers', [1, 2, 3, 4, 5])
     slug = (data.get('slug') or '').strip()
+    # Collection-as-CTA: when caller provides a collection_slug, all 5 layers route
+    # to the published landing page at https://<SHOP_SUBDOMAIN>/<collection_slug>
+    # with utm_content suffix '_collection' instead of per-product Amazon links.
+    collection_slug = (data.get('collection_slug') or '').strip().lower()
 
     if not product_list:
         return jsonify({'error': 'product_list is required'}), 400
@@ -698,6 +735,17 @@ def archer_generate_campaign_package():
     # would multiply API calls 3×; layer-level granularity is enough for reporting).
     link_cache: dict = {}
 
+    # Build collection context line if we're routing to a landing page
+    collection_context = ''
+    if collection_slug:
+        collection_context = (
+            f"\nCTA destination: a curated collection landing page bundling all "
+            f"{len(product_list)} products at https://{SHOP_SUBDOMAIN}/{collection_slug}. "
+            f"Headlines and copy should reference the curated bundle (multiple picks, "
+            f"not a single product) — angles like 'shop my picks', 'whole collection', "
+            f"'mom-curated bundle' work well.\n"
+        )
+
     try:
         client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
         message = client.messages.create(
@@ -707,7 +755,7 @@ def archer_generate_campaign_package():
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Products:\n{pl}\n\nLayers to include: {layers}\n\n"
+                    f"Products:\n{pl}\n{collection_context}\nLayers to include: {layers}\n\n"
                     f"Generate the 5-layer campaign package."
                 )
             }]
@@ -735,34 +783,58 @@ def archer_generate_campaign_package():
 
         for layer in layers_data:
             layer_num = layer.get('layer_num', 0)
-            cache_key = (asin, layer_num)
-            if asin and cache_key not in link_cache:
-                campaign = f"{slug or brand_short}-{asin.lower()[:6]}-l{layer_num}-{mmdd}"
-                try:
-                    link_cache[cache_key] = _make_smart_link(
-                        asin=asin, network='archer',
-                        utm_source='fb-ad', utm_medium='dark',
-                        utm_campaign=campaign,
-                        utm_term=f'l{layer_num}',
-                    )
-                except Exception as e:
-                    logging.warning(f'[CAMPAIGN] Smart link failed for {asin} L{layer_num}: {e}')
-                    link_cache[cache_key] = {
-                        'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
-                        'affiliate_url': '',
-                        'label': '',
-                        'urlgenius': False,
-                    }
 
-            link_result = link_cache.get(cache_key, {
-                'genius_url': '', 'affiliate_url': '', 'label': '', 'urlgenius': False,
-            })
+            if collection_slug:
+                # ── Collection CTA path: build a direct UTM URL pointing at the
+                # public landing page. One link per layer, shared across variants.
+                campaign = f"{slug or brand_short}-collection-l{layer_num}-{mmdd}"
+                cache_key = (collection_slug, layer_num)
+                if cache_key not in link_cache:
+                    qs = urlencode({
+                        'utm_source':   'fb-ad',
+                        'utm_medium':   'paid_social',
+                        'utm_campaign': campaign,
+                        'utm_content':  f'l{layer_num}_collection',
+                        'utm_term':     f'l{layer_num}',
+                    })
+                    link_cache[cache_key] = {
+                        'genius_url':    f'https://{SHOP_SUBDOMAIN}/{collection_slug}?{qs}',
+                        'affiliate_url': '',
+                        'label':         f'collection-{collection_slug}-l{layer_num}',
+                        'urlgenius':     False,
+                    }
+                link_result = link_cache[cache_key]
+            else:
+                # ── Single-product CTA path (original behavior): URLGenius wrap → Amazon
+                cache_key = (asin, layer_num)
+                if asin and cache_key not in link_cache:
+                    campaign = f"{slug or brand_short}-{asin.lower()[:6]}-l{layer_num}-{mmdd}"
+                    try:
+                        link_cache[cache_key] = _make_smart_link(
+                            asin=asin, network='archer',
+                            utm_source='fb-ad', utm_medium='dark',
+                            utm_campaign=campaign,
+                            utm_term=f'l{layer_num}',
+                        )
+                    except Exception as e:
+                        logging.warning(f'[CAMPAIGN] Smart link failed for {asin} L{layer_num}: {e}')
+                        link_cache[cache_key] = {
+                            'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
+                            'affiliate_url': '',
+                            'label': '',
+                            'urlgenius': False,
+                        }
+                link_result = link_cache.get(cache_key, {
+                    'genius_url': '', 'affiliate_url': '', 'label': '', 'urlgenius': False,
+                })
+
             for i, variant in enumerate(layer.get('variants', [])):
                 var_letter = ['a', 'b', 'c'][i] if i < 3 else str(i)
                 variant['attribution_url'] = link_result.get('genius_url', '')
                 variant['archer_url'] = link_result.get('affiliate_url', '')
                 variant['urlgenius_tag'] = link_result.get('label', '')
                 variant['var_letter'] = var_letter
+                variant['cta_type'] = 'collection' if collection_slug else 'product'
 
         # Build paste-ready Ryze MCP prompt
         layer_lines = []
@@ -798,6 +870,9 @@ def archer_generate_campaign_package():
             'asin': asin,
             'product': product_list[0] if product_list else {},
             'unique_links': len(link_cache),
+            'cta_type': 'collection' if collection_slug else 'product',
+            'collection_slug': collection_slug or None,
+            'collection_url': f'https://{SHOP_SUBDOMAIN}/{collection_slug}' if collection_slug else None,
         })
     except Exception as e:
         logging.error(f'[CAMPAIGN] Package generation failed: {e}')
@@ -836,7 +911,11 @@ def archer_save_collage():
     ))
     conn.commit()
     conn.close()
-    return jsonify({'url': f'/shop/{slug}', 'slug': slug})
+    return jsonify({
+        'url': f'/shop/{slug}',
+        'public_url': f'https://{SHOP_SUBDOMAIN}/{slug}',
+        'slug': slug,
+    })
 
 @app.route('/archer/collages')
 def archer_list_collages():

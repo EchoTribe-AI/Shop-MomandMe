@@ -109,6 +109,36 @@ Request:
 - Autoscale enabled
 - Dependencies: gunicorn, requests, beautifulsoup4, lxml, cryptography, python-dotenv
 
+### `shop.echotribe.ai` Public Landing-Page Subdomain
+Published collections (built via the Content Builder Mode C → "Save & Publish" or
+the Collage editor) are reachable at:
+
+```
+https://shop.echotribe.ai/<slug>
+```
+
+How it works:
+1. DNS for `shop.echotribe.ai` should point at the same Replit deployment serving
+   the dashboard (CNAME or A record).
+2. `app.py` registers a `before_request` hook (`_route_shop_subdomain`) that
+   detects the host header. When the host matches `SHOP_SUBDOMAIN`, requests of
+   the form `GET /<slug>` are rewritten to the existing `shop_landing(slug)`
+   handler — so the public surface area is just landing pages and the
+   `/archer/track_click` POST endpoint that the rendered page calls back to.
+3. Override the host with the `SHOP_SUBDOMAIN` env var if you point a different
+   domain at the app (e.g. for staging).
+
+The dashboard host (e.g. `dash.echotribe.ai` or the raw Replit URL) continues to
+serve the full builder UI; only the shop subdomain serves landing pages.
+
+### Collection-as-CTA in the Ad Builder
+On `/archer/ads` Step 1, when "Landing page" routing is selected, a collection
+picker appears. Choosing a saved collection causes the campaign-package backend
+to build all 5 layers' destination URLs as
+`https://shop.echotribe.ai/<slug>?utm_*` with `utm_content=l[N]_collection`
+instead of per-product URLGenius/Amazon links. The Claude prompt also receives
+a context line so headlines reference the bundle rather than a single product.
+
 ## Files
 - `app.py` - Flask server with all endpoints
 - `product_api.py` - ArcherAPI, LevantaAPI, URLGeniusAPI, NetworkMatcher classes

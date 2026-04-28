@@ -120,13 +120,34 @@
   .utm-gin:focus { border-color: var(--archer); }
 
   /* ── COLLECTION CONFIG ── */
-  .col-cfg { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); padding: 14px 16px; margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .col-cfg { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); padding: 14px 16px; margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
   .col-cfg-f { display: flex; flex-direction: column; gap: 4px; }
   .col-cfg-l { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text4); }
   .col-cfg-i { border: 0.5px solid var(--border2); border-radius: var(--r); padding: 7px 10px; font-size: 13px; color: var(--text); background: var(--bg); outline: none; width: 100%; }
   .col-cfg-i:focus { border-color: var(--archer); background: var(--surface); }
   .slug-preview { font-family: var(--mono); font-size: 10px; color: var(--text4); margin-bottom: 3px; }
   .slug-preview b { color: var(--archer); }
+
+  /* ── THEME PICKER ── */
+  .theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .theme-sw { cursor: pointer; border: 1.5px solid transparent; border-radius: 8px; padding: 4px; display: flex; align-items: center; justify-content: center; height: 32px; font-family: var(--mono); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.12s; user-select: none; }
+  .theme-sw:hover { transform: scale(1.04); }
+  .theme-sw.active { border-color: var(--archer); box-shadow: 0 0 0 2px rgba(232,93,38,0.15); }
+  .theme-sw[data-theme="coral"]    { background: #fff5f5; color: #ff6b6b; }
+  .theme-sw[data-theme="ocean"]    { background: #e8f4f8; color: #2e7dd4; }
+  .theme-sw[data-theme="lavender"] { background: #f5f0ff; color: #a78bfa; }
+  .theme-sw[data-theme="forest"]   { background: #f0f7f2; color: #27693a; }
+  .theme-sw[data-theme="midnight"] { background: #1a1a17; color: #e8e5dc; }
+  .theme-sw[data-theme="peach"]    { background: #fdf6f0; color: #e85d26; }
+  .theme-sw[data-theme="clean"]    { background: #ffffff; color: #1a1a17; border-color: var(--border); }
+  .theme-sw[data-theme="bold"]     { background: #fff8f6; color: #a02828; }
+
+  /* ── PUBLISHED LANDING PAGE PILL ── */
+  .lp-pill { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--r); background: var(--green-light); border: 0.5px solid rgba(39,105,58,0.3); margin-bottom: 16px; flex-wrap: wrap; }
+  .lp-pill-label { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--green); font-weight: 600; }
+  .lp-pill-url { font-family: var(--mono); font-size: 12px; color: var(--green); font-weight: 500; flex: 1; min-width: 200px; }
+  .lp-pill-actions { display: flex; gap: 6px; }
+  .lp-pill .ca-btn { padding: 5px 12px; font-size: 11px; }
 
   /* ── GEN ROW ── */
   .gen-row { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
@@ -217,6 +238,7 @@
   @media (max-width: 768px) {
     .out-grid { grid-template-columns: 1fr; }
     .col-cfg { grid-template-columns: 1fr; }
+    .theme-grid { grid-template-columns: repeat(4, 1fr); }
     .utm-fields { grid-template-columns: 1fr; }
     .utm-field.full { grid-column: auto; }
     .mode-tabs { flex-direction: column; width: 100%; }
@@ -423,8 +445,22 @@
         </div>
         <div class="col-cfg-f">
           <label class="col-cfg-l">Landing Page Slug</label>
-          <div class="slug-preview">go.echotribe.com/steph-<b id="slug-prev">your-slug</b></div>
+          <div class="slug-preview">shop.echotribe.ai/<b id="slug-prev">your-slug</b></div>
           <input class="col-cfg-i" id="col-slug" placeholder="summer-camp-picks" oninput="document.getElementById('slug-prev').textContent=this.value||'your-slug'">
+        </div>
+        <div class="col-cfg-f">
+          <label class="col-cfg-l">Visual Theme</label>
+          <div class="theme-grid" id="theme-grid">
+            <div class="theme-sw active" data-theme="coral"    onclick="pickTheme('coral')">Coral</div>
+            <div class="theme-sw"        data-theme="ocean"    onclick="pickTheme('ocean')">Ocean</div>
+            <div class="theme-sw"        data-theme="lavender" onclick="pickTheme('lavender')">Lavender</div>
+            <div class="theme-sw"        data-theme="forest"   onclick="pickTheme('forest')">Forest</div>
+            <div class="theme-sw"        data-theme="midnight" onclick="pickTheme('midnight')">Midnight</div>
+            <div class="theme-sw"        data-theme="peach"    onclick="pickTheme('peach')">Peach</div>
+            <div class="theme-sw"        data-theme="clean"    onclick="pickTheme('clean')">Clean</div>
+            <div class="theme-sw"        data-theme="bold"     onclick="pickTheme('bold')">Bold</div>
+          </div>
+          <input type="hidden" id="col-theme" value="coral">
         </div>
       </div>
       <div class="utm-global">
@@ -1011,6 +1047,13 @@ async function genModeC() {
   setLoading('c-btn', 'c-spin', false);
 }
 
+function pickTheme(name) {
+  document.getElementById('col-theme').value = name;
+  document.querySelectorAll('#theme-grid .theme-sw').forEach(el => {
+    el.classList.toggle('active', el.dataset.theme === name);
+  });
+}
+
 function renderModeC(col, url, source, medium, term) {
   const angle = ((col.angle || 'collection').toLowerCase().replace(/[^a-z0-9-]/g, '-'));
   const colContent = `organic_${slugify(angle)}_collection`;
@@ -1043,6 +1086,7 @@ function renderModeC(col, url, source, medium, term) {
   }).join('');
 
   document.getElementById('c-res').innerHTML = `
+    <div id="lp-pill-slot"></div>
     <div class="col-out">
       <div class="col-out-hdr">
         <div class="col-out-title">${esc(document.getElementById('col-name').value)}</div>
@@ -1059,6 +1103,8 @@ function renderModeC(col, url, source, medium, term) {
         <div class="card-actions mt8">
           <button class="ca-btn primary" onclick="copyEl('col-copy', this)">Copy Post</button>
           <button class="ca-btn" onclick="copyToClipboard('${esc(url)}')">Copy URL</button>
+          <button class="ca-btn" onclick="previewLandingPage()">👁 Preview</button>
+          <button class="ca-btn" onclick="saveAsLandingPage(this)">🚀 Save &amp; Publish</button>
         </div>
       </div>
     </div>
@@ -1068,6 +1114,81 @@ function renderModeC(col, url, source, medium, term) {
       </div>
       <div class="out-grid">${prodCards}</div>
     </div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LANDING PAGE — Preview & Publish
+════════════════════════════════════════════════════════════════ */
+function previewLandingPage() {
+  // Use existing /archer/collage/save with a temp preview slug, then open in new tab.
+  // Faster path: open the editor at /archer/collage with state pre-loaded; for now
+  // just save with a -preview slug that the user can clean up later, so they can see
+  // exactly how it'll look on shop.echotribe.ai.
+  const slug = (document.getElementById('col-slug').value || '').trim().toLowerCase();
+  if (!slug) { showErr('c-err', 'Enter a slug first.'); return; }
+  // If already saved this slug, just open it; otherwise save first.
+  saveAsLandingPage(null, /*then=*/ (data) => {
+    const url = data.public_url || `/shop/${data.slug}`;
+    window.open(url, '_blank', 'noopener');
+  });
+}
+
+async function saveAsLandingPage(btn, then) {
+  const name  = (document.getElementById('col-name').value  || '').trim();
+  const slug  = (document.getElementById('col-slug').value  || '').trim().toLowerCase().replace(/\s+/g, '-');
+  const theme = (document.getElementById('col-theme').value || 'coral');
+  const caption = (document.getElementById('col-copy')?.innerText || '').trim();
+  if (!slug)  { showErr('c-err', 'Enter a landing page slug.'); return; }
+  if (state.products.length < 2) { showErr('c-err', 'Need at least 2 products.'); return; }
+
+  // Carry full product objects so the existing save route can render images & generate Archer links
+  const products = state.products.map(p => ({
+    asin: p.asin,
+    product_name: p.product_name || p.name || '',
+    company_name: p.company_name || p.brand || '',
+    brand: p.brand || p.company_name || '',
+    price: p.price || '',
+    image_encoded_string: p.image_encoded_string || (p.asin ? asinImg(p.asin) : ''),
+    deal: p.deal || null,
+    attribution_link: p.attribution_link || '',
+  }));
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const res = await fetch('/archer/collage/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slug, theme,
+        layout: products.length >= 6 ? 'layout-3' : 'layout-2',
+        caption,
+        direct_to_amazon: false,
+        products,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+
+    // Replace the lp-pill slot with a green published pill
+    const publicUrl = data.public_url || `${location.origin}/shop/${data.slug}`;
+    const slot = document.getElementById('lp-pill-slot');
+    if (slot) {
+      slot.innerHTML = `<div class="lp-pill">
+        <span class="lp-pill-label">✓ Published</span>
+        <span class="lp-pill-url">${esc(publicUrl)}</span>
+        <div class="lp-pill-actions">
+          <button class="ca-btn primary" onclick="copyToClipboard('${esc(publicUrl)}')">Copy URL</button>
+          <a class="ca-btn" href="${esc(publicUrl)}" target="_blank" rel="noopener">Open ↗</a>
+        </div>
+      </div>`;
+    }
+    showToast('Landing page published');
+    if (typeof then === 'function') then(data);
+  } catch (err) {
+    showErr('c-err', `Publish failed: ${err.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🚀 Save & Publish'; }
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════
