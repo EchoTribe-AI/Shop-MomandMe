@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shop · EchoTribe Creator Picks</title>
+<meta name="description" content="Curated shoppable collections from EchoTribe creators — daily deals, gift guides, and trusted recommendations.">
+<link rel="canonical" href="{{ canonical_url }}">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Shop · EchoTribe Creator Picks">
+<meta property="og:description" content="Curated shoppable collections from EchoTribe creators.">
+<meta property="og:url" content="{{ canonical_url }}">
+{% if items and items[0].cover_image %}<meta property="og:image" content="{{ items[0].cover_image }}">{% endif %}
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Shop · EchoTribe Creator Picks">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #faf9f6;
+    --surface: #fff;
+    --border: #e8e6e0;
+    --text: #1a1a17;
+    --text2: #4a4a45;
+    --text3: #7a7873;
+    --text4: #a8a6a0;
+    --accent: #e85d26;
+    --accent-light: #fff3eb;
+    --green: #27693a;
+    --green-light: #e8f4ec;
+    --blue: #1c5fa6;
+    --blue-light: #e8f0f8;
+    --r: 8px;
+    --rlg: 14px;
+    --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+
+  .header { background: var(--surface); border-bottom: 0.5px solid var(--border); padding: 18px 20px; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px); background: rgba(255,255,255,0.92); }
+  .header-inner { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+  .brand { font-size: 18px; font-weight: 600; }
+  .brand-sub { font-size: 12px; color: var(--text3); margin-top: 1px; }
+
+  .hero { max-width: 1100px; margin: 0 auto; padding: 32px 20px 20px; }
+  .h1 { font-size: 26px; font-weight: 700; line-height: 1.2; margin-bottom: 6px; }
+  .h-sub { font-size: 14px; color: var(--text3); }
+
+  .grid { max-width: 1100px; margin: 0 auto; padding: 16px 20px 60px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+
+  .card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--rlg); overflow: hidden; transition: transform 0.15s, box-shadow 0.15s; text-decoration: none; color: inherit; display: flex; flex-direction: column; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
+
+  .card-img { width: 100%; aspect-ratio: 16 / 10; background: #f5f4f0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .card-img img { width: 100%; height: 100%; object-fit: cover; }
+  .card-img-placeholder { font-size: 36px; opacity: 0.4; }
+
+  .card-body { padding: 14px 16px 16px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .card-creator { font-family: var(--mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); }
+  .card-title { font-size: 15px; font-weight: 600; line-height: 1.3; }
+  .card-sub { font-size: 12px; color: var(--text3); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-meta { display: flex; gap: 10px; align-items: center; font-family: var(--mono); font-size: 10px; color: var(--text4); margin-top: auto; padding-top: 10px; border-top: 0.5px solid var(--border); }
+  .card-meta span { display: flex; align-items: center; gap: 3px; }
+
+  .empty { max-width: 600px; margin: 80px auto; text-align: center; padding: 40px 24px; }
+  .empty-emoji { font-size: 48px; margin-bottom: 16px; }
+  .empty-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+  .empty-sub { font-size: 14px; color: var(--text3); }
+
+  .footer { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; text-align: center; border-top: 0.5px solid var(--border); }
+  .footer-text { font-size: 12px; color: var(--text4); }
+  .footer-link { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div>
+      <div class="brand">EchoTribe Shop 🛍️</div>
+      <div class="brand-sub">Curated picks from real creators</div>
+    </div>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="h1">Shop creator-curated collections</div>
+  <div class="h-sub">Hand-picked products, mom-tested deals, and trusted recommendations from EchoTribe creators.</div>
+</div>
+
+{% if items %}
+<div class="grid">
+  {% for it in items %}
+  <a href="/{{ it.slug }}" class="card">
+    <div class="card-img">
+      {% if it.cover_image %}
+      <img src="{{ it.cover_image }}" alt="{{ it.title }}" loading="lazy" onerror="this.style.display='none'">
+      {% else %}
+      <div class="card-img-placeholder">📦</div>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <div class="card-creator">{{ it.creator_handle }}</div>
+      <div class="card-title">{{ it.title }}</div>
+      {% if it.subtitle %}<div class="card-sub">{{ it.subtitle }}</div>{% endif %}
+      <div class="card-meta">
+        <span>📦 {{ it.product_count }}</span>
+        <span>👁 {{ it.click_count }}</span>
+        <span style="margin-left:auto;">{{ it.created_at }}</span>
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <div class="empty-emoji">🛍️</div>
+  <div class="empty-title">No published collections yet</div>
+  <div class="empty-sub">Creators are curating — check back soon.</div>
+</div>
+{% endif %}
+
+<div class="footer">
+  <div class="footer-text">
+    Powered by <a class="footer-link" href="https://echotribe.ai" target="_blank" rel="noopener">EchoTribe</a> ·
+    <a class="footer-link" href="/sitemap.xml">Sitemap</a>
+  </div>
+</div>
+
+</body>
+</html>

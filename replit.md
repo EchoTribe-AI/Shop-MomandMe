@@ -139,6 +139,63 @@ to build all 5 layers' destination URLs as
 instead of per-product URLGenius/Amazon links. The Claude prompt also receives
 a context line so headlines reference the bundle rather than a single product.
 
+### Multi-creator + Insights (Phase 2A)
+
+#### Architecture
+- `db_schema.py` — runs idempotent migrations on every app boot. Creates
+  `creators`, `earnings_amazon`, `attribution_paid` tables and adds
+  `creator_id`, `status`, `campaign_types`, `hero_title`, `hero_subtitle`
+  columns to `collages`. Seeds Steph as the default creator on first boot.
+- `prompts.py` — refactored to be creator-aware. Each builder
+  (`build_chat_prompt`, `build_caption_prompt`, etc.) accepts an optional
+  `creator_id`. Legacy `STEPH_*` constants remain importable as PEP-562 lazy
+  module attributes that resolve to the default creator's pre-rendered
+  templates — every existing call site keeps working unchanged.
+- `link_builder.py` — `LinkBuilder` protocol + registry. `ArcherURLGenius`
+  is the production backend (Amazon via URLGenius wrap of Archer attribution
+  links). `ImpactStub` is a placeholder that raises until Phase 2C wires up
+  Walmart via Impact API. Existing `_make_smart_link()` in app.py delegates
+  here so nothing breaks.
+- `insights.py` — joins `click_log × collages × earnings_amazon × attribution_paid`
+  with click-weighted Amazon revenue reconciliation by slug. Time-window
+  resolver supports today / yesterday / 7d / 30d / custom.
+
+#### Routes added
+- `GET /admin/creators` — list + create + edit form (no auth in v1)
+- `POST /admin/creators` — upsert a creator
+- `GET /admin/creators/<id>` — load a single creator
+- `GET /insights?window=…&tab=…&creator_id=…` — analytics dashboard with
+  Collections / Posts / Ads tabs
+- `GET /shop/` — public directory of all published collections (also served
+  at the root of `shop.echotribe.ai`)
+- `GET /sitemap.xml` — auto-generated sitemap of all published collections
+- `GET /robots.txt` — public robots.txt with /admin /api disallowed
+
+#### CSV upload persistence
+`POST /dashboard/upload_csv` now persists rows into `earnings_amazon` keyed by
+ASIN + period. Optional form fields `creator_id`, `period_start`, `period_end`
+override defaults (current creator + today). Existing top-10 product response
+is preserved so the dashboard UI is unchanged.
+
+#### Auto-tagging collections
+- Mode C save (`POST /archer/collage/save`) → tags collection as `organic`
+  (preserving any existing `paid` tag from prior Ad Builder use)
+- Ad Builder use (`POST /archer/generate_campaign_package` with
+  `collection_slug`) → tags collection as `paid`
+- `GET /archer/collages` returns `campaign_types` so UI can show badges
+
+#### SEO / OG metadata
+`templates/shop_landing.html` now emits OG tags, Twitter cards, and
+Schema.org `CollectionPage` + per-product `Product` markup. Hero title +
+subtitle (new collage columns) drive the title and meta description; first
+product image becomes `og:image`. The shop subdomain root serves
+`templates/shop_directory.html` — a cross-creator listing of all published
+collections with creator badges.
+
+#### Draft / Preview
+Collages with `status != 'published'` 404 publicly. Append `?preview=1` to
+the slug URL to render the page with a yellow "DRAFT PREVIEW" banner.
+
 ## Files
 - `app.py` - Flask server with all endpoints
 - `product_api.py` - ArcherAPI, LevantaAPI, URLGeniusAPI, NetworkMatcher classes
