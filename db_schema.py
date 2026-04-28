@@ -157,29 +157,42 @@ def seed_default_creator() -> None:
 
 
 def get_creator(creator_id: str = 'everydaywithsteph') -> dict:
-    """Fetch a creator row as a dict. Falls back to DEFAULT_CREATOR if missing."""
-    conn = _connect()
+    """Fetch a creator row as a dict. Falls back to DEFAULT_CREATOR if the row
+    is missing OR if the table itself doesn't exist yet (e.g. during a boot
+    race before bootstrap() has run)."""
     try:
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM creators WHERE id = ?", (creator_id,)).fetchone()
-        if row:
-            return dict(row)
-    finally:
-        conn.close()
+        conn = _connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM creators WHERE id = ?", (creator_id,)
+            ).fetchone()
+            if row:
+                return dict(row)
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as e:
+        # Table doesn't exist yet — safe fallback during boot
+        logging.warning(f"[DB_SCHEMA] get_creator fallback (table missing): {e}")
     return dict(DEFAULT_CREATOR)
 
 
 def list_creators() -> list[dict]:
-    """Return all creators, ordered by display_name."""
-    conn = _connect()
+    """Return all creators, ordered by display_name. Defensive: returns
+    [DEFAULT_CREATOR] if the table doesn't exist yet."""
     try:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM creators ORDER BY display_name"
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+        conn = _connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM creators ORDER BY display_name"
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as e:
+        logging.warning(f"[DB_SCHEMA] list_creators fallback (table missing): {e}")
+        return [dict(DEFAULT_CREATOR)]
 
 
 def upsert_creator(creator: dict) -> dict:

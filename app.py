@@ -8,24 +8,28 @@ import requests as req
 from flask import Flask, send_from_directory, request, jsonify, render_template, Response
 from dotenv import load_dotenv
 import anthropic
+
+# ── Multi-creator schema migrations + Steph seed (idempotent) ────────────────
+# CRITICAL: bootstrap MUST run before importing prompts. The legacy STEPH_*
+# constants in prompts.py are PEP-562 lazy attrs that resolve via DB queries
+# on first import — if the creators table doesn't exist yet, the prompts
+# import crashes the whole app at boot. Bootstrap creates the tables first.
+import db_schema
+try:
+    db_schema.bootstrap()
+except Exception as _e:
+    logging.warning(f"[BOOT] db_schema.bootstrap failed: {_e}")
+
 from product_api import ProductResolver, detect_category
 from prompts import (
     build_chat_prompt, build_chat_products,
     STEPH_CAPTION_PROMPT, STEPH_AD_COPY_PROMPT,
     STEPH_ORGANIC_POSTS_PROMPT, STEPH_CAMPAIGN_PACKAGE_PROMPT,
 )
-import db_schema
 
 load_dotenv()  # loads .env locally; Replit Secrets override in production
 
 app = Flask(__name__)
-
-# ── Multi-creator schema migrations + Steph seed (idempotent) ────────────────
-# Runs once on every boot; creates new tables and patches the collages schema.
-try:
-    db_schema.bootstrap()
-except Exception as _e:
-    logging.warning(f"[BOOT] db_schema.bootstrap failed: {_e}")
 
 THEMES = {
     'coral':    {'bg': '#fff5f5', 'accent': '#ff6b6b', 'btn': '#e85d26', 'text': '#1a1a17'},
