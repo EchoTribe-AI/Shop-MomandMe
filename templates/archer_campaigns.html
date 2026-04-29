@@ -315,11 +315,42 @@ function setTargetMode(mode, btn) {
 }
 
 async function loadAsinQueue() {
-  // Pull from sessionStorage (shared with /archer/organic queue)
+  const merged = new Map();
+
+  // 1) Pull from sessionStorage (shared with /archer/organic queue)
   try {
     const raw = sessionStorage.getItem('archer_build_queue');
-    state.targets.asin = raw ? JSON.parse(raw) : [];
-  } catch(e) { state.targets.asin = []; }
+    const queue = raw ? JSON.parse(raw) : [];
+    (queue || []).forEach((p) => {
+      const asin = (p?.asin || p?.ASIN || '').trim();
+      if (asin) merged.set(asin, {...p, asin});
+    });
+  } catch(e) {}
+
+  // 2) Pull persisted products from posted organic posts
+  //    (ensures Replit refresh/browser restart still shows ASINs)
+  try {
+    const res = await fetch('/archer/posts?limit=500');
+    const data = await res.json();
+    (data.posts || []).forEach((post) => {
+      const st = (post?.status || '').toLowerCase();
+      if (!(st === 'approved' || st === 'posted')) return;
+      const asin = (post?.asin || '').trim();
+      if (!asin) return;
+      const existing = merged.get(asin) || {};
+      merged.set(asin, {
+        ...existing,
+        asin,
+        product_name: existing.product_name || post.product_name || post.copy || asin,
+        name: existing.name || post.product_name || asin,
+        brand: existing.brand || post.product_brand || '',
+        price: existing.price || post.product_price || '',
+        image_encoded_string: existing.image_encoded_string || post.product_image || '',
+      });
+    });
+  } catch(e) {}
+
+  state.targets.asin = Array.from(merged.values());
 }
 
 async function loadCollections() {
@@ -332,7 +363,7 @@ async function loadCollections() {
 
 async function loadPostedPosts() {
   try {
-    const res = await fetch('/archer/posts?status=posted');
+    const res = await fetch('/archer/posts?limit=500');
     const data = await res.json();
     state.targets.post = data.posts || [];
   } catch(e) { state.targets.post = []; }

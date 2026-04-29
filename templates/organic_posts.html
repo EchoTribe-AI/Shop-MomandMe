@@ -320,7 +320,10 @@
   <div class="section">
     <div class="flex-b" style="margin-bottom:10px;">
       <div class="slabel" style="margin-bottom:0;">02 — Build Queue</div>
-      <button onclick="clearQueue()" style="font-size:11px;color:var(--text4);background:none;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Clear All</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button onclick="importTopClicked()" style="font-size:11px;color:var(--text2);background:#fff;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Import Top URLGenius (30d)</button>
+        <button onclick="clearQueue()" style="font-size:11px;color:var(--text4);background:none;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Clear All</button>
+      </div>
     </div>
     <div class="queue-chips" id="queue-chips">
       <span class="q-empty">No products selected yet</span>
@@ -717,6 +720,42 @@ function clearQueue() {
   renderQueueChips();
   renderDiscovery();
 }
+
+async function importTopClicked() {
+  try {
+    const res = await fetch('/archer/discovery/top_clicked?min_clicks=300&limit=35');
+    const data = await res.json();
+    const items = data.products || [];
+    if (!items.length) {
+      showToast(data.degraded ? 'URLGenius unavailable right now; try again shortly.' : 'No URLGenius products met 300+ clicks in last 30d.');
+      return;
+    }
+
+    let added = 0;
+    for (const p of items) {
+      const asin = (p.asin || '').trim();
+      if (!asin) continue;
+      if (state.products.find(x => x.asin === asin)) continue;
+      state.products.push({
+        asin,
+        product_name: p.product_name || asin,
+        company_name: p.company_name || '',
+        price: p.price || '',
+        commission_payout: p.commission_payout || '',
+        image_encoded_string: p.image_encoded_string || '',
+        clicks_30d: p.clicks_30d || 0,
+      });
+      added++;
+    }
+
+    renderQueueChips();
+    renderDiscovery();
+    showToast(`Imported ${added} top-clicked product${added===1?'':'s'} from URLGenius.`);
+  } catch (e) {
+    showToast('Could not import URLGenius products right now.');
+  }
+}
+
 
 function renderQueueChips() {
   const el = document.getElementById('queue-chips');

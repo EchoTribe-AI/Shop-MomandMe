@@ -1994,6 +1994,8 @@ def archer_campaigns_generate():
         return jsonify({'error': 'layer_ids is required'}), 400
 
     creator = db_schema.get_creator(creator_id)
+    if not (creator.get('fb_page_id') or '').strip():
+        creator['fb_page_id'] = db_schema.DEFAULT_CREATOR.get('fb_page_id', '')
 
     client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
 
@@ -2137,6 +2139,8 @@ def archer_campaigns_boost():
         return jsonify({'error': 'meta_post_id is required (paste from Meta Business Suite)'}), 400
 
     creator = db_schema.get_creator(creator_id)
+    if not (creator.get('fb_page_id') or '').strip():
+        creator['fb_page_id'] = db_schema.DEFAULT_CREATOR.get('fb_page_id', '')
     product_slug = 'post'
     brand_slug = None
     target_value = meta_post_id
@@ -2633,6 +2637,93 @@ def urlgenius_smart_link():
 # ARCHIVED — see /archive/routes/
 
 
+
+
+@app.route('/archer/discovery/top_clicked', methods=['GET'])
+def archer_discovery_top_clicked():
+    """Top URLGenius-clicked Amazon products for Organic queue seeding."""
+    from product_api import URLGeniusAPI, ArcherAPI
+    import re
+
+    def _asin_from_text(*vals):
+        pat = re.compile(r'(?:/dp/|/gp/product/|/product/|\b)([A-Z0-9]{10})(?:[/?&#]|$)', re.I)
+        for v in vals:
+            txt = str(v or '')
+            m = pat.search(txt)
+            if m:
+                return m.group(1).upper()
+        return None
+
+    min_clicks = int(request.args.get('min_clicks', 300))
+    limit = max(1, min(int(request.args.get('limit', 35)), 60))
+    seed_limit = max(100, min(int(request.args.get('seed_limit', 500)), 1000))
+
+    ug = URLGeniusAPI()
+    if not ug.api_key:
+        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
+
+    try:
+        raw = ug.list_links(limit=seed_limit)
+        links = raw.get('links', []) if isinstance(raw, dict) else (raw or [])
+    except Exception as e:
+        logging.warning(f"[URLGENIUS] top_clicked list failed: {e}")
+        return jsonify({'products': [], 'count': 0, 'degraded': True, 'error': str(e)}), 200
+
+    scored = {}
+    for lk in links:
+        asin = _asin_from_text(
+            lk.get('url'), lk.get('destination_url'), lk.get('affiliate_url'),
+            lk.get('genius_url'), lk.get('long_url'), lk.get('deeplink'),
+        )
+        if not asin:
+            continue
+
+        clicks = (
+            lk.get('clicks_30d') or lk.get('clicks30d') or lk.get('clicks')
+            or (lk.get('stats') or {}).get('clicks_30d')
+            or (lk.get('stats') or {}).get('clicks')
+            or (lk.get('metrics') or {}).get('clicks_30d')
+            or (lk.get('metrics') or {}).get('clicks')
+            or 0
+        )
+        try:
+            clicks = int(float(clicks))
+        except Exception:
+            clicks = 0
+
+        prev = scored.get(asin, {'clicks': 0, 'source': lk})
+        if clicks > prev['clicks']:
+            scored[asin] = {'clicks': clicks, 'source': lk}
+
+    picked = [(a, v) for a, v in scored.items() if v['clicks'] >= min_clicks]
+    picked.sort(key=lambda t: t[1]['clicks'], reverse=True)
+    picked = picked[:limit]
+
+    asins = [a for a, _ in picked]
+    catalog = ArcherAPI().get_by_asins(asins) if asins else []
+    by_asin = {(p.get('asin') or '').upper(): p for p in catalog}
+
+    out = []
+    for asin, meta in picked:
+        p = by_asin.get(asin, {})
+        lk = meta['source']
+        out.append({
+            'asin': asin,
+            'clicks_30d': meta['clicks'],
+            'product_name': p.get('product_name') or p.get('name') or lk.get('title') or asin,
+            'company_name': p.get('company_name') or p.get('brand') or '',
+            'price': p.get('price') or '',
+            'commission_payout': p.get('commission_payout') or p.get('commission') or '',
+            'image_encoded_string': p.get('image_encoded_string') or '',
+            'urlgenius_url': lk.get('genius_url') or '',
+            'destination_url': lk.get('url') or lk.get('destination_url') or '',
+        })
+
+    return jsonify({
+        'products': out,
+        'count': len(out),
+        'filters': {'min_clicks': min_clicks, 'limit': limit},
+    })
 @app.route('/urlgenius/create_link', methods=['POST'])
 def urlgenius_create_link():
     from product_api import URLGeniusAPI
@@ -2665,7 +2756,8 @@ def urlgenius_list_links():
     try:
         return jsonify(ug.list_links())
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logging.warning(f"[URLGENIUS] list_links failed: {e}")
+        return jsonify({'links': [], 'error': str(e), 'degraded': True}), 200
 
 
 # ── LEVANTA ───────────────────────────────────────────────────────────────────

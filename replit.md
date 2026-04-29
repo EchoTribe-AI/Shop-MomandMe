@@ -386,3 +386,10 @@ tracking. Format examples (Section "Full Examples" of the spec):
 - New campaign, ASIN: `utm_content=ad_l1_evergreen_static`
 - New campaign, collection: `utm_content=ad_l1_evergreen_static_collection`
 - Boost post: `utm_content=boosted_<product_slug>_<creative_ref>`
+
+
+### Campaign Builder v3 — Replit test notes (April 29, 2026)
+- `/archer/campaigns` ASIN picker now merges **session build queue** + **persisted approved/posted products** (`/archer/posts` filtered to `approved` + `posted`) so ASIN targets remain selectable after refresh/restart.
+- Campaign package generation now applies a safe fallback to default creator `fb_page_id` when a creator record is missing it, preventing hard failures during collection/package generation in mixed test data.
+- `/urlgenius/links` now degrades gracefully to `{links: []}` when URLGenius API listing times out, so dashboard widgets keep loading instead of surfacing a blocking 500.
+- Product Discovery expansion (top-clicked + trending from URLGenius reports + Archer top review/click data) is **not yet implemented in this patch** and should be handled as a follow-up story with new aggregation endpoints.
