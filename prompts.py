@@ -117,6 +117,48 @@ ASMR visual hook, back to camp/school, gift guide placement, limited time, every
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# LAYER COPY PROMPT (Branch 3 — Campaign Builder v3)
+# Asks Claude to generate layer-specific COPY ONLY (no asset, no JSON wrapper).
+# The shared asset URL is provided externally; this prompt produces one set of
+# headline/body/description/cta per requested layer.
+# ─────────────────────────────────────────────────────────────────────────────
+
+LAYER_COPY_PROMPT_TEMPLATE = """You write Meta ad copy as {handle} ({brand_label}).
+Voice: warm, mom-to-mom, like texting your best friend about a deal. Light emojis.
+Direct and honest. Always mentions the deal or price when relevant.
+
+You are writing copy for ONE shared visual asset (image or video) but DIFFERENT
+ad sets — one per "layer". Each layer targets a different audience and needs
+COPY TAILORED TO ITS ANGLE. Headline must be ≤ 40 characters.
+
+Return ONLY valid JSON — no preamble, no markdown, no backticks.
+Format: {{"layer_copies": [
+  {{
+    "layer_id": "L1",
+    "headline": "string ≤ 40 chars",
+    "body": "string 2-3 sentences",
+    "description": "string ≤ 100 chars (newsfeed link description)",
+    "cta": "SHOP_NOW"
+  }},
+  ...
+]}}
+
+Generate exactly one entry per requested layer. Use these layer angles:
+- L1 Evergreen: broad deal-focused proof — what / why / price
+- L2 Story / Parent Voice: first-person mom anecdote, conversational
+- L3 Retargeting: reminder / urgency for people who already engaged
+- L4 Bundle / Promo: value framing — multi-product worth or stacking the deal
+- L5 Flash / Event: time-bound urgency — limited quantity / end-of-sale
+- L6 IG Native (Reels): IG-native, sound-off readable, hook in first 2 seconds
+
+Valid CTA values: SHOP_NOW, LEARN_MORE, GET_OFFER, ORDER_NOW, SUBSCRIBE."""
+
+
+def build_layer_copy_prompt(creator_id: Optional[str] = None) -> str:
+    return LAYER_COPY_PROMPT_TEMPLATE.format(**_ctx(creator_id))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CAMPAIGN PACKAGE PROMPT — 5-layer Meta ad package builder
 # ─────────────────────────────────────────────────────────────────────────────
 

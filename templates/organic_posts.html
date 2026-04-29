@@ -255,7 +255,7 @@
   <div class="tb-page">Content Builder</div>
   <div class="tb-right">
     <a href="/archer/organic" class="tb-link active">Organic</a>
-    <a href="/archer/ads" class="tb-link">Ads</a>
+    <a href="/archer/campaigns" class="tb-link">Campaigns</a>
     <a href="/archer/collage" class="tb-link">Collage</a>
     <a href="/archer/products" class="tb-link">Products</a>
     <a href="/" class="tb-link">Chat</a>
@@ -1050,6 +1050,7 @@ function _renderPostCard(post, source, medium, term) {
         <button class="ca-btn primary" onclick="copyPost('${esc(asin)}')">Copy Post + Link</button>
         ${postId ? `<button class="ca-btn" onclick="savePostEdit(${postId}, '${esc(asin)}')">💾 Save Edit</button>` : ''}
         ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'approved')" style="background:var(--green-light);color:var(--green);">✓ Approve</button>` : ''}
+        ${postId && status === 'posted' ? `<button class="ca-btn" onclick="boostThisPost(${postId})" style="background:var(--blue-light);color:var(--blue);">🚀 Boost as Ad</button>` : ''}
         ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'archived')" style="color:var(--red);">🗑 Archive</button>` : ''}
         <a href="https://www.amazon.com/dp/${esc(asin)}" target="_blank" class="ca-btn">Amazon ↗</a>
       </div>
@@ -1064,6 +1065,11 @@ function _selectedPostIds() {
 
 function toggleAllQueue(on) {
   document.querySelectorAll('.q-checkbox').forEach(el => { el.checked = on; });
+}
+
+function boostThisPost(postId) {
+  // Deep-link to /archer/campaigns with post-boost mode pre-loaded
+  window.open(`/archer/campaigns?boost_post=${postId}`, '_blank', 'noopener');
 }
 
 async function setPostStatus(postId, status) {
@@ -1397,7 +1403,7 @@ function _renderPublishedPill(data) {
       <button class="ca-btn primary" onclick="copyToClipboard('${esc(publicUrl)}')">Copy URL</button>
       <a class="ca-btn" href="${esc(publicUrl)}" target="_blank" rel="noopener">Open ↗</a>
       <a class="ca-btn" href="/archer/collage?slug=${esc(slug)}" target="_blank" rel="noopener">✏️ Edit</a>
-      <a class="ca-btn" href="/archer/ads?collection=${esc(slug)}" style="background:var(--blue-light);color:var(--blue);border-color:rgba(28,95,166,0.3);">🚀 Promote</a>
+      <a class="ca-btn" href="/archer/campaigns?collection=${esc(slug)}" style="background:var(--blue-light);color:var(--blue);border-color:rgba(28,95,166,0.3);">🚀 Promote</a>
     </div>
   </div>`;
 }

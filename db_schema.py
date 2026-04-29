@@ -33,6 +33,7 @@ DEFAULT_CREATOR = {
     'handle':             '@EverydaywithSteph',
     'brand_label':        'Mommy & Me Collective',
     'fb_pixel_id':        os.environ.get('FB_PIXEL_ID', '1559451780790812'),
+    'fb_page_id':         '100065251532225',
     'amazon_tag':         'mommymedeals-20',
     'meta_ad_account_id': 'act_573934886369270',
     'ltk_url':            'https://shopltk.com/EverydaywithSteph',
@@ -45,6 +46,9 @@ DEFAULT_CREATOR = {
         "every sale happening right now."
     ),
     'theme_default':      'coral',
+    # Per-creator ad defaults (Q7 — overrides hardcoded spec defaults).
+    # Stored as JSON in creators.defaults_json. Empty {} = use spec defaults.
+    'defaults_json':      json.dumps({}),
 }
 
 
@@ -89,6 +93,9 @@ def init_schema() -> None:
                 updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Branch 3 columns added via ALTER (idempotent for existing DBs)
+        _add_column_if_missing(conn, 'creators', "fb_page_id TEXT")
+        _add_column_if_missing(conn, 'creators', "defaults_json TEXT DEFAULT '{}'")
 
         # ── earnings_amazon (manual CSV uploads) ─────────────────────────
         conn.execute("""
@@ -170,6 +177,42 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_collection ON posts(collection_slug)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)")
 
+        # ── campaigns_v3 (Branch 3) ──────────────────────────────────────
+        # Persists Campaign Build Packages per the Campaign_Build_Package_Spec.
+        # Each row is one buildable package (one ASIN OR one collection OR one
+        # boosted post). Bulk generation creates N rows. The full spec-compliant
+        # JSON lives in package_json so the export step is just a SELECT.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS campaigns_v3 (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                creator_id               TEXT NOT NULL DEFAULT 'everydaywithsteph',
+                package_type             TEXT NOT NULL,        -- 'new_campaign' | 'boost_post'
+                target_type              TEXT NOT NULL,        -- 'asin' | 'collection' | 'post'
+                target_value             TEXT NOT NULL,        -- ASIN, slug, or post id
+                brand_slug               TEXT,
+                product_slug             TEXT,
+                product_name             TEXT,
+                destination_url          TEXT,
+                layers_json              TEXT,                 -- ['L1','L2','L3'] selected
+                asset_url                TEXT,                 -- shared image/video URL
+                asset_type               TEXT DEFAULT 'static_image',
+                package_json             TEXT NOT NULL,        -- full spec-compliant JSON
+                defaults_overrides_json  TEXT,                 -- user tweaks
+                utm_auto                 INTEGER DEFAULT 1,
+                status                   TEXT DEFAULT 'draft', -- draft | exported | built
+                meta_campaign_ids_json   TEXT,
+                meta_post_id             TEXT,                 -- for boost_post packages
+                notes                    TEXT,
+                created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                exported_at              TIMESTAMP,
+                built_at                 TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_creator ON campaigns_v3(creator_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_status ON campaigns_v3(status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_target ON campaigns_v3(target_type, target_value)")
+
         conn.commit()
     finally:
         conn.close()
@@ -241,8 +284,8 @@ def upsert_creator(creator: dict) -> dict:
         # Build the canonical column set so we never silently drop fields
         cols = [
             'id', 'display_name', 'handle', 'brand_label', 'fb_pixel_id',
-            'amazon_tag', 'meta_ad_account_id', 'ltk_url', 'facebook_url',
-            'voice_prompt', 'theme_default',
+            'fb_page_id', 'amazon_tag', 'meta_ad_account_id', 'ltk_url',
+            'facebook_url', 'voice_prompt', 'theme_default', 'defaults_json',
         ]
         values = [creator.get(c) for c in cols]
         placeholders = ', '.join('?' for _ in cols)

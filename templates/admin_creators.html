@@ -84,7 +84,7 @@
   <div class="tb-brand">EchoTribe Admin</div>
   <a href="/dashboard" class="tb-link">Dashboard</a>
   <a href="/archer/organic" class="tb-link">Organic</a>
-  <a href="/archer/ads" class="tb-link">Ads</a>
+  <a href="/archer/campaigns" class="tb-link">Campaigns</a>
   <a href="/archer/collage" class="tb-link">Collage</a>
   <a href="/insights" class="tb-link">Insights</a>
   <a href="/admin/creators" class="tb-link active">Creators</a>
@@ -160,6 +160,14 @@
           <input class="field-input field-mono" id="f-meta_ad_account_id" placeholder="act_573934886369270" />
         </div>
         <div class="field">
+          <label class="field-label">FB Page ID</label>
+          <input class="field-input field-mono" id="f-fb_page_id" placeholder="100065251532225" />
+          <div class="field-help">From Meta Business Suite → Settings → Page details. Required for Campaign Builder.</div>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
           <label class="field-label">Default Theme</label>
           <select class="field-input field-mono" id="f-theme_default">
             <option value="coral">coral</option>
@@ -202,7 +210,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const fields = ['id','display_name','handle','brand_label','fb_pixel_id','amazon_tag','meta_ad_account_id','ltk_url','facebook_url','voice_prompt','theme_default'];
+  const fields = ['id','display_name','handle','brand_label','fb_pixel_id','fb_page_id','amazon_tag','meta_ad_account_id','ltk_url','facebook_url','voice_prompt','theme_default'];
 
   function showToast(msg) {
     const t = document.getElementById('toast');
