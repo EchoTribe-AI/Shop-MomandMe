@@ -2452,18 +2452,8 @@ NETWORK_CONTENT = {
     'levanta': 'levanta',
 }
 
-# Seed URLGenius registry on startup
-def _seed_urlgenius():
-    try:
-        from product_api import URLGeniusAPI
-        ug = URLGeniusAPI()
-        if ug.api_key:
-            n = ug.seed_registry()
-            logging.info(f"[URLGENIUS] Startup seed: {n} links loaded")
-    except Exception as e:
-        logging.warning(f"[URLGENIUS] Startup seed failed: {e}")
-
-_seed_urlgenius()
+# URLGenius sync is now user-triggered only via /urlgenius/sync.
+# Intentionally no startup seed to keep boot path fast and deterministic.
 
 
 def _make_smart_link(asin: str, network: str = 'amazon', utm_source: str = 'fb-group',
@@ -2751,6 +2741,11 @@ def urlgenius_create_link():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/urlgenius')
+def urlgenius_page():
+    return render_template('urlgenius_links.html')
 
 
 @app.route('/urlgenius/sync', methods=['POST'])
