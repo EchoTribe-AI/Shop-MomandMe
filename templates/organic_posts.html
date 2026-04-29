@@ -322,6 +322,7 @@
       <div class="slabel" style="margin-bottom:0;">02 — Build Queue</div>
       <div style="display:flex;gap:8px;align-items:center;">
         <button onclick="importTopClicked()" style="font-size:11px;color:var(--text2);background:#fff;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Import Top URLGenius (30d)</button>
+        <button onclick="syncUrlgeniusNow()" style="font-size:11px;color:var(--text2);background:#fff;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Sync URLGenius Now</button>
         <button onclick="clearQueue()" style="font-size:11px;color:var(--text4);background:none;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Clear All</button>
       </div>
     </div>
@@ -721,6 +722,23 @@ function clearQueue() {
   renderDiscovery();
 }
 
+
+
+async function syncUrlgeniusNow() {
+  const btn = event?.target;
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+  try {
+    const res = await fetch('/urlgenius/sync', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+    showToast(`URLGenius synced: ${data.seeded_links || 0} links`);
+  } catch (e) {
+    showToast(`URLGenius sync failed: ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = old || 'Sync URLGenius Now'; }
+  }
+}
 async function importTopClicked() {
   try {
     const res = await fetch('/archer/discovery/top_clicked?min_clicks=300&limit=35');

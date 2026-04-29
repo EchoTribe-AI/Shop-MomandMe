@@ -2753,6 +2753,26 @@ def urlgenius_create_link():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/urlgenius/sync', methods=['POST'])
+def urlgenius_sync_registry():
+    """Manual on-demand URLGenius registry sync (safe admin utility)."""
+    from product_api import URLGeniusAPI
+    ug = URLGeniusAPI()
+    if not ug.api_key:
+        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
+    started = time.time()
+    try:
+        n = ug.seed_registry()
+        return jsonify({
+            'ok': True,
+            'seeded_links': n,
+            'duration_ms': int((time.time() - started) * 1000),
+        })
+    except Exception as e:
+        logging.warning(f"[URLGENIUS] manual sync failed: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/urlgenius/links')
 def urlgenius_list_links():
     from product_api import URLGeniusAPI
