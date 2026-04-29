@@ -2744,6 +2744,7 @@ def urlgenius_create_link():
 
 
 @app.route('/urlgenius')
+@app.route('/archer/urlgenius')
 def urlgenius_page():
     return render_template('urlgenius_links.html')
 
@@ -2774,8 +2775,10 @@ def urlgenius_list_links():
     ug = URLGeniusAPI()
     if not ug.api_key:
         return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
+    limit = int(request.args.get('limit', 50))
+    limit = max(1, min(limit, 1000))
     try:
-        return jsonify(ug.list_links())
+        return jsonify(ug.list_links(limit=limit))
     except Exception as e:
         logging.warning(f"[URLGENIUS] list_links failed: {e}")
         return jsonify({'links': [], 'error': str(e), 'degraded': True}), 200
