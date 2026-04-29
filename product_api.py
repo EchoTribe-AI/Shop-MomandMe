@@ -1538,12 +1538,46 @@ class URLGeniusAPI:
 
         return result
 
+    def registry_links(self):
+        """Return links reconstructed from local registry as a degraded fallback."""
+        out = []
+        for key, row in (self._registry or {}).items():
+            dest = key.split('||', 1)[0] if '||' in key else key
+            out.append({
+                'url': dest,
+                'destination_url': dest,
+                'affiliate_url': row.get('affiliate_url') or dest,
+                'genius_url': row.get('genius_url') or '',
+                'id': row.get('link_id'),
+                'clicks_30d': row.get('clicks_30d', 0),
+                '_from_registry': True,
+            })
+        return out
+
     def list_links(self, limit=50):
-        """List all created links."""
-        r = requests.get(f"{self.BASE}/links", headers=self._headers(),
-                         params={"limit": limit}, timeout=10)
-        r.raise_for_status()
-        return r.json()
+        """List all created links with retry/backoff for transient timeout/rate issues."""
+        import time
+
+        params = {"limit": limit}
+        last_err = None
+        for i in range(3):
+            try:
+                r = requests.get(
+                    f"{self.BASE}/links",
+                    headers=self._headers(),
+                    params=params,
+                    timeout=(5, 25),
+                )
+                if r.status_code in (429, 500, 502, 503, 504):
+                    raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
+                r.raise_for_status()
+                return r.json()
+            except Exception as e:
+                last_err = e
+                # URLGenius rate-limit is 2 rps; back off before retry
+                time.sleep(0.6 + (i * 0.8))
+
+        raise last_err
 
     def get_link_stats(self, link_id):
         """Fetch 30-day stats for a single link."""

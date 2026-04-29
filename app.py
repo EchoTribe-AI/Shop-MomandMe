@@ -2662,12 +2662,16 @@ def archer_discovery_top_clicked():
     if not ug.api_key:
         return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
 
+    degraded = False
+    error_msg = ''
     try:
         raw = ug.list_links(limit=seed_limit)
         links = raw.get('links', []) if isinstance(raw, dict) else (raw or [])
     except Exception as e:
         logging.warning(f"[URLGENIUS] top_clicked list failed: {e}")
-        return jsonify({'products': [], 'count': 0, 'degraded': True, 'error': str(e)}), 200
+        links = ug.registry_links()
+        degraded = True
+        error_msg = str(e)
 
     scored = {}
     for lk in links:
@@ -2723,6 +2727,8 @@ def archer_discovery_top_clicked():
         'products': out,
         'count': len(out),
         'filters': {'min_clicks': min_clicks, 'limit': limit},
+        'degraded': degraded,
+        'error': error_msg,
     })
 @app.route('/urlgenius/create_link', methods=['POST'])
 def urlgenius_create_link():
