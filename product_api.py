@@ -1431,6 +1431,8 @@ class URLGeniusAPI:
     """URLGenius deep link API client with registry-based deduplication."""
     BASE = "https://api.urlgeni.us/api/v2"
     REGISTRY_PATH = os.path.join(os.path.dirname(__file__), 'data', 'urlgenius_registry.json')
+    _LAST_LIST_FAIL_AT = 0.0
+    _LIST_FAIL_COOLDOWN_S = 180
 
     def __init__(self):
         self.api_key = os.environ.get("URLGENIUS_API_KEY", "")
@@ -1558,6 +1560,10 @@ class URLGeniusAPI:
         """List all created links with retry/backoff for transient timeout/rate issues."""
         import time
 
+        now = time.time()
+        if self.__class__._LAST_LIST_FAIL_AT and (now - self.__class__._LAST_LIST_FAIL_AT) < self.__class__._LIST_FAIL_COOLDOWN_S:
+            raise TimeoutError('URLGenius list_links cooldown active after recent timeout')
+
         params = {"limit": limit}
         last_err = None
         for i in range(3):
@@ -1566,7 +1572,7 @@ class URLGeniusAPI:
                     f"{self.BASE}/links",
                     headers=self._headers(),
                     params=params,
-                    timeout=(5, 25),
+                    timeout=(4, 12),
                 )
                 if r.status_code in (429, 500, 502, 503, 504):
                     raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
@@ -1577,6 +1583,7 @@ class URLGeniusAPI:
                 # URLGenius rate-limit is 2 rps; back off before retry
                 time.sleep(0.6 + (i * 0.8))
 
+        self.__class__._LAST_LIST_FAIL_AT = time.time()
         raise last_err
 
     def get_link_stats(self, link_id):

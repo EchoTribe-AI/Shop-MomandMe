@@ -2781,7 +2781,7 @@ def urlgenius_list_links():
         return jsonify(ug.list_links(limit=limit))
     except Exception as e:
         logging.warning(f"[URLGENIUS] list_links failed: {e}")
-        return jsonify({'links': [], 'error': str(e), 'degraded': True}), 200
+        return jsonify({'links': ug.registry_links(), 'error': str(e), 'degraded': True}), 200
 
 
 # ── LEVANTA ───────────────────────────────────────────────────────────────────
