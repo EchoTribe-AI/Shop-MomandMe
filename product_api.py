@@ -1574,13 +1574,17 @@ class URLGeniusAPI:
         out = []
         for key, row in (self._registry or {}).items():
             dest = key.split('||', 1)[0] if '||' in key else key
+            clicks = row.get('clicks', row.get('clicks_30d', 0))
             out.append({
                 'url': dest,
                 'destination_url': dest,
                 'affiliate_url': row.get('affiliate_url') or dest,
                 'genius_url': row.get('genius_url') or '',
                 'id': row.get('link_id'),
-                'clicks_30d': row.get('clicks_30d', 0),
+                'clicks': clicks,
+                'clicks_30d': clicks,  # legacy alias
+                'traffic': row.get('traffic') or {},
+                'last_clicks_check': row.get('last_clicks_check') or '',
             })
         return out
 
@@ -1604,14 +1608,114 @@ class URLGeniusAPI:
         return {'links': sliced, 'source': 'registry', 'total': total}
 
     def get_link_stats(self, link_id):
-        """Fetch 30-day stats for a single link."""
+        """
+        Fetch a single link's full record (URLs + traffic breakdown) per
+        URLgenius v2 docs: GET /api/v2/links/<LINK_ID>. Returns the parsed
+        JSON, e.g. {"link": {"id": ..., "traffic": {"clicks": N, ...}, ...}}.
+        """
         r = requests.get(f"{self.BASE}/links/{link_id}", headers=self._headers(),
                          timeout=10)
         r.raise_for_status()
         return r.json()
 
+    def refresh_link_clicks(self, limit=50, only_stale=True, stale_after_hours=24):
+        """
+        Pull live click counts for registry entries via GET /api/v2/links/<id>.
+
+        URLgenius rate-limits to 2 req/sec, so each call sleeps ~0.55s. With
+        ~20K links in the registry, refreshing everything in one shot is
+        impractical — this method walks the OLDEST-checked entries first
+        (those never checked, then sorted by last_clicks_check ascending) so
+        repeated syncs progressively cover the full registry.
+
+        Updates each registry row in-place with:
+          - clicks:           lifetime clicks (from traffic.clicks)
+          - traffic:          full traffic breakdown dict
+          - last_clicks_check: ISO timestamp of this refresh
+          - last_clicks_error: present only on failure
+
+        Returns a dict with progress: {checked, updated, failed, skipped,
+        remaining_stale, total_with_link_id, duration_ms}.
+        """
+        import time
+        from datetime import datetime, timezone, timedelta
+
+        if not self.api_key:
+            raise RuntimeError('URLGENIUS_API_KEY not set')
+
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 50
+        limit = max(1, min(limit, 500))
+
+        now = datetime.now(timezone.utc)
+        stale_cutoff = now - timedelta(hours=stale_after_hours)
+
+        # Candidates: rows with a link_id, optionally only "stale" ones
+        candidates = []
+        for key, row in (self._registry or {}).items():
+            link_id = row.get('link_id')
+            if not link_id:
+                continue
+            last = row.get('last_clicks_check')
+            last_dt = None
+            if last:
+                try:
+                    last_dt = datetime.fromisoformat(last.replace('Z', '+00:00'))
+                except (TypeError, ValueError):
+                    last_dt = None
+            if only_stale and last_dt and last_dt > stale_cutoff:
+                continue
+            sort_key = last_dt or datetime.min.replace(tzinfo=timezone.utc)
+            candidates.append((sort_key, key, row, link_id))
+
+        total_eligible = len(candidates)
+        candidates.sort(key=lambda t: t[0])
+        batch = candidates[:limit]
+
+        started = time.time()
+        checked = updated = failed = 0
+        for _sort, key, row, link_id in batch:
+            checked += 1
+            try:
+                data = self.get_link_stats(link_id)
+                link = data.get('link') if isinstance(data.get('link'), dict) else data
+                traffic = link.get('traffic') or {}
+                clicks = traffic.get('clicks', 0)
+                try:
+                    clicks = int(clicks)
+                except (TypeError, ValueError):
+                    clicks = 0
+                row['clicks'] = clicks
+                # Maintain legacy field name for any old consumers
+                row['clicks_30d'] = clicks
+                row['traffic'] = traffic
+                row['last_clicks_check'] = datetime.now(timezone.utc).isoformat()
+                row.pop('last_clicks_error', None)
+                updated += 1
+            except Exception as e:
+                row['last_clicks_check'] = datetime.now(timezone.utc).isoformat()
+                row['last_clicks_error'] = str(e)[:200]
+                failed += 1
+                logging.warning(f"[URLGENIUS] refresh_link_clicks failed for id={link_id}: {e}")
+            # Stay under the 2 req/sec API limit (with a small safety margin)
+            time.sleep(0.55)
+
+        # Persist all changes once at the end (faster than per-row save)
+        self._save_registry()
+
+        return {
+            'checked': checked,
+            'updated': updated,
+            'failed': failed,
+            'remaining_stale': max(0, total_eligible - checked),
+            'total_with_link_id': sum(1 for r in (self._registry or {}).values() if r.get('link_id')),
+            'duration_ms': int((time.time() - started) * 1000),
+        }
+
     def delete_link(self, link_id):
-        """Remove a link."""
+        """Remove a link via DELETE /api/v2/links/<LINK_ID>."""
         r = requests.delete(f"{self.BASE}/links/{link_id}", headers=self._headers(),
                             timeout=10)
         r.raise_for_status()

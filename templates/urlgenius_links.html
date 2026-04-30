@@ -2,75 +2,164 @@
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>URLGenius Links</title>
 <style>
-body{font-family:Arial,sans-serif;background:#f6f6f4;color:#1a1a17;padding:18px}
-.row{display:flex;gap:8px;align-items:center;margin-bottom:12px}
-button{padding:7px 12px;border:1px solid #d7d3cb;border-radius:8px;background:#fff;cursor:pointer}
+body{font-family:Arial,sans-serif;background:#f6f6f4;color:#1a1a17;padding:18px;max-width:1400px;margin:0 auto}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+button{padding:7px 12px;border:1px solid #d7d3cb;border-radius:8px;background:#fff;cursor:pointer;font-size:13px}
+button:hover{background:#fafaf7}
+button:disabled{opacity:0.5;cursor:not-allowed}
+input[type=number]{padding:6px 8px;border:1px solid #d7d3cb;border-radius:6px;width:80px;font-size:13px}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e4e0d7}
-th,td{font-size:12px;padding:8px;border-bottom:1px solid #efebe3;text-align:left}
-th{font-size:11px;color:#6a655a;text-transform:uppercase}
-.mono{font-family:ui-monospace,monospace}
+th,td{font-size:12px;padding:8px;border-bottom:1px solid #efebe3;text-align:left;vertical-align:top}
+th{font-size:11px;color:#6a655a;text-transform:uppercase;letter-spacing:0.5px;background:#faf8f3}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
 .small{font-size:12px;color:#6a655a}
-.banner{padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:12px}
+.banner{padding:9px 13px;border-radius:6px;margin-bottom:10px;font-size:12.5px;line-height:1.5}
 .banner-warn{background:#fff8e6;border:1px solid #f0c040;color:#7a5800}
 .banner-ok{background:#e8f5e9;border:1px solid #66bb6a;color:#1b5e20}
 .banner-err{background:#fdecea;border:1px solid #ef9a9a;color:#7f0000}
-.clicks-hi{color:#2e7d32;font-weight:600}
+.banner-info{background:#e3f2fd;border:1px solid #64b5f6;color:#0d47a1}
+.clicks-hi{color:#2e7d32;font-weight:700}
+.clicks-mid{color:#1565c0;font-weight:600}
+.clicks-zero{color:#9a958a}
+.stale{color:#c08000;font-size:11px}
+.fresh{color:#2e7d32;font-size:11px}
+.never{color:#9a958a;font-size:11px;font-style:italic}
+.label{font-size:11px;color:#6a655a;margin-right:4px}
+a.gu{color:#1565c0;text-decoration:none}
+a.gu:hover{text-decoration:underline}
+.controls{background:#fff;border:1px solid #e4e0d7;border-radius:8px;padding:10px 13px;margin-bottom:12px}
+.stat{display:inline-block;background:#f0ede5;padding:3px 9px;border-radius:12px;font-size:11px;color:#3f3a30;margin-right:5px}
 </style>
 </head><body>
-<h2>URLGenius Data</h2>
-<div class="small">Local registry of every URLgenius deep link this app has created. URLgenius API v2 only supports create/delete — links are tracked here as they're generated.</div>
-<div class="row">
-  <button onclick="syncNow()">Reload Registry</button>
-  <button onclick="loadLinks()">Refresh View</button>
-  <a href="/archer/organic">← Back to Organic</a>
+<h2 style="margin-bottom:4px">URLGenius Deep Links</h2>
+<div class="small" style="margin-bottom:14px">Live data from your URLgenius account. Click counts come from <span class="mono">GET /api/v2/links/&lt;id&gt;</span> per the official API. Rate limit: 2 req/sec — sync runs progressively (oldest first).</div>
+
+<div class="controls">
+  <div class="row" style="margin-bottom:6px">
+    <span class="label">Refresh clicks for</span>
+    <input id="syncLimit" type="number" min="1" max="500" value="50">
+    <span class="label">links</span>
+    <button id="syncBtn" onclick="syncNow(false)">Sync Stale Only</button>
+    <button onclick="syncNow(true)">Sync (force)</button>
+    <button onclick="loadLinks()">Refresh View</button>
+    <a href="/archer/organic" style="margin-left:auto">← Back to Organic</a>
+  </div>
+  <div class="small">Each link costs ~0.55s (rate limit). 50 links ≈ 28s. Default skips links checked in the last 24h.</div>
 </div>
+
 <div id="banner"></div>
-<div id="status" class="small"></div>
-<table><thead><tr><th>ID</th><th>ASIN</th><th>Clicks (30d)</th><th>Destination URL</th><th>Genius URL</th></tr></thead>
-<tbody id="tb"><tr><td colspan="5">Loading…</td></tr></tbody></table>
+<div id="progress"></div>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>ASIN</th>
+      <th>Clicks</th>
+      <th>Last Synced</th>
+      <th>Destination URL</th>
+      <th>Genius URL</th>
+    </tr>
+  </thead>
+  <tbody id="tb"><tr><td colspan="6">Loading…</td></tr></tbody>
+</table>
+
 <script>
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function asinFrom(u){const m=String(u||'').match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?&#]|$)/i);return m?m[1].toUpperCase():'';}
-function clicksOf(l){return Number(l.clicks_30d||l.clicks30d||l.clicks||(l.stats||{}).clicks_30d||(l.stats||{}).clicks||0)||0;}
+function clicksOf(l){return Number(l.clicks||l.clicks_30d||(l.traffic||{}).clicks||0)||0;}
 
 function setBanner(type, msg){
-  document.getElementById('banner').innerHTML=`<div class="banner banner-${type}">${esc(msg)}</div>`;
+  document.getElementById('banner').innerHTML=`<div class="banner banner-${type}">${msg}</div>`;
 }
 
-async function syncNow(){
-  setBanner('warn','Reloading registry from disk…');
-  const r=await fetch('/urlgenius/sync',{method:'POST'});
-  const d=await r.json();
-  if(r.ok){
-    setBanner('ok',`${d.seeded_links||0} URLgenius links available in the local registry (${d.duration_ms||0}ms).`);
-  } else {
-    setBanner('err',`Reload failed: ${d.error||r.status}.`);
+function fmtAge(iso){
+  if(!iso) return '<span class="never">never synced</span>';
+  const d=new Date(iso); if(isNaN(d)) return '<span class="never">—</span>';
+  const mins=Math.floor((Date.now()-d.getTime())/60000);
+  if(mins<60) return `<span class="fresh">${mins}m ago</span>`;
+  const hrs=Math.floor(mins/60);
+  if(hrs<24) return `<span class="${hrs<24?'fresh':'stale'}">${hrs}h ago</span>`;
+  const days=Math.floor(hrs/24);
+  return `<span class="stale">${days}d ago</span>`;
+}
+
+async function syncNow(forceAll){
+  const limit=Math.max(1,Math.min(500,parseInt(document.getElementById('syncLimit').value)||50));
+  const btn=document.getElementById('syncBtn');
+  const eta=Math.ceil(limit*0.55);
+  btn.disabled=true;
+  setBanner('warn', `Syncing ${limit} link${limit===1?'':'s'} via URLgenius API… (~${eta}s — please wait, do not close this tab)`);
+  document.getElementById('progress').innerHTML='';
+  try{
+    const r=await fetch('/urlgenius/sync',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({limit, all: forceAll})
+    });
+    const d=await r.json();
+    if(r.ok && d.ok){
+      const remaining = d.remaining_stale || 0;
+      const total = d.total_with_link_id || 0;
+      setBanner('ok',
+        `Synced ${d.checked} link${d.checked===1?'':'s'} in ${(d.duration_ms/1000).toFixed(1)}s — ` +
+        `<strong>${d.updated} updated</strong>${d.failed?`, ${d.failed} failed`:''}.`
+      );
+      document.getElementById('progress').innerHTML=
+        `<div class="banner banner-info">` +
+        `<span class="stat">${total.toLocaleString()} total syncable</span>` +
+        `<span class="stat">${remaining.toLocaleString()} still stale</span>` +
+        (remaining>0 ? `<span class="small"> · click "Sync Stale Only" again to continue (oldest first)</span>` : ` <strong>· all caught up!</strong>`) +
+        `</div>`;
+    } else {
+      setBanner('err', `Sync failed: ${esc(d.error||r.status)}`);
+    }
+  } catch(e){
+    setBanner('err', `Sync failed: ${esc(e.message||e)}`);
   }
+  btn.disabled=false;
   await loadLinks();
 }
 
 async function loadLinks(){
   const tb=document.getElementById('tb');
-  tb.innerHTML='<tr><td colspan="5">Loading…</td></tr>';
-  const r=await fetch('/urlgenius/links?limit=2000');
-  const d=await r.json();
-  const links=d.links||[];
-  const withClicks=links.filter(l=>clicksOf(l)>0).length;
-  setBanner('ok',`Showing ${links.length.toLocaleString()} URLgenius deep links from the local registry${d.total&&d.total>links.length?` (of ${d.total.toLocaleString()} total)`:''}.${withClicks?` ${withClicks} have recorded click data.`:''}`);
+  tb.innerHTML='<tr><td colspan="6">Loading…</td></tr>';
+  try{
+    const r=await fetch('/urlgenius/links?limit=2000');
+    const d=await r.json();
+    const links=d.links||[];
+    const total = d.total || links.length;
+    const withClicks=links.filter(l=>clicksOf(l)>0).length;
+    const synced=links.filter(l=>l.last_clicks_check).length;
 
-  const rows=links.map(l=>{
-    const dest=l.url||l.destination_url||l.affiliate_url||'';
-    const asin=asinFrom(dest)||asinFrom(l.genius_url)||'';
-    const c=clicksOf(l);
-    return `<tr>
-      <td class="mono">${esc(l.id||'')}</td>
-      <td class="mono">${esc(asin)}</td>
-      <td class="${c>0?'clicks-hi':''}">${c}</td>
-      <td class="mono">${esc(dest)}</td>
-      <td class="mono">${esc(l.genius_url||'')}</td>
-    </tr>`;
-  }).join('');
-  tb.innerHTML=rows||'<tr><td colspan="5">No links found.</td></tr>';
+    if(!document.querySelector('#banner .banner')){
+      setBanner('ok',
+        `Showing ${links.length.toLocaleString()} link${links.length===1?'':'s'}` +
+        (total>links.length?` of ${total.toLocaleString()} total`:'') +
+        ` · ${synced.toLocaleString()} ever synced · ${withClicks.toLocaleString()} have clicks > 0`
+      );
+    }
+
+    const sorted = links.slice().sort((a,b) => clicksOf(b)-clicksOf(a));
+    const rows = sorted.map(l=>{
+      const dest=l.url||l.destination_url||l.affiliate_url||'';
+      const asin=asinFrom(dest)||asinFrom(l.genius_url)||'';
+      const c=clicksOf(l);
+      const cClass = c>=10 ? 'clicks-hi' : (c>=1 ? 'clicks-mid' : 'clicks-zero');
+      const gu=l.genius_url||'';
+      return `<tr>
+        <td class="mono">${esc(l.id||'')}</td>
+        <td class="mono">${esc(asin)}</td>
+        <td class="${cClass}">${c.toLocaleString()}</td>
+        <td>${fmtAge(l.last_clicks_check)}</td>
+        <td class="mono" style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(dest)}</td>
+        <td class="mono">${gu?`<a class="gu" href="${esc(gu)}" target="_blank" rel="noopener">${esc(gu)}</a>`:''}</td>
+      </tr>`;
+    }).join('');
+    tb.innerHTML=rows||'<tr><td colspan="6">No links found.</td></tr>';
+  } catch(e){
+    tb.innerHTML=`<tr><td colspan="6" style="color:#c00">Failed to load: ${esc(e.message||e)}</td></tr>`;
+  }
 }
 loadLinks();
 </script></body></html>

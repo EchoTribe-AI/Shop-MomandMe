@@ -2757,24 +2757,31 @@ def urlgenius_page():
 @app.route('/urlgenius/sync', methods=['POST'])
 def urlgenius_sync_registry():
     """
-    Reload the local URLgenius link registry from disk.
+    Refresh live click counts for registry entries via the documented
+    URLgenius v2 endpoint: GET /api/v2/links/<LINK_ID>.
 
-    URLgenius API v2 has no documented list endpoint, so the registry is
-    the source of truth. This is a fast read-only operation and does not
-    require an API key.
+    Body params (all optional):
+      - limit: how many links to refresh in this call (1-500, default 50).
+               Each call costs ~limit*0.55s due to the 2-req/sec API limit,
+               so syncing all ~20K links happens progressively over many
+               clicks (oldest-checked first).
+      - all:   if true, ignores the 24h "stale" filter and re-checks even
+               recently-synced rows.
     """
     from product_api import URLGeniusAPI
+    body = request.get_json(silent=True) or {}
+    limit = body.get('limit') or request.args.get('limit', 50)
+    only_stale = not (body.get('all') or request.args.get('all') == '1')
+
     ug = URLGeniusAPI()
-    started = time.time()
+    if not ug.api_key:
+        return jsonify({'ok': False, 'error': 'URLGENIUS_API_KEY not set'}), 400
     try:
-        n = ug.seed_registry()
-        return jsonify({
-            'ok': True,
-            'seeded_links': n,
-            'duration_ms': int((time.time() - started) * 1000),
-        })
+        result = ug.refresh_link_clicks(limit=limit, only_stale=only_stale)
+        result['ok'] = True
+        return jsonify(result)
     except Exception as e:
-        logging.warning(f"[URLGENIUS] manual sync failed: {e}")
+        logging.warning(f"[URLGENIUS] sync failed: {e}")
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
