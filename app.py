@@ -2636,7 +2636,7 @@ def archer_discovery_top_clicked():
     import re
 
     def _asin_from_text(*vals):
-        pat = re.compile(r'(?:/dp/|/gp/product/|/product/|\b)([A-Z0-9]{10})(?:[/?&#]|$)', re.I)
+        pat = re.compile(r'(?:/dp/|/gp/product/|/product/)([A-Z0-9]{10})(?:[/?&#]|$)', re.I)
         for v in vals:
             txt = str(v or '')
             m = pat.search(txt)
@@ -2656,7 +2656,7 @@ def archer_discovery_top_clicked():
     error_msg = ''
     try:
         raw = ug.list_links(limit=seed_limit)
-        links = raw.get('links', []) if isinstance(raw, dict) else (raw or [])
+        links = raw.get('links', raw if isinstance(raw, list) else [])
     except Exception as e:
         logging.warning(f"[URLGENIUS] top_clicked list failed: {e}")
         links = ug.registry_links()
@@ -2689,7 +2689,10 @@ def archer_discovery_top_clicked():
         if clicks > prev['clicks']:
             scored[asin] = {'clicks': clicks, 'source': lk}
 
-    picked = [(a, v) for a, v in scored.items() if v['clicks'] >= min_clicks]
+    # In degraded mode the registry has no live click data — drop the clicks
+    # threshold so we still surface products rather than returning nothing.
+    effective_min_clicks = 0 if degraded else min_clicks
+    picked = [(a, v) for a, v in scored.items() if v['clicks'] >= effective_min_clicks]
     picked.sort(key=lambda t: t[1]['clicks'], reverse=True)
     picked = picked[:limit]
 

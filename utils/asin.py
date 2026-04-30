@@ -36,8 +36,8 @@ def extract_asin(input_str: str) -> 'str | None':
     if m:
         return m.group(1)
 
-    # 4. Amazon short URL — follow redirect, then extract
-    if 'a.co/' in s:
+    # 4. Amazon short URLs (a.co and amzn.to) — follow redirect, then extract
+    if 'a.co/' in s or 'amzn.to/' in s:
         try:
             r = requests.get(s, allow_redirects=True, timeout=10,
                              headers={'User-Agent': 'Mozilla/5.0'})
@@ -46,7 +46,7 @@ def extract_asin(input_str: str) -> 'str | None':
             if m:
                 return m.group(1)
         except Exception as e:
-            logging.warning(f'[ASIN] a.co redirect failed for {s}: {e}')
+            logging.warning(f'[ASIN] short URL redirect failed for {s}: {e}')
         return None
 
     # 5. URLGenius short link — call the links API to get destination URL

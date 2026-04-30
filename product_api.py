@@ -1432,7 +1432,7 @@ class URLGeniusAPI:
     BASE = "https://api.urlgeni.us/api/v2"
     REGISTRY_PATH = os.path.join(os.path.dirname(__file__), 'data', 'urlgenius_registry.json')
     _LAST_LIST_FAIL_AT = 0.0
-    _LIST_FAIL_COOLDOWN_S = 180
+    _LIST_FAIL_COOLDOWN_S = 60
 
     def __init__(self):
         self.api_key = os.environ.get("URLGENIUS_API_KEY", "")
@@ -1475,10 +1475,23 @@ class URLGeniusAPI:
                 dest = link.get('url', '')
                 genius_url = link.get('genius_url', '')
                 if dest and genius_url:
+                    clicks = (
+                        link.get('clicks_30d') or link.get('clicks30d') or link.get('clicks')
+                        or (link.get('stats') or {}).get('clicks_30d')
+                        or (link.get('stats') or {}).get('clicks')
+                        or (link.get('metrics') or {}).get('clicks_30d')
+                        or (link.get('metrics') or {}).get('clicks')
+                        or 0
+                    )
+                    try:
+                        clicks = int(float(clicks))
+                    except Exception:
+                        clicks = 0
                     self._registry[dest] = {
                         'genius_url': genius_url,
                         'link_id': link.get('id'),
                         'affiliate_url': dest,
+                        'clicks_30d': clicks,
                     }
                     n += 1
             self._save_registry()
@@ -1566,22 +1579,33 @@ class URLGeniusAPI:
 
         params = {"limit": limit}
         last_err = None
-        for i in range(3):
+        for i in range(2):
             try:
                 r = requests.get(
                     f"{self.BASE}/links",
                     headers=self._headers(),
                     params=params,
-                    timeout=(4, 12),
+                    timeout=(10, 30),
                 )
-                if r.status_code in (429, 500, 502, 503, 504):
+                if r.status_code == 429:
+                    # rate-limited — back off and retry
+                    time.sleep(1.5 + i)
+                    last_err = requests.HTTPError(f"HTTP 429", response=r)
+                    continue
+                if r.status_code in (500, 502, 503, 504):
                     raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
                 r.raise_for_status()
+                # Success — clear any previous failure timestamp
+                self.__class__._LAST_LIST_FAIL_AT = 0.0
                 return r.json()
+            except requests.exceptions.Timeout as e:
+                last_err = e
+                time.sleep(0.8 + i)
+            except requests.HTTPError:
+                raise
             except Exception as e:
                 last_err = e
-                # URLGenius rate-limit is 2 rps; back off before retry
-                time.sleep(0.6 + (i * 0.8))
+                time.sleep(0.6 + i)
 
         self.__class__._LAST_LIST_FAIL_AT = time.time()
         raise last_err

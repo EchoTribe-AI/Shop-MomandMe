@@ -1,22 +1,83 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>URLGenius Links</title>
-<style>body{font-family:Arial,sans-serif;background:#f6f6f4;color:#1a1a17;padding:18px} .row{display:flex;gap:8px;align-items:center;margin-bottom:12px} button{padding:7px 12px;border:1px solid #d7d3cb;border-radius:8px;background:#fff;cursor:pointer} table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e4e0d7} th,td{font-size:12px;padding:8px;border-bottom:1px solid #efebe3;text-align:left} th{font-size:11px;color:#6a655a;text-transform:uppercase} .mono{font-family:ui-monospace,monospace} .small{font-size:12px;color:#6a655a}</style>
+<style>
+body{font-family:Arial,sans-serif;background:#f6f6f4;color:#1a1a17;padding:18px}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+button{padding:7px 12px;border:1px solid #d7d3cb;border-radius:8px;background:#fff;cursor:pointer}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e4e0d7}
+th,td{font-size:12px;padding:8px;border-bottom:1px solid #efebe3;text-align:left}
+th{font-size:11px;color:#6a655a;text-transform:uppercase}
+.mono{font-family:ui-monospace,monospace}
+.small{font-size:12px;color:#6a655a}
+.banner{padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:12px}
+.banner-warn{background:#fff8e6;border:1px solid #f0c040;color:#7a5800}
+.banner-ok{background:#e8f5e9;border:1px solid #66bb6a;color:#1b5e20}
+.banner-err{background:#fdecea;border:1px solid #ef9a9a;color:#7f0000}
+.clicks-hi{color:#2e7d32;font-weight:600}
+</style>
 </head><body>
 <h2>URLGenius Data</h2>
-<div class="small">Use this page to manually sync and inspect URLGenius link data.</div>
+<div class="small">Inspect live URLGenius link data. Click "Sync" to refresh the local cache with latest click counts.</div>
 <div class="row">
   <button onclick="syncNow()">Sync URLGenius Now</button>
   <button onclick="loadLinks()">Refresh Links</button>
   <a href="/archer/organic">← Back to Organic</a>
 </div>
+<div id="banner"></div>
 <div id="status" class="small"></div>
-<table><thead><tr><th>ID</th><th>ASIN</th><th>Clicks</th><th>Destination</th><th>Genius URL</th></tr></thead><tbody id="tb"><tr><td colspan="5">Loading…</td></tr></tbody></table>
+<table><thead><tr><th>ID</th><th>ASIN</th><th>Clicks (30d)</th><th>Destination URL</th><th>Genius URL</th></tr></thead>
+<tbody id="tb"><tr><td colspan="5">Loading…</td></tr></tbody></table>
 <script>
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function asinFrom(u){const m=String(u||'').match(/(?:\/dp\/|\/gp\/product\/|)([A-Z0-9]{10})(?:[/?&#]|$)/i);return m?m[1].toUpperCase():'';}
+function asinFrom(u){const m=String(u||'').match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?&#]|$)/i);return m?m[1].toUpperCase():'';}
 function clicksOf(l){return Number(l.clicks_30d||l.clicks30d||l.clicks||(l.stats||{}).clicks_30d||(l.stats||{}).clicks||0)||0;}
-async function syncNow(){const s=document.getElementById('status'); s.textContent='Syncing…'; const r=await fetch('/urlgenius/sync',{method:'POST'}); const d=await r.json(); s.textContent=r.ok?`Synced ${d.seeded_links||0} links in ${d.duration_ms||0}ms`:`Sync failed: ${d.error||r.status}`; await loadLinks();}
-async function loadLinks(){const tb=document.getElementById('tb');const s=document.getElementById('status');tb.innerHTML='<tr><td colspan="5">Loading…</td></tr>';const r=await fetch('/urlgenius/links?limit=500');const d=await r.json();const links=d.links||[]; if(d.degraded)s.textContent='Degraded mode: showing cached/fallback data.'; const rows=links.map(l=>{const dest=l.url||l.destination_url||l.affiliate_url||''; const asin=asinFrom(dest)||asinFrom(l.genius_url); return `<tr><td class="mono">${esc(l.id||'')}</td><td class="mono">${esc(asin)}</td><td>${clicksOf(l)}</td><td class="mono">${esc(dest)}</td><td class="mono">${esc(l.genius_url||'')}</td></tr>`}).join(''); tb.innerHTML=rows||'<tr><td colspan="5">No links found.</td></tr>';}
+
+function setBanner(type, msg){
+  document.getElementById('banner').innerHTML=`<div class="banner banner-${type}">${esc(msg)}</div>`;
+}
+
+async function syncNow(){
+  const s=document.getElementById('status');
+  setBanner('warn','Syncing… this may take a few seconds.');
+  s.textContent='';
+  const r=await fetch('/urlgenius/sync',{method:'POST'});
+  const d=await r.json();
+  if(r.ok){
+    setBanner('ok',`Synced ${d.seeded_links||0} links in ${d.duration_ms||0}ms — click counts updated.`);
+  } else {
+    setBanner('err',`Sync failed: ${d.error||r.status}. The API may be temporarily unavailable — try again in 60 seconds.`);
+  }
+  await loadLinks();
+}
+
+async function loadLinks(){
+  const tb=document.getElementById('tb');
+  tb.innerHTML='<tr><td colspan="5">Loading…</td></tr>';
+  const r=await fetch('/urlgenius/links?limit=500');
+  const d=await r.json();
+  const links=d.links||[];
+
+  if(d.degraded){
+    setBanner('warn',`Showing cached/fallback data — live API unavailable (${d.error||'timeout'}). Click "Sync URLGenius Now" to retry. Note: click counts may be 0 until a live sync succeeds.`);
+  } else {
+    const withClicks=links.filter(l=>clicksOf(l)>0).length;
+    setBanner('ok',`Live data: ${links.length} links loaded. ${withClicks} have click data.`);
+  }
+
+  const rows=links.map(l=>{
+    const dest=l.url||l.destination_url||l.affiliate_url||'';
+    const asin=asinFrom(dest)||asinFrom(l.genius_url)||'';
+    const c=clicksOf(l);
+    return `<tr>
+      <td class="mono">${esc(l.id||'')}</td>
+      <td class="mono">${esc(asin)}</td>
+      <td class="${c>0?'clicks-hi':''}">${c}</td>
+      <td class="mono">${esc(dest)}</td>
+      <td class="mono">${esc(l.genius_url||'')}</td>
+    </tr>`;
+  }).join('');
+  tb.innerHTML=rows||'<tr><td colspan="5">No links found.</td></tr>';
+}
 loadLinks();
 </script></body></html>
