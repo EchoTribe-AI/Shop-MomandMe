@@ -1431,8 +1431,6 @@ class URLGeniusAPI:
     """URLGenius deep link API client with registry-based deduplication."""
     BASE = "https://api.urlgeni.us/api/v2"
     REGISTRY_PATH = os.path.join(os.path.dirname(__file__), 'data', 'urlgenius_registry.json')
-    _LAST_LIST_FAIL_AT = 0.0
-    _LIST_FAIL_COOLDOWN_S = 60
 
     def __init__(self):
         self.api_key = os.environ.get("URLGENIUS_API_KEY", "")
@@ -1446,14 +1444,25 @@ class URLGeniusAPI:
         return f"{destination_url}||{utm_source}|{utm_medium}|{utm_campaign}|{utm_content}|{utm_term}"
 
     def _load_registry(self):
-        if os.path.exists(self.REGISTRY_PATH):
-            try:
-                with open(self.REGISTRY_PATH) as f:
-                    self._registry = json.load(f)
-                logging.info(f"[URLGENIUS] Registry loaded: {len(self._registry)} links")
-            except Exception as e:
-                logging.warning(f"[URLGENIUS] Registry load failed: {e}")
+        if not os.path.exists(self.REGISTRY_PATH):
+            self._registry = {}
+            return
+        try:
+            with open(self.REGISTRY_PATH) as f:
+                raw = json.load(f)
+            if not isinstance(raw, dict):
+                logging.warning(f"[URLGENIUS] Registry not a dict (got {type(raw).__name__}); resetting")
                 self._registry = {}
+                return
+            # Drop any rows that aren't dicts so downstream code never crashes
+            cleaned = {k: v for k, v in raw.items() if isinstance(v, dict)}
+            if len(cleaned) < len(raw):
+                logging.warning(f"[URLGENIUS] Skipped {len(raw) - len(cleaned)} malformed registry rows")
+            self._registry = cleaned
+            logging.info(f"[URLGENIUS] Registry loaded: {len(self._registry)} links")
+        except Exception as e:
+            logging.warning(f"[URLGENIUS] Registry load failed: {e}")
+            self._registry = {}
 
     def _save_registry(self):
         try:
@@ -1464,42 +1473,17 @@ class URLGeniusAPI:
             logging.warning(f"[URLGENIUS] Registry save failed: {e}")
 
     def seed_registry(self):
-        """Fetch all existing URLgenius links and seed the registry file."""
-        if not self.api_key:
-            return 0
-        try:
-            data = self.list_links(limit=500)
-            links = data.get('links', data if isinstance(data, list) else [])
-            n = 0
-            for link in links:
-                dest = link.get('url', '')
-                genius_url = link.get('genius_url', '')
-                if dest and genius_url:
-                    clicks = (
-                        link.get('clicks_30d') or link.get('clicks30d') or link.get('clicks')
-                        or (link.get('stats') or {}).get('clicks_30d')
-                        or (link.get('stats') or {}).get('clicks')
-                        or (link.get('metrics') or {}).get('clicks_30d')
-                        or (link.get('metrics') or {}).get('clicks')
-                        or 0
-                    )
-                    try:
-                        clicks = int(float(clicks))
-                    except Exception:
-                        clicks = 0
-                    self._registry[dest] = {
-                        'genius_url': genius_url,
-                        'link_id': link.get('id'),
-                        'affiliate_url': dest,
-                        'clicks_30d': clicks,
-                    }
-                    n += 1
-            self._save_registry()
-            logging.info(f"[URLGENIUS] Registry seeded: {n} links loaded")
-            return n
-        except Exception as e:
-            logging.error(f"[URLGENIUS] Registry seed failed: {e}")
-            return 0
+        """
+        Reload the local registry from disk and return the live count.
+
+        URLgenius API v2 does not expose a list endpoint (per official docs),
+        so the registry is built up incrementally as create_link() is called.
+        This method is the manual "refresh" entrypoint for the dashboard.
+        """
+        self._load_registry()
+        n = sum(1 for v in (self._registry or {}).values() if v.get('genius_url'))
+        logging.info(f"[URLGENIUS] Registry refresh: {n} links available")
+        return n
 
     # ── HEADERS ───────────────────────────────────────────
 
@@ -1527,34 +1511,66 @@ class URLGeniusAPI:
             logging.info(f"[URLGENIUS] Registry hit: {reg_key[:60]}")
             return {'link': self._registry[reg_key], '_from_registry': True}
 
-        payload = {"url": destination_url}
-        utms = {}
-        if utm_source:   utms["utm_source"]   = utm_source
-        if utm_medium:   utms["utm_medium"]   = utm_medium
-        if utm_campaign: utms["utm_campaign"] = utm_campaign
-        if utm_content:  utms["utm_content"]  = utm_content
-        if utm_term:     utms["utm_term"]     = utm_term
-        if utms:
-            payload["utm"] = utms
+        # Per official URLgenius v2 docs: POST /api/v2/links accepts
+        # {"url": "...", "fallback_app_store": true}. UTMs are appended to the
+        # destination URL as query params (the API does not document a nested
+        # "utm" object — embedding them in the URL is the supported pattern).
+        final_url = self._append_utms(
+            destination_url,
+            utm_source=utm_source, utm_medium=utm_medium,
+            utm_campaign=utm_campaign, utm_content=utm_content, utm_term=utm_term,
+        )
+        payload = {
+            "url": final_url,
+            "fallback_app_store": True,
+        }
 
         r = requests.post(f"{self.BASE}/links", headers=self._headers(),
-                          json=payload, timeout=10)
+                          json=payload, timeout=15)
         r.raise_for_status()
         result = r.json()
 
-        link_data = result.get('link', {})
-        if link_data.get('genius_url'):
+        # API may return either {"link": {...}} or the link dict at top level.
+        link_data = result.get('link') if isinstance(result.get('link'), dict) else result
+        genius_url = link_data.get('genius_url') or link_data.get('short_url') or ''
+        if genius_url:
             self._registry[reg_key] = {
-                'genius_url': link_data['genius_url'],
+                'genius_url': genius_url,
                 'link_id': link_data.get('id'),
                 'affiliate_url': destination_url,
+                'final_url': final_url,
             }
             self._save_registry()
+            # Normalize return shape so callers always get {'link': {...}}
+            if 'link' not in result:
+                result = {'link': link_data}
 
         return result
 
+    @staticmethod
+    def _append_utms(url, utm_source=None, utm_medium=None, utm_campaign=None,
+                     utm_content=None, utm_term=None):
+        """Append UTM params to a URL, preserving existing query string."""
+        from urllib.parse import urlparse, urlencode, parse_qsl, urlunparse
+        utms = [
+            ('utm_source',   utm_source),
+            ('utm_medium',   utm_medium),
+            ('utm_campaign', utm_campaign),
+            ('utm_content',  utm_content),
+            ('utm_term',     utm_term),
+        ]
+        utms = [(k, v) for k, v in utms if v]
+        if not utms:
+            return url
+        parts = urlparse(url)
+        existing = parse_qsl(parts.query, keep_blank_values=True)
+        # Avoid duplicate UTM keys: drop any pre-existing utm_* before appending
+        existing = [(k, v) for k, v in existing if not k.lower().startswith('utm_')]
+        merged = existing + utms
+        return urlunparse(parts._replace(query=urlencode(merged)))
+
     def registry_links(self):
-        """Return links reconstructed from local registry as a degraded fallback."""
+        """Return all known URLgenius links from the local registry."""
         out = []
         for key, row in (self._registry or {}).items():
             dest = key.split('||', 1)[0] if '||' in key else key
@@ -1565,50 +1581,27 @@ class URLGeniusAPI:
                 'genius_url': row.get('genius_url') or '',
                 'id': row.get('link_id'),
                 'clicks_30d': row.get('clicks_30d', 0),
-                '_from_registry': True,
             })
         return out
 
     def list_links(self, limit=50):
-        """List all created links with retry/backoff for transient timeout/rate issues."""
-        import time
+        """
+        Return all known URLgenius links from the local registry.
 
-        now = time.time()
-        if self.__class__._LAST_LIST_FAIL_AT and (now - self.__class__._LAST_LIST_FAIL_AT) < self.__class__._LIST_FAIL_COOLDOWN_S:
-            raise TimeoutError('URLGenius list_links cooldown active after recent timeout')
-
-        params = {"limit": limit}
-        last_err = None
-        for i in range(2):
-            try:
-                r = requests.get(
-                    f"{self.BASE}/links",
-                    headers=self._headers(),
-                    params=params,
-                    timeout=(10, 30),
-                )
-                if r.status_code == 429:
-                    # rate-limited — back off and retry
-                    time.sleep(1.5 + i)
-                    last_err = requests.HTTPError(f"HTTP 429", response=r)
-                    continue
-                if r.status_code in (500, 502, 503, 504):
-                    raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
-                r.raise_for_status()
-                # Success — clear any previous failure timestamp
-                self.__class__._LAST_LIST_FAIL_AT = 0.0
-                return r.json()
-            except requests.exceptions.Timeout as e:
-                last_err = e
-                time.sleep(0.8 + i)
-            except requests.HTTPError:
-                raise
-            except Exception as e:
-                last_err = e
-                time.sleep(0.6 + i)
-
-        self.__class__._LAST_LIST_FAIL_AT = time.time()
-        raise last_err
+        Note: URLgenius API v2 (per official docs) only supports
+        POST /api/v2/links (create) and DELETE /api/v2/links/<id>.
+        There is no documented endpoint to list/enumerate links, so
+        the local registry (populated as we create links) is the
+        authoritative source for the dashboard.
+        """
+        all_links = self.registry_links()
+        total = len(all_links)
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 500
+        sliced = all_links[:limit] if limit > 0 else all_links
+        return {'links': sliced, 'source': 'registry', 'total': total}
 
     def get_link_stats(self, link_id):
         """Fetch 30-day stats for a single link."""

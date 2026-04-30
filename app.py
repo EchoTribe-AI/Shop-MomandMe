@@ -2652,16 +2652,12 @@ def archer_discovery_top_clicked():
     if not ug.api_key:
         return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
 
-    degraded = False
-    error_msg = ''
-    try:
-        raw = ug.list_links(limit=seed_limit)
-        links = raw.get('links', raw if isinstance(raw, list) else [])
-    except Exception as e:
-        logging.warning(f"[URLGENIUS] top_clicked list failed: {e}")
-        links = ug.registry_links()
-        degraded = True
-        error_msg = str(e)
+    # URLgenius API v2 has no list endpoint; we always serve from the local
+    # registry. "registry_only" signals to the frontend that click_30d data
+    # may not be present for every link.
+    raw = ug.list_links(limit=seed_limit)
+    links = raw.get('links', [])
+    registry_only = True
 
     scored = {}
     for lk in links:
@@ -2685,13 +2681,15 @@ def archer_discovery_top_clicked():
         except Exception:
             clicks = 0
 
-        prev = scored.get(asin, {'clicks': 0, 'source': lk})
-        if clicks > prev['clicks']:
+        prev = scored.get(asin)
+        if prev is None or clicks > prev['clicks']:
             scored[asin] = {'clicks': clicks, 'source': lk}
 
-    # In degraded mode the registry has no live click data — drop the clicks
-    # threshold so we still surface products rather than returning nothing.
-    effective_min_clicks = 0 if degraded else min_clicks
+    # If no link in the registry has any recorded click data, drop the
+    # threshold so we still surface candidate products. (URLgenius API v2
+    # doesn't expose click counts via any documented endpoint.)
+    has_any_clicks = any(v['clicks'] > 0 for v in scored.values())
+    effective_min_clicks = min_clicks if has_any_clicks else 0
     picked = [(a, v) for a, v in scored.items() if v['clicks'] >= effective_min_clicks]
     picked.sort(key=lambda t: t[1]['clicks'], reverse=True)
     picked = picked[:limit]
@@ -2719,9 +2717,13 @@ def archer_discovery_top_clicked():
     return jsonify({
         'products': out,
         'count': len(out),
-        'filters': {'min_clicks': min_clicks, 'limit': limit},
-        'degraded': degraded,
-        'error': error_msg,
+        'filters': {
+            'min_clicks': min_clicks,
+            'effective_min_clicks': effective_min_clicks,
+            'limit': limit,
+        },
+        'registry_only': registry_only,
+        'has_click_data': has_any_clicks,
     })
 @app.route('/urlgenius/create_link', methods=['POST'])
 def urlgenius_create_link():
@@ -2754,11 +2756,15 @@ def urlgenius_page():
 
 @app.route('/urlgenius/sync', methods=['POST'])
 def urlgenius_sync_registry():
-    """Manual on-demand URLGenius registry sync (safe admin utility)."""
+    """
+    Reload the local URLgenius link registry from disk.
+
+    URLgenius API v2 has no documented list endpoint, so the registry is
+    the source of truth. This is a fast read-only operation and does not
+    require an API key.
+    """
     from product_api import URLGeniusAPI
     ug = URLGeniusAPI()
-    if not ug.api_key:
-        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
     started = time.time()
     try:
         n = ug.seed_registry()
@@ -2774,17 +2780,22 @@ def urlgenius_sync_registry():
 
 @app.route('/urlgenius/links')
 def urlgenius_list_links():
+    """
+    Return URLgenius deep links from the local registry.
+
+    URLgenius API v2 (per official docs) only supports POST (create) and
+    DELETE — there is no documented endpoint to list links — so the local
+    registry, populated as we create links, is the authoritative source.
+    No API key required since this reads from local disk.
+    """
     from product_api import URLGeniusAPI
     ug = URLGeniusAPI()
-    if not ug.api_key:
-        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
-    limit = int(request.args.get('limit', 50))
-    limit = max(1, min(limit, 1000))
     try:
-        return jsonify(ug.list_links(limit=limit))
-    except Exception as e:
-        logging.warning(f"[URLGENIUS] list_links failed: {e}")
-        return jsonify({'links': ug.registry_links(), 'error': str(e), 'degraded': True}), 200
+        limit = int(request.args.get('limit', 500))
+    except (TypeError, ValueError):
+        limit = 500
+    limit = max(1, min(limit, 5000))
+    return jsonify(ug.list_links(limit=limit))
 
 
 # ── LEVANTA ───────────────────────────────────────────────────────────────────

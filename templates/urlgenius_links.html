@@ -18,10 +18,10 @@ th{font-size:11px;color:#6a655a;text-transform:uppercase}
 </style>
 </head><body>
 <h2>URLGenius Data</h2>
-<div class="small">Inspect live URLGenius link data. Click "Sync" to refresh the local cache with latest click counts.</div>
+<div class="small">Local registry of every URLgenius deep link this app has created. URLgenius API v2 only supports create/delete — links are tracked here as they're generated.</div>
 <div class="row">
-  <button onclick="syncNow()">Sync URLGenius Now</button>
-  <button onclick="loadLinks()">Refresh Links</button>
+  <button onclick="syncNow()">Reload Registry</button>
+  <button onclick="loadLinks()">Refresh View</button>
   <a href="/archer/organic">← Back to Organic</a>
 </div>
 <div id="banner"></div>
@@ -38,15 +38,13 @@ function setBanner(type, msg){
 }
 
 async function syncNow(){
-  const s=document.getElementById('status');
-  setBanner('warn','Syncing… this may take a few seconds.');
-  s.textContent='';
+  setBanner('warn','Reloading registry from disk…');
   const r=await fetch('/urlgenius/sync',{method:'POST'});
   const d=await r.json();
   if(r.ok){
-    setBanner('ok',`Synced ${d.seeded_links||0} links in ${d.duration_ms||0}ms — click counts updated.`);
+    setBanner('ok',`${d.seeded_links||0} URLgenius links available in the local registry (${d.duration_ms||0}ms).`);
   } else {
-    setBanner('err',`Sync failed: ${d.error||r.status}. The API may be temporarily unavailable — try again in 60 seconds.`);
+    setBanner('err',`Reload failed: ${d.error||r.status}.`);
   }
   await loadLinks();
 }
@@ -54,16 +52,11 @@ async function syncNow(){
 async function loadLinks(){
   const tb=document.getElementById('tb');
   tb.innerHTML='<tr><td colspan="5">Loading…</td></tr>';
-  const r=await fetch('/urlgenius/links?limit=500');
+  const r=await fetch('/urlgenius/links?limit=2000');
   const d=await r.json();
   const links=d.links||[];
-
-  if(d.degraded){
-    setBanner('warn',`Showing cached/fallback data — live API unavailable (${d.error||'timeout'}). Click "Sync URLGenius Now" to retry. Note: click counts may be 0 until a live sync succeeds.`);
-  } else {
-    const withClicks=links.filter(l=>clicksOf(l)>0).length;
-    setBanner('ok',`Live data: ${links.length} links loaded. ${withClicks} have click data.`);
-  }
+  const withClicks=links.filter(l=>clicksOf(l)>0).length;
+  setBanner('ok',`Showing ${links.length.toLocaleString()} URLgenius deep links from the local registry${d.total&&d.total>links.length?` (of ${d.total.toLocaleString()} total)`:''}.${withClicks?` ${withClicks} have recorded click data.`:''}`);
 
   const rows=links.map(l=>{
     const dest=l.url||l.destination_url||l.affiliate_url||'';
