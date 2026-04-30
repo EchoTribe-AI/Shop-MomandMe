@@ -1594,17 +1594,44 @@ class URLGeniusAPI:
         return urlunparse(parts._replace(query=urlencode(merged)))
 
     def registry_links(self):
-        """Return all known URLgenius links from the local registry."""
+        """
+        Return all known URLgenius links from the local registry.
+
+        Two key formats coexist (master file is the April scrape):
+          - Old format:   key = "https://destination/...||utm_source|...|"
+                          row has affiliate_url + genius_url + link_id
+          - April format: key = "https://urlgeni.us/<network>/<slug>"
+                          row adds title, created_at, clicks; affiliate_url
+                          may be null for newly-scraped links
+        """
         out = []
         for key, row in (self._registry or {}).items():
+            # Strip any UTM suffix (old format) to recover the destination URL
             dest = key.split('||', 1)[0] if '||' in key else key
-            clicks = row.get('clicks', row.get('clicks_30d', 0))
+            affiliate = row.get('affiliate_url')  # may be None for April rows
+            genius = row.get('genius_url') or ''
+            # Best public-facing URL: prefer real destination > affiliate > genius
+            display_url = (
+                dest if dest and not dest.startswith('https://urlgeni.us/')
+                else (affiliate or genius)
+            )
+            # Live "clicks" wins; otherwise use the value imported with the
+            # registry; otherwise the legacy clicks_30d alias.
+            clicks = row.get('clicks')
+            if clicks is None:
+                clicks = row.get('clicks_30d', 0)
+            try:
+                clicks = int(clicks or 0)
+            except (TypeError, ValueError):
+                clicks = 0
             out.append({
-                'url': dest,
-                'destination_url': dest,
-                'affiliate_url': row.get('affiliate_url') or dest,
-                'genius_url': row.get('genius_url') or '',
+                'url': display_url,
+                'destination_url': display_url,
+                'affiliate_url': affiliate or '',
+                'genius_url': genius,
                 'id': row.get('link_id'),
+                'title': row.get('title') or '',
+                'created_at': row.get('created_at') or '',
                 'clicks': clicks,
                 'clicks_30d': clicks,  # legacy alias
                 'traffic': row.get('traffic') or {},
@@ -1712,8 +1739,6 @@ class URLGeniusAPI:
                 except (TypeError, ValueError):
                     clicks = 0
                 row['clicks'] = clicks
-                # Maintain legacy field name for any old consumers
-                row['clicks_30d'] = clicks
                 row['traffic'] = traffic
                 row['last_clicks_check'] = datetime.now(timezone.utc).isoformat()
                 row.pop('last_clicks_error', None)

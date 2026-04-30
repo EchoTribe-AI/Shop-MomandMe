@@ -2693,17 +2693,25 @@ def archer_discovery_top_clicked():
 
     min_clicks = int(request.args.get('min_clicks', 300))
     limit = max(1, min(int(request.args.get('limit', 35)), 60))
-    seed_limit = max(100, min(int(request.args.get('seed_limit', 500)), 1000))
+    # How many of the highest-click links to scan for ASINs. Default 5000
+    # is plenty since most non-Amazon entries (Walmart/Target) won't yield
+    # an ASIN anyway — this just bounds CPU work, not data coverage.
+    seed_limit = max(100, min(int(request.args.get('seed_limit', 5000)), 30000))
 
     ug = URLGeniusAPI()
     if not ug.api_key:
         return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
 
-    # URLgenius API v2 has no list endpoint; we always serve from the local
-    # registry. "registry_only" signals to the frontend that click_30d data
-    # may not be present for every link.
-    raw = ug.list_links(limit=seed_limit)
+    # IMPORTANT: load the FULL registry first, then sort by clicks desc,
+    # then truncate. Otherwise we'd only sort within an arbitrary insertion-
+    # order slice and miss high-click rows scattered throughout the file.
+    raw = ug.list_links(limit=30000)
     links = raw.get('links', [])
+    links.sort(
+        key=lambda l: int(l.get('clicks') or l.get('clicks_30d') or 0),
+        reverse=True,
+    )
+    links = links[:seed_limit]
     registry_only = True
 
     scored = {}
@@ -2848,7 +2856,9 @@ def urlgenius_list_links():
         limit = int(request.args.get('limit', 500))
     except (TypeError, ValueError):
         limit = 500
-    limit = max(1, min(limit, 5000))
+    # Registry now holds 21K+ entries — allow loading the full set so the
+    # dashboard can show real totals/sort across the whole catalog.
+    limit = max(1, min(limit, 30000))
     return jsonify(ug.list_links(limit=limit))
 
 
