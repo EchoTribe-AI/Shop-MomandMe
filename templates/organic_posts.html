@@ -524,6 +524,14 @@ window.onload = async () => {
   if (postId) {
     await loadSavedQueue(postId);
   }
+  const buildQueue = JSON.parse(sessionStorage.getItem('archer_build_queue') || '[]');
+  if (buildQueue.length) {
+    sessionStorage.removeItem('archer_build_queue');
+    for (const item of buildQueue) {
+      await addProduct(item.asin, { product_name: item.name, commission_payout: item.commission });
+    }
+    showToast(`${buildQueue.length} product${buildQueue.length > 1 ? 's' : ''} loaded from Archer`);
+  }
 };
 
 /* ════════════════════════════════════════════════════════════════

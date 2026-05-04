@@ -379,6 +379,15 @@
     if (collectionSlug) {
       await loadCollectionForEdit(collectionSlug);
     }
+    const buildQueue = JSON.parse(sessionStorage.getItem('archer_build_queue') || '[]');
+    if (buildQueue.length) {
+      sessionStorage.removeItem('archer_build_queue');
+      const asinList = buildQueue.map(item => item.asin).slice(0, MAX_SLOTS);
+      for (const asin of asinList) {
+        await addProductByAsin(asin);
+      }
+      showToast(`${asinList.length} product${asinList.length > 1 ? 's' : ''} loaded from Archer`);
+    }
     renderSlots();
     generateSlug();
     await loadCollageList();
