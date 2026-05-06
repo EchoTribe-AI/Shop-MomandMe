@@ -121,6 +121,57 @@ class WalmartTrendsTestCase(unittest.TestCase):
         self.assertEqual(urlgenius_calls, [])
         self.assertEqual(enrich_calls, [])
 
+
+    def test_workbook_bootstrap_urlgenius_mode_uses_canonical_walmart_urls_without_impact(self):
+        impact_calls = []
+        urlgenius_destinations = []
+        original_impact = self.wt.ImpactAPI.generate_walmart_link
+        original_urlgenius = self.wt.URLGeniusAPI.create_link
+        original_enrich = self.wt.WalmartProductEnricher.enrich
+        original_api_key = os.environ.get("URLGENIUS_API_KEY")
+        os.environ["URLGENIUS_API_KEY"] = "test-urlgenius-key"
+
+        def fail_impact(*args, **kwargs):
+            impact_calls.append((args, kwargs))
+            raise AssertionError("Impact should not be called for bootstrap link_mode=urlgenius")
+
+        def fake_urlgenius(_self, destination_url, **kwargs):
+            urlgenius_destinations.append(destination_url)
+            return {"link": {"genius_url": f"https://urlgenius.example/{destination_url.rsplit('/', 1)[-1]}", "id": "test"}}
+
+        def fail_enrich(*args, **kwargs):
+            raise AssertionError("External enrichment should not be called during workbook bootstrap")
+
+        self.wt.ImpactAPI.generate_walmart_link = fail_impact
+        self.wt.URLGeniusAPI.create_link = fake_urlgenius
+        self.wt.WalmartProductEnricher.enrich = fail_enrich
+        try:
+            result = self.wt.WalmartTrendRefreshService().bootstrap_from_workbook(
+                "attached_assets/Walmart_May6th_Analysis.xlsx",
+                link_mode="urlgenius",
+            )
+        finally:
+            self.wt.ImpactAPI.generate_walmart_link = original_impact
+            self.wt.URLGeniusAPI.create_link = original_urlgenius
+            self.wt.WalmartProductEnricher.enrich = original_enrich
+            if original_api_key is None:
+                os.environ.pop("URLGENIUS_API_KEY", None)
+            else:
+                os.environ["URLGENIUS_API_KEY"] = original_api_key
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.counts["link_mode"], "urlgenius")
+        self.assertEqual(result.counts["impact_calls_made"], 0)
+        self.assertEqual(result.counts["urlgenius_calls_made"], 100)
+        self.assertEqual(result.counts["urlgenius_links_created_or_reused"], 100)
+        self.assertEqual(impact_calls, [])
+        self.assertTrue(urlgenius_destinations)
+        self.assertTrue(all(url.startswith("https://www.walmart.com/ip/") for url in urlgenius_destinations))
+        page = self.wt.WalmartTrendStore().landing_page_data()
+        self.assertEqual(page["collections"][0]["slug"], "top-sellers")
+        self.assertEqual(len(page["collections"][0]["items"]), 19)
+        self.assertTrue(page["collections"][0]["items"][0]["shop_url"].startswith("https://urlgenius.example/"))
+
     def test_refresh_lock_prevents_overlap(self):
         store = self.wt.WalmartTrendStore()
         store.create_run("workbook_bootstrap")
