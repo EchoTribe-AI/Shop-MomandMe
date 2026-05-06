@@ -33,6 +33,7 @@ DEFAULT_CREATOR = {
     'handle':             '@EverydaywithSteph',
     'brand_label':        'Mommy & Me Collective',
     'fb_pixel_id':        os.environ.get('FB_PIXEL_ID', '1559451780790812'),
+    'fb_page_id':         '100065251532225',
     'amazon_tag':         'mommymedeals-20',
     'meta_ad_account_id': 'act_573934886369270',
     'ltk_url':            'https://shopltk.com/EverydaywithSteph',
@@ -45,6 +46,9 @@ DEFAULT_CREATOR = {
         "every sale happening right now."
     ),
     'theme_default':      'coral',
+    # Per-creator ad defaults (Q7 — overrides hardcoded spec defaults).
+    # Stored as JSON in creators.defaults_json. Empty {} = use spec defaults.
+    'defaults_json':      json.dumps({}),
 }
 
 
@@ -89,6 +93,9 @@ def init_schema() -> None:
                 updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Branch 3 columns added via ALTER (idempotent for existing DBs)
+        _add_column_if_missing(conn, 'creators', "fb_page_id TEXT")
+        _add_column_if_missing(conn, 'creators', "defaults_json TEXT DEFAULT '{}'")
 
         # ── earnings_amazon (manual CSV uploads) ─────────────────────────
         conn.execute("""
@@ -170,9 +177,177 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_collection ON posts(collection_slug)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)")
 
+        # ── campaigns_v3 (Branch 3) ──────────────────────────────────────
+        # Persists Campaign Build Packages per the Campaign_Build_Package_Spec.
+        # Each row is one buildable package (one ASIN OR one collection OR one
+        # boosted post). Bulk generation creates N rows. The full spec-compliant
+        # JSON lives in package_json so the export step is just a SELECT.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS campaigns_v3 (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                creator_id               TEXT NOT NULL DEFAULT 'everydaywithsteph',
+                package_type             TEXT NOT NULL,        -- 'new_campaign' | 'boost_post'
+                target_type              TEXT NOT NULL,        -- 'asin' | 'collection' | 'post'
+                target_value             TEXT NOT NULL,        -- ASIN, slug, or post id
+                brand_slug               TEXT,
+                product_slug             TEXT,
+                product_name             TEXT,
+                destination_url          TEXT,
+                layers_json              TEXT,                 -- ['L1','L2','L3'] selected
+                asset_url                TEXT,                 -- shared image/video URL
+                asset_type               TEXT DEFAULT 'static_image',
+                package_json             TEXT NOT NULL,        -- full spec-compliant JSON
+                defaults_overrides_json  TEXT,                 -- user tweaks
+                utm_auto                 INTEGER DEFAULT 1,
+                status                   TEXT DEFAULT 'draft', -- draft | exported | built
+                meta_campaign_ids_json   TEXT,
+                meta_post_id             TEXT,                 -- for boost_post packages
+                notes                    TEXT,
+                created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                exported_at              TIMESTAMP,
+                built_at                 TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_creator ON campaigns_v3(creator_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_status ON campaigns_v3(status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_target ON campaigns_v3(target_type, target_value)")
+
+        init_walmart_trends_schema(conn)
+
         conn.commit()
     finally:
         conn.close()
+
+
+def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
+    """Create normalized tables for the Walmart What's Trending Now workflow."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_refresh_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL,
+            source_file TEXT,
+            window_start DATE,
+            window_end DATE,
+            status TEXT NOT NULL DEFAULT 'running',
+            counts_json TEXT DEFAULT '{}',
+            failures_json TEXT DEFAULT '[]',
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            finished_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_runs_status ON walmart_refresh_runs(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_runs_source ON walmart_refresh_runs(source_type, window_end)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_products (
+            sku TEXT PRIMARY KEY,
+            item_name TEXT,
+            product_title TEXT,
+            brand TEXT,
+            category_list TEXT,
+            taxonomy TEXT,
+            image_url TEXT,
+            current_price REAL,
+            price_display TEXT,
+            availability TEXT,
+            rating REAL,
+            review_count INTEGER,
+            canonical_url TEXT,
+            enrichment_status TEXT DEFAULT 'pending',
+            enrichment_error TEXT,
+            raw_product_json TEXT DEFAULT '{}',
+            first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_products_category ON walmart_products(category_list)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_product_performance_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            refresh_run_id INTEGER,
+            sku TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_list_type TEXT,
+            collection_name TEXT,
+            window_start DATE,
+            window_end DATE,
+            item_count INTEGER DEFAULT 0,
+            sale_amount REAL DEFAULT 0,
+            total_earnings REAL DEFAULT 0,
+            rank INTEGER,
+            metadata_json TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(refresh_run_id, sku, source_list_type, collection_name)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_perf_sku ON walmart_product_performance_snapshots(sku)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_perf_run ON walmart_product_performance_snapshots(refresh_run_id)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_affiliate_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku TEXT NOT NULL,
+            product_url TEXT NOT NULL,
+            impact_url TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(sku, product_url)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_affiliate_sku ON walmart_affiliate_links(sku)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_urlgenius_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            destination_url TEXT NOT NULL UNIQUE,
+            genius_url TEXT NOT NULL,
+            link_id TEXT,
+            status TEXT DEFAULT 'active',
+            error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_collections (
+            slug TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            source_type TEXT NOT NULL,
+            refresh_run_id INTEGER,
+            display_order INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            metadata_json TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_collections_active ON walmart_collections(is_active, display_order)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_collection_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection_slug TEXT NOT NULL,
+            sku TEXT NOT NULL,
+            refresh_run_id INTEGER,
+            display_order INTEGER DEFAULT 0,
+            item_count INTEGER DEFAULT 0,
+            sale_amount REAL DEFAULT 0,
+            total_earnings REAL DEFAULT 0,
+            badges_json TEXT DEFAULT '[]',
+            metadata_json TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(collection_slug, sku)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_collection_items_slug ON walmart_collection_items(collection_slug, display_order)")
 
 
 def seed_default_creator() -> None:
@@ -241,8 +416,8 @@ def upsert_creator(creator: dict) -> dict:
         # Build the canonical column set so we never silently drop fields
         cols = [
             'id', 'display_name', 'handle', 'brand_label', 'fb_pixel_id',
-            'amazon_tag', 'meta_ad_account_id', 'ltk_url', 'facebook_url',
-            'voice_prompt', 'theme_default',
+            'fb_page_id', 'amazon_tag', 'meta_ad_account_id', 'ltk_url',
+            'facebook_url', 'voice_prompt', 'theme_default', 'defaults_json',
         ]
         values = [creator.get(c) for c in cols]
         placeholders = ', '.join('?' for _ in cols)

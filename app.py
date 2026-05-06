@@ -1683,6 +1683,94 @@ def shop_posts():
     )
 
 
+
+
+def _require_walmart_trends_admin():
+    """Protect Walmart trend mutation endpoints with an env-backed token.
+
+    Existing admin pages in this app are hidden but not authenticated, so these
+    API mutation routes use a stricter Replit Secret guard. Send the token as
+    `X-Walmart-Trends-Admin-Token` or `Authorization: Bearer <token>`.
+    """
+    expected = (
+        os.environ.get('WALMART_TRENDS_ADMIN_TOKEN')
+        or os.environ.get('ADMIN_API_TOKEN')
+        or os.environ.get('ADMIN_SECRET')
+    )
+    if not expected:
+        return jsonify({'error': 'Walmart trends admin token is not configured'}), 503
+    supplied = request.headers.get('X-Walmart-Trends-Admin-Token', '')
+    auth = request.headers.get('Authorization', '')
+    if not supplied and auth.lower().startswith('bearer '):
+        supplied = auth.split(' ', 1)[1].strip()
+    import hmac as hmac_lib
+    if not supplied or not hmac_lib.compare_digest(supplied, expected):
+        return jsonify({'error': 'unauthorized'}), 401
+    return None
+
+@app.route('/walmart/trending-now')
+def walmart_trending_now_page():
+    """Mobile-first Walmart What's Trending Now landing page."""
+    from walmart_trends import get_trending_page_data
+
+    data = get_trending_page_data()
+    return render_template('walmart_trending_now.html', data=data)
+
+
+@app.route('/api/walmart/trending-now')
+def walmart_trending_now_api():
+    """JSON source for the Walmart What's Trending Now page."""
+    from walmart_trends import get_trending_page_data
+
+    return jsonify(get_trending_page_data())
+
+
+@app.route('/admin/walmart-trends/bootstrap', methods=['POST'])
+def admin_walmart_trends_bootstrap():
+    """Seed Walmart trends from the attached workbook.
+
+    Optional JSON body: {"workbook": "attached_assets/Walmart_May6th_Analysis.xlsx"}
+    """
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from walmart_trends import DEFAULT_WORKBOOK, RefreshAlreadyRunning, WalmartTrendRefreshService
+
+    body = request.get_json(silent=True) or {}
+    workbook = body.get('workbook') or str(DEFAULT_WORKBOOK)
+    try:
+        result = WalmartTrendRefreshService().bootstrap_from_workbook(workbook)
+    except RefreshAlreadyRunning as exc:
+        return jsonify({'status': 'locked', 'error': str(exc)}), 409
+    status_code = 200 if result.status in {'success', 'partial'} else 500
+    return jsonify({
+        'run_id': result.run_id,
+        'status': result.status,
+        'counts': result.counts,
+        'failures': result.failures,
+    }), status_code
+
+
+@app.route('/admin/walmart-trends/refresh', methods=['POST'])
+def admin_walmart_trends_refresh():
+    """Run the recurring 7-day Impact API Walmart trend refresh."""
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from walmart_trends import RefreshAlreadyRunning, WalmartTrendRefreshService
+
+    try:
+        result = WalmartTrendRefreshService().refresh_from_impact()
+    except RefreshAlreadyRunning as exc:
+        return jsonify({'status': 'locked', 'error': str(exc)}), 409
+    status_code = 200 if result.status in {'success', 'partial'} else 500
+    return jsonify({
+        'run_id': result.run_id,
+        'status': result.status,
+        'counts': result.counts,
+        'failures': result.failures,
+    }), status_code
+
 @app.route('/sitemap.xml')
 def shop_sitemap():
     """Auto-generated sitemap of all published collections.
@@ -1812,6 +1900,377 @@ def archer_posts_export_csv():
     )
 
 
+# ── CAMPAIGN BUILDER v3 (Branch 3) ───────────────────────────────────────────
+@app.route('/archer/campaigns')
+def archer_campaigns_page():
+    """Bulk Campaign Builder page — picks N targets, generates N packages."""
+    return render_template('archer_campaigns.html')
+
+
+@app.route('/archer/campaigns/list', methods=['GET'])
+def archer_campaigns_list():
+    """List persisted campaigns_v3 packages with optional filters."""
+    from product_api import ArcherAPI
+    creator_id = request.args.get('creator_id', 'everydaywithsteph')
+    status_filter = request.args.get('status')
+    limit = int(request.args.get('limit', 100))
+
+    where = ["COALESCE(creator_id,'everydaywithsteph') = ?"]
+    params: list = [creator_id]
+    if status_filter:
+        where.append('status = ?')
+        params.append(status_filter)
+
+    conn = ArcherAPI()._db_connect()
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        f"SELECT * FROM campaigns_v3 WHERE {' AND '.join(where)} "
+        f"ORDER BY created_at DESC LIMIT {limit}",
+        params,
+    ).fetchall()
+    conn.close()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        for col in ('layers_json', 'package_json', 'defaults_overrides_json',
+                    'meta_campaign_ids_json'):
+            try:
+                d[col] = json.loads(d.get(col) or 'null')
+            except (json.JSONDecodeError, TypeError):
+                d[col] = None
+        out.append(d)
+    return jsonify({'campaigns': out})
+
+
+@app.route('/archer/campaigns/<int:campaign_id>', methods=['GET'])
+def archer_campaign_get(campaign_id):
+    from product_api import ArcherAPI
+    conn = ArcherAPI()._db_connect()
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT * FROM campaigns_v3 WHERE id = ?", (campaign_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'campaign not found'}), 404
+    d = dict(row)
+    for col in ('layers_json', 'package_json', 'defaults_overrides_json',
+                'meta_campaign_ids_json'):
+        try:
+            d[col] = json.loads(d.get(col) or 'null')
+        except (json.JSONDecodeError, TypeError):
+            d[col] = None
+    return jsonify({'campaign': d})
+
+
+@app.route('/archer/campaigns/<int:campaign_id>', methods=['PATCH'])
+def archer_campaign_update(campaign_id):
+    """Update a draft package — package_json (full replace), status, asset_url, notes."""
+    from product_api import ArcherAPI
+    body = request.get_json() or {}
+    allowed = {
+        'package_json', 'asset_url', 'asset_type', 'status',
+        'notes', 'destination_url', 'meta_campaign_ids_json',
+        'defaults_overrides_json', 'layers_json',
+    }
+    sets = []
+    vals: list = []
+    for k, v in body.items():
+        if k in allowed:
+            sets.append(f"{k} = ?")
+            vals.append(json.dumps(v) if k.endswith('_json') and not isinstance(v, str) else v)
+    if not sets:
+        return jsonify({'error': 'no editable fields supplied'}), 400
+    sets.append("updated_at = CURRENT_TIMESTAMP")
+    if body.get('status') == 'exported':
+        sets.append("exported_at = CURRENT_TIMESTAMP")
+    if body.get('status') == 'built':
+        sets.append("built_at = CURRENT_TIMESTAMP")
+    vals.append(campaign_id)
+    conn = ArcherAPI()._db_connect()
+    conn.execute(
+        f"UPDATE campaigns_v3 SET {', '.join(sets)} WHERE id = ?", vals,
+    )
+    conn.commit()
+    conn.close()
+    return archer_campaign_get(campaign_id)
+
+
+@app.route('/archer/campaigns/<int:campaign_id>', methods=['DELETE'])
+def archer_campaign_delete(campaign_id):
+    from product_api import ArcherAPI
+    conn = ArcherAPI()._db_connect()
+    cur = conn.execute("DELETE FROM campaigns_v3 WHERE id = ?", (campaign_id,))
+    conn.commit()
+    conn.close()
+    if cur.rowcount == 0:
+        return jsonify({'error': 'campaign not found'}), 404
+    return jsonify({'ok': True})
+
+
+@app.route('/archer/campaigns/<int:campaign_id>/export', methods=['POST'])
+def archer_campaign_export(campaign_id):
+    """Mark a package exported and return the paste-ready Ryze MCP prompt."""
+    import campaign_builder as cb
+    from product_api import ArcherAPI
+
+    conn = ArcherAPI()._db_connect()
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT * FROM campaigns_v3 WHERE id = ?", (campaign_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'campaign not found'}), 404
+    pkg = json.loads(row['package_json'] or '{}')
+    creator = db_schema.get_creator(row['creator_id'])
+
+    errors = cb.validate_package(pkg)
+    if errors:
+        conn.close()
+        return jsonify({'error': 'package validation failed', 'errors': errors}), 400
+
+    conn.execute(
+        "UPDATE campaigns_v3 SET status = 'exported', "
+        "exported_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
+        "WHERE id = ?", (campaign_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'campaign_id': campaign_id,
+        'package':     pkg,
+        'ryze_prompt': cb.render_ryze_prompt(pkg, creator),
+        'status':      'exported',
+    })
+
+
+@app.route('/archer/campaigns/generate', methods=['POST'])
+def archer_campaigns_generate():
+    """Bulk-generate campaign packages.
+
+    Body:
+    {
+      "creator_id": "everydaywithsteph",
+      "targets": [                       # one package per target
+        {"kind": "asin", "value": "B0...", "product_name": "...",
+         "brand": "...", "asset_url": "https://...", "asset_type": "static_image"},
+        {"kind": "collection", "value": "summer-essentials", ...}
+      ],
+      "layer_ids": ["L1","L2","L3"],
+      "defaults_override": {...},
+      "utm_auto": true,
+      "auto_generate_copy": true        # call Claude per-target for layer copies
+    }
+    """
+    import campaign_builder as cb
+    from product_api import ArcherAPI
+
+    body = request.get_json() or {}
+    creator_id = (body.get('creator_id') or 'everydaywithsteph').strip()
+    targets = body.get('targets') or []
+    layer_ids = body.get('layer_ids') or ['L1']
+    utm_auto = bool(body.get('utm_auto', True))
+    auto_generate_copy = bool(body.get('auto_generate_copy', True))
+    defaults_override = body.get('defaults_override') or {}
+
+    if not targets:
+        return jsonify({'error': 'targets is required'}), 400
+    if not layer_ids:
+        return jsonify({'error': 'layer_ids is required'}), 400
+
+    creator = db_schema.get_creator(creator_id)
+    if not (creator.get('fb_page_id') or '').strip():
+        creator['fb_page_id'] = db_schema.DEFAULT_CREATOR.get('fb_page_id', '')
+
+    client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+
+    persisted = []
+    errors_out = []
+    for target in targets:
+        try:
+            asset_url = target.get('asset_url', '').strip()
+            asset_type = target.get('asset_type', 'static_image')
+            if not asset_url:
+                # Fallback: derive from ASIN image CDN for ASIN targets
+                if target.get('kind') == 'asin' and target.get('value'):
+                    asset_url = (
+                        f"https://ws-na.amazon-adsystem.com/widgets/q?"
+                        f"_encoding=UTF8&ASIN={target['value']}&Format=_SL250_"
+                    )
+
+            # Generate per-layer copy via Claude (or use caller-supplied)
+            layer_copies = target.get('layer_copies')
+            if not layer_copies and auto_generate_copy:
+                layer_copies = _generate_layer_copies(
+                    client, creator_id, target, layer_ids,
+                )
+            if not layer_copies:
+                # Last-resort placeholder so the package still validates
+                layer_copies = [
+                    {'layer_id': lid, 'headline': (target.get('product_name') or 'Shop Now')[:38],
+                     'body': 'Edit this copy in the campaign card.',
+                     'description': '', 'cta': 'SHOP_NOW'}
+                    for lid in layer_ids
+                ]
+
+            pkg = cb.build_new_campaign_package(
+                creator=creator, target=target,
+                selected_layer_ids=layer_ids,
+                asset_url=asset_url, asset_type=asset_type,
+                layer_copies=layer_copies,
+                destination_url=target.get('destination_url'),
+                defaults_override=defaults_override,
+                utm_auto=utm_auto,
+            )
+
+            # Persist
+            conn = ArcherAPI()._db_connect()
+            cur = conn.execute(
+                """INSERT INTO campaigns_v3
+                   (creator_id, package_type, target_type, target_value,
+                    brand_slug, product_slug, product_name, destination_url,
+                    layers_json, asset_url, asset_type, package_json,
+                    defaults_overrides_json, utm_auto, status)
+                   VALUES (?, 'new_campaign', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')""",
+                (
+                    creator_id,
+                    target.get('kind', 'asin'),
+                    target.get('value', ''),
+                    pkg['brand'],
+                    pkg['product_slug'],
+                    pkg.get('product') or '',
+                    pkg['destination_url'],
+                    json.dumps(layer_ids),
+                    asset_url,
+                    asset_type,
+                    json.dumps(pkg),
+                    json.dumps(defaults_override),
+                    1 if utm_auto else 0,
+                ),
+            )
+            conn.commit()
+            campaign_id = cur.lastrowid
+            conn.close()
+
+            persisted.append({
+                'id': campaign_id,
+                'target': target,
+                'package': pkg,
+                'validation_errors': cb.validate_package(pkg),
+            })
+        except Exception as e:
+            logging.exception('[CAMPAIGNS] generation failed for target')
+            errors_out.append({'target': target, 'error': str(e)})
+
+    return jsonify({
+        'created':       len(persisted),
+        'campaigns':     persisted,
+        'errors':        errors_out,
+    })
+
+
+def _generate_layer_copies(client, creator_id, target, layer_ids):
+    """Call Claude to generate layer-specific copy for one target."""
+    from prompts import build_layer_copy_prompt
+    system = build_layer_copy_prompt(creator_id)
+
+    target_kind = target.get('kind', 'asin')
+    name = target.get('product_name') or target.get('value') or 'item'
+    brand = target.get('brand') or ''
+    price = target.get('price') or ''
+    target_label = (
+        f"Collection landing page: {name}"
+        if target_kind == 'collection'
+        else f"Product: {name}{' by ' + brand if brand else ''}{' · ' + price if price else ''}"
+    )
+    user_msg = (
+        f"{target_label}\n"
+        f"Generate copy for these layers: {', '.join(layer_ids)}\n"
+        f"Return JSON with one object per layer."
+    )
+    msg = client.messages.create(
+        model='claude-sonnet-4-6', max_tokens=2500, system=system,
+        messages=[{'role': 'user', 'content': user_msg}],
+    )
+    raw = msg.content[0].text.strip().replace('```json', '').replace('```', '').strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        if not m:
+            raise
+        parsed = json.loads(m.group(0))
+    return parsed.get('layer_copies', [])
+
+
+@app.route('/archer/campaigns/boost', methods=['POST'])
+def archer_campaigns_boost():
+    """Build and persist a boost_post package.
+
+    Body: { "creator_id": "...", "post_id": <internal posts.id>,
+            "meta_post_id": "847392847362948", "boost_overrides": {...} }
+    """
+    import campaign_builder as cb
+    import posts as _posts
+    from product_api import ArcherAPI
+
+    body = request.get_json() or {}
+    creator_id = (body.get('creator_id') or 'everydaywithsteph').strip()
+    post_id = body.get('post_id')
+    meta_post_id = (body.get('meta_post_id') or '').strip()
+    boost_overrides = body.get('boost_overrides') or {}
+
+    if not meta_post_id:
+        return jsonify({'error': 'meta_post_id is required (paste from Meta Business Suite)'}), 400
+
+    creator = db_schema.get_creator(creator_id)
+    if not (creator.get('fb_page_id') or '').strip():
+        creator['fb_page_id'] = db_schema.DEFAULT_CREATOR.get('fb_page_id', '')
+    product_slug = 'post'
+    brand_slug = None
+    target_value = meta_post_id
+
+    if post_id:
+        p = _posts.get_post(int(post_id))
+        if p:
+            product_slug = (p.get('angle') or '')[:30] or 'post'
+            target_value = f"{post_id}:{meta_post_id}"
+            if p.get('product_brand'):
+                brand_slug = (p['product_brand'] or '').lower().replace(' ', '')[:20]
+
+    pkg = cb.build_boost_post_package(
+        creator=creator, meta_post_id=meta_post_id,
+        boost_overrides=boost_overrides,
+        product_slug=product_slug,
+        brand_slug=brand_slug,
+        utm_auto=bool(body.get('utm_auto', True)),
+    )
+
+    conn = ArcherAPI()._db_connect()
+    cur = conn.execute(
+        """INSERT INTO campaigns_v3
+           (creator_id, package_type, target_type, target_value,
+            brand_slug, product_slug, package_json, meta_post_id, status, utm_auto)
+           VALUES (?, 'boost_post', 'post', ?, ?, ?, ?, ?, 'draft', 1)""",
+        (
+            creator_id, target_value, brand_slug, product_slug,
+            json.dumps(pkg), meta_post_id,
+        ),
+    )
+    conn.commit()
+    campaign_id = cur.lastrowid
+    conn.close()
+
+    return jsonify({
+        'id':       campaign_id,
+        'package':  pkg,
+        'validation_errors': cb.validate_package(pkg),
+    })
+
+
 @app.route('/archer/track_click', methods=['POST'])
 def archer_track_click():
     from product_api import ArcherAPI
@@ -1829,6 +2288,53 @@ def archer_track_click():
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+@app.route('/archer/campaigns/fetch-product', methods=['POST'])
+def archer_fetch_product():
+    """Fetch product details for a single ASIN (via Crawlbase) or Walmart SKU (via Walmart API).
+
+    Body: {"rawId": "B0CLRNS4DD", "platform": "amazon", "url": "https://..."}
+    Returns: product object with name, price, imageUrl, status
+    """
+    from product_api import WalmartAPI
+    from utils.crawlbase import get_amazon_product
+
+    body = request.get_json() or {}
+    raw_id  = (body.get('rawId') or '').strip()
+    platform = (body.get('platform') or '').strip()
+    url      = (body.get('url') or '').strip()
+
+    if not raw_id or not platform:
+        return jsonify({'error': 'rawId and platform are required'}), 400
+
+    base = {'rawId': raw_id, 'platform': platform, 'url': url}
+
+    try:
+        if platform == 'amazon':
+            data = get_amazon_product(raw_id)
+            if data and (data.get('name') or data.get('price')):
+                return jsonify({**base, 'name': data.get('name', ''),
+                                'price': (data.get('price') or '').replace('$', '').strip(),
+                                'imageUrl': data.get('imageUrl', ''),
+                                'description': '', 'status': 'fetched'})
+            return jsonify({**base, 'status': 'manual'})
+
+        if platform == 'walmart':
+            walmart = WalmartAPI()
+            data = walmart.get_item_by_id(raw_id)
+            if data and data.get('name'):
+                return jsonify({**base, 'name': data.get('name', ''),
+                                'price': data.get('price', ''),
+                                'imageUrl': data.get('imageUrl', ''),
+                                'description': '', 'status': 'fetched'})
+            return jsonify({**base, 'status': 'manual'})
+
+        return jsonify({**base, 'status': 'error', 'error': 'Unknown platform'}), 400
+
+    except Exception as e:
+        logging.exception('[FETCH-PRODUCT] failed')
+        return jsonify({**base, 'status': 'error', 'error': str(e)}), 500
+
 
 @app.route('/archer/image_proxy')
 def archer_image_proxy():
@@ -2081,18 +2587,8 @@ NETWORK_CONTENT = {
     'levanta': 'levanta',
 }
 
-# Seed URLGenius registry on startup
-def _seed_urlgenius():
-    try:
-        from product_api import URLGeniusAPI
-        ug = URLGeniusAPI()
-        if ug.api_key:
-            n = ug.seed_registry()
-            logging.info(f"[URLGENIUS] Startup seed: {n} links loaded")
-    except Exception as e:
-        logging.warning(f"[URLGENIUS] Startup seed failed: {e}")
-
-_seed_urlgenius()
+# URLGenius sync is now user-triggered only via /urlgenius/sync.
+# Intentionally no startup seed to keep boot path fast and deterministic.
 
 
 def _make_smart_link(asin: str, network: str = 'amazon', utm_source: str = 'fb-group',
@@ -2266,6 +2762,112 @@ def urlgenius_smart_link():
 # ARCHIVED — see /archive/routes/
 
 
+
+
+@app.route('/archer/discovery/top_clicked', methods=['GET'])
+def archer_discovery_top_clicked():
+    """Top URLGenius-clicked Amazon products for Organic queue seeding."""
+    from product_api import URLGeniusAPI, ArcherAPI
+    import re
+
+    def _asin_from_text(*vals):
+        pat = re.compile(r'(?:/dp/|/gp/product/|/product/)([A-Z0-9]{10})(?:[/?&#]|$)', re.I)
+        for v in vals:
+            txt = str(v or '')
+            m = pat.search(txt)
+            if m:
+                return m.group(1).upper()
+        return None
+
+    min_clicks = int(request.args.get('min_clicks', 300))
+    limit = max(1, min(int(request.args.get('limit', 35)), 60))
+    # How many of the highest-click links to scan for ASINs. Default 5000
+    # is plenty since most non-Amazon entries (Walmart/Target) won't yield
+    # an ASIN anyway — this just bounds CPU work, not data coverage.
+    seed_limit = max(100, min(int(request.args.get('seed_limit', 5000)), 30000))
+
+    ug = URLGeniusAPI()
+    if not ug.api_key:
+        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
+
+    # IMPORTANT: load the FULL registry first, then sort by clicks desc,
+    # then truncate. Otherwise we'd only sort within an arbitrary insertion-
+    # order slice and miss high-click rows scattered throughout the file.
+    raw = ug.list_links(limit=30000)
+    links = raw.get('links', [])
+    links.sort(
+        key=lambda l: int(l.get('clicks') or l.get('clicks_30d') or 0),
+        reverse=True,
+    )
+    links = links[:seed_limit]
+    registry_only = True
+
+    scored = {}
+    for lk in links:
+        asin = _asin_from_text(
+            lk.get('url'), lk.get('destination_url'), lk.get('affiliate_url'),
+            lk.get('genius_url'), lk.get('long_url'), lk.get('deeplink'),
+        )
+        if not asin:
+            continue
+
+        clicks = (
+            lk.get('clicks_30d') or lk.get('clicks30d') or lk.get('clicks')
+            or (lk.get('stats') or {}).get('clicks_30d')
+            or (lk.get('stats') or {}).get('clicks')
+            or (lk.get('metrics') or {}).get('clicks_30d')
+            or (lk.get('metrics') or {}).get('clicks')
+            or 0
+        )
+        try:
+            clicks = int(float(clicks))
+        except Exception:
+            clicks = 0
+
+        prev = scored.get(asin)
+        if prev is None or clicks > prev['clicks']:
+            scored[asin] = {'clicks': clicks, 'source': lk}
+
+    # If no link in the registry has any recorded click data, drop the
+    # threshold so we still surface candidate products. (URLgenius API v2
+    # doesn't expose click counts via any documented endpoint.)
+    has_any_clicks = any(v['clicks'] > 0 for v in scored.values())
+    effective_min_clicks = min_clicks if has_any_clicks else 0
+    picked = [(a, v) for a, v in scored.items() if v['clicks'] >= effective_min_clicks]
+    picked.sort(key=lambda t: t[1]['clicks'], reverse=True)
+    picked = picked[:limit]
+
+    asins = [a for a, _ in picked]
+    catalog = ArcherAPI().get_by_asins(asins) if asins else []
+    by_asin = {(p.get('asin') or '').upper(): p for p in catalog}
+
+    out = []
+    for asin, meta in picked:
+        p = by_asin.get(asin, {})
+        lk = meta['source']
+        out.append({
+            'asin': asin,
+            'clicks_30d': meta['clicks'],
+            'product_name': p.get('product_name') or p.get('name') or lk.get('title') or asin,
+            'company_name': p.get('company_name') or p.get('brand') or '',
+            'price': p.get('price') or '',
+            'commission_payout': p.get('commission_payout') or p.get('commission') or '',
+            'image_encoded_string': p.get('image_encoded_string') or '',
+            'urlgenius_url': lk.get('genius_url') or '',
+            'destination_url': lk.get('url') or lk.get('destination_url') or '',
+        })
+
+    return jsonify({
+        'products': out,
+        'count': len(out),
+        'filters': {
+            'min_clicks': min_clicks,
+            'effective_min_clicks': effective_min_clicks,
+            'limit': limit,
+        },
+        'registry_only': registry_only,
+        'has_click_data': has_any_clicks,
+    })
 @app.route('/urlgenius/create_link', methods=['POST'])
 def urlgenius_create_link():
     from product_api import URLGeniusAPI
@@ -2289,16 +2891,63 @@ def urlgenius_create_link():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/urlgenius/links')
-def urlgenius_list_links():
+@app.route('/urlgenius')
+@app.route('/archer/urlgenius')
+def urlgenius_page():
+    return render_template('urlgenius_links.html')
+
+
+@app.route('/urlgenius/sync', methods=['POST'])
+def urlgenius_sync_registry():
+    """
+    Refresh live click counts for registry entries via the documented
+    URLgenius v2 endpoint: GET /api/v2/links/<LINK_ID>.
+
+    Body params (all optional):
+      - limit: how many links to refresh in this call (1-500, default 50).
+               Each call costs ~limit*0.55s due to the 2-req/sec API limit,
+               so syncing all ~20K links happens progressively over many
+               clicks (oldest-checked first).
+      - all:   if true, ignores the 24h "stale" filter and re-checks even
+               recently-synced rows.
+    """
     from product_api import URLGeniusAPI
+    body = request.get_json(silent=True) or {}
+    limit = body.get('limit') or request.args.get('limit', 50)
+    only_stale = not (body.get('all') or request.args.get('all') == '1')
+
     ug = URLGeniusAPI()
     if not ug.api_key:
-        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
+        return jsonify({'ok': False, 'error': 'URLGENIUS_API_KEY not set'}), 400
     try:
-        return jsonify(ug.list_links())
+        result = ug.refresh_link_clicks(limit=limit, only_stale=only_stale)
+        result['ok'] = True
+        return jsonify(result)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logging.warning(f"[URLGENIUS] sync failed: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/urlgenius/links')
+def urlgenius_list_links():
+    """
+    Return URLgenius deep links from the local registry.
+
+    URLgenius API v2 (per official docs) only supports POST (create) and
+    DELETE — there is no documented endpoint to list links — so the local
+    registry, populated as we create links, is the authoritative source.
+    No API key required since this reads from local disk.
+    """
+    from product_api import URLGeniusAPI
+    ug = URLGeniusAPI()
+    try:
+        limit = int(request.args.get('limit', 500))
+    except (TypeError, ValueError):
+        limit = 500
+    # Registry now holds 21K+ entries — allow loading the full set so the
+    # dashboard can show real totals/sort across the whole catalog.
+    limit = max(1, min(limit, 30000))
+    return jsonify(ug.list_links(limit=limit))
 
 
 # ── LEVANTA ───────────────────────────────────────────────────────────────────

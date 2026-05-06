@@ -37,6 +37,62 @@ def get_live_price(asin: str) -> 'float | None':
         return None
 
 
+def get_amazon_product(asin: str) -> 'dict | None':
+    """
+    Fetch Amazon product name, price, and image via Crawlbase JS rendering.
+    Returns dict with name, price (str, no $ symbol), imageUrl — or None on failure.
+    """
+    token = os.environ.get('CRAWLBASE_JS_TOKEN')
+    if not token:
+        logging.debug('[CRAWLBASE] CRAWLBASE_JS_TOKEN not set — skipping product fetch')
+        return None
+
+    params = {
+        'token': token,
+        'url': f'https://www.amazon.com/dp/{asin}',
+        'ajax_wait': 'true',
+        'page_wait': '2000',
+    }
+    try:
+        resp = requests.get('https://api.crawlbase.com/', params=params, timeout=30)
+        if resp.status_code != 200:
+            logging.warning(f'[CRAWLBASE] Non-200 for {asin}: {resp.status_code}')
+            return None
+        html = resp.text
+        price = _parse_price(html)
+        return {
+            'name': _parse_title(html),
+            'price': f'{price:.2f}' if price else '',
+            'imageUrl': _parse_image(html),
+        }
+    except Exception as e:
+        logging.warning(f'[CRAWLBASE] Product fetch failed for {asin}: {e}')
+        return None
+
+
+def _parse_title(html: str) -> str:
+    m = re.search(r'id="productTitle"[^>]*>\s*(.*?)\s*</span>', html, re.DOTALL)
+    if m:
+        return re.sub(r'\s+', ' ', m.group(1)).strip()
+    m = re.search(r'"title"\s*:\s*"([^"]{10,})"', html)
+    if m:
+        return m.group(1)
+    return ''
+
+
+def _parse_image(html: str) -> str:
+    for pat in (
+        r'"hiRes"\s*:\s*"(https://[^"]+)"',
+        r'id="landingImage"[^>]+src="(https://[^"]+)"',
+        r'id="imgTagWrapperId"[^>]*>.*?<img[^>]+src="(https://[^"]+)"',
+        r'"large"\s*:\s*"(https://[^"]+)"',
+    ):
+        m = re.search(pat, html, re.DOTALL)
+        if m:
+            return m.group(1)
+    return ''
+
+
 def _parse_price(html: str) -> 'float | None':
     patterns = [
         # Whole + fraction spans (most reliable)

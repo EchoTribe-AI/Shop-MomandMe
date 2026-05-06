@@ -1,0 +1,242 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>URLGenius Links</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f6f6f4;color:#1a1a17;padding:18px;max-width:1500px;margin:0 auto}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+button{padding:7px 12px;border:1px solid #d7d3cb;border-radius:8px;background:#fff;cursor:pointer;font-size:13px}
+button:hover{background:#fafaf7}
+button:disabled{opacity:0.5;cursor:not-allowed}
+input[type=number],input[type=text]{padding:6px 8px;border:1px solid #d7d3cb;border-radius:6px;font-size:13px}
+input[type=number]{width:80px}
+input[type=text]{width:240px}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e4e0d7}
+th,td{font-size:12px;padding:8px;border-bottom:1px solid #efebe3;text-align:left;vertical-align:top}
+th{font-size:11px;color:#6a655a;text-transform:uppercase;letter-spacing:0.5px;background:#faf8f3;cursor:pointer;user-select:none}
+th:hover{background:#f3efe7}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+.small{font-size:12px;color:#6a655a}
+.banner{padding:9px 13px;border-radius:6px;margin-bottom:10px;font-size:12.5px;line-height:1.5}
+.banner-warn{background:#fff8e6;border:1px solid #f0c040;color:#7a5800}
+.banner-ok{background:#e8f5e9;border:1px solid #66bb6a;color:#1b5e20}
+.banner-err{background:#fdecea;border:1px solid #ef9a9a;color:#7f0000}
+.banner-info{background:#e3f2fd;border:1px solid #64b5f6;color:#0d47a1}
+.clicks-hi{color:#2e7d32;font-weight:700}
+.clicks-mid{color:#1565c0;font-weight:600}
+.clicks-zero{color:#9a958a}
+.stale{color:#c08000;font-size:11px}
+.fresh{color:#2e7d32;font-size:11px}
+.never{color:#9a958a;font-size:11px;font-style:italic}
+.label{font-size:11px;color:#6a655a;margin-right:4px}
+a.gu{color:#1565c0;text-decoration:none}
+a.gu:hover{text-decoration:underline}
+.controls{background:#fff;border:1px solid #e4e0d7;border-radius:8px;padding:10px 13px;margin-bottom:12px}
+.stat{display:inline-block;background:#f0ede5;padding:3px 9px;border-radius:12px;font-size:11px;color:#3f3a30;margin-right:5px}
+.title{max-width:340px;font-size:12px;color:#1a1a17;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.network{display:inline-block;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600;text-transform:uppercase}
+.net-amzn{background:#fff3e0;color:#bf6000}
+.net-walmart{background:#e3f2fd;color:#0d47a1}
+.net-target{background:#fce4ec;color:#ad1457}
+.net-other{background:#f5f5f5;color:#555}
+</style>
+</head><body>
+<h2 style="margin-bottom:4px">URLGenius Deep Links</h2>
+<div class="small" style="margin-bottom:14px">Master registry: scraped link data + live click counts. Refresh pulls latest stats from <span class="mono">GET /api/v2/links/&lt;id&gt;</span>. Rate limit: 2 req/sec.</div>
+
+<div class="controls">
+  <div class="row" style="margin-bottom:6px">
+    <span class="label">Refresh clicks for</span>
+    <input id="syncLimit" type="number" min="1" max="500" value="50">
+    <span class="label">links</span>
+    <button id="syncBtn" onclick="syncNow(false)">Sync Stale Only</button>
+    <button onclick="syncNow(true)">Sync (force)</button>
+    <span style="margin-left:18px" class="label">Search</span>
+    <input id="searchBox" type="text" placeholder="title, ASIN, URL…" oninput="renderTable()">
+    <button onclick="loadLinks()">Reload Data</button>
+    <a href="/archer/organic" style="margin-left:auto">← Back to Organic</a>
+  </div>
+  <div class="small">Each link costs ~0.55s. 50 links ≈ 28s. Default skips links checked in the last 24h. Click headers to sort.</div>
+</div>
+
+<div id="banner"></div>
+<div id="progress"></div>
+
+<table>
+  <thead>
+    <tr>
+      <th onclick="sortBy('clicks')">Clicks ▾</th>
+      <th onclick="sortBy('title')">Title</th>
+      <th onclick="sortBy('network')">Net</th>
+      <th onclick="sortBy('asin')">ASIN</th>
+      <th onclick="sortBy('id')">ID</th>
+      <th onclick="sortBy('created_at')">Created</th>
+      <th onclick="sortBy('last_clicks_check')">Last Synced</th>
+      <th>Genius URL</th>
+    </tr>
+  </thead>
+  <tbody id="tb"><tr><td colspan="8">Loading…</td></tr></tbody>
+</table>
+
+<script>
+let ALL_LINKS = [];
+let SORT = {key:'clicks', dir:-1};
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function asinFrom(u){const m=String(u||'').match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?&#]|$)/i);return m?m[1].toUpperCase():'';}
+function clicksOf(l){return Number(l.clicks||l.clicks_30d||(l.traffic||{}).clicks||0)||0;}
+function networkOf(l){
+  const g = (l.genius_url||'').toLowerCase();
+  if (g.includes('/amzn')||g.includes('/amazon')) return 'amzn';
+  if (g.includes('/walmart')) return 'walmart';
+  if (g.includes('/target')) return 'target';
+  return 'other';
+}
+
+function setBanner(type, msg){
+  document.getElementById('banner').innerHTML=`<div class="banner banner-${type}">${msg}</div>`;
+}
+
+function fmtAge(iso){
+  if(!iso) return '<span class="never">never</span>';
+  const d=new Date(iso); if(isNaN(d)) return '<span class="never">—</span>';
+  const mins=Math.floor((Date.now()-d.getTime())/60000);
+  if(mins<60) return `<span class="fresh">${mins}m ago</span>`;
+  const hrs=Math.floor(mins/60);
+  if(hrs<24) return `<span class="fresh">${hrs}h ago</span>`;
+  const days=Math.floor(hrs/24);
+  return `<span class="stale">${days}d ago</span>`;
+}
+
+function fmtDate(iso){
+  if(!iso) return '<span class="never">—</span>';
+  const d=new Date(iso); if(isNaN(d)) return esc(iso.slice(0,10));
+  return d.toISOString().slice(0,10);
+}
+
+function sortBy(key){
+  if(SORT.key===key) SORT.dir = -SORT.dir;
+  else { SORT.key = key; SORT.dir = (key==='clicks'||key==='id') ? -1 : 1; }
+  renderTable();
+}
+
+async function syncNow(forceAll){
+  const limit=Math.max(1,Math.min(500,parseInt(document.getElementById('syncLimit').value)||50));
+  const btn=document.getElementById('syncBtn');
+  const eta=Math.ceil(limit*0.55);
+  btn.disabled=true;
+  setBanner('warn', `Syncing ${limit} link${limit===1?'':'s'} via URLgenius API… (~${eta}s — please wait, do not close this tab)`);
+  document.getElementById('progress').innerHTML='';
+  try{
+    const r=await fetch('/urlgenius/sync',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({limit, all: forceAll})
+    });
+    const d=await r.json();
+    if(r.ok && d.ok){
+      const remaining = d.remaining_stale || 0;
+      const total = d.total_with_link_id || 0;
+      setBanner('ok',
+        `Synced ${d.checked} link${d.checked===1?'':'s'} in ${(d.duration_ms/1000).toFixed(1)}s — ` +
+        `<strong>${d.updated} updated</strong>${d.failed?`, ${d.failed} failed`:''}.`
+      );
+      document.getElementById('progress').innerHTML=
+        `<div class="banner banner-info">` +
+        `<span class="stat">${total.toLocaleString()} total syncable</span>` +
+        `<span class="stat">${remaining.toLocaleString()} still stale</span>` +
+        (remaining>0 ? `<span class="small"> · click "Sync Stale Only" again to continue (oldest first)</span>` : ` <strong>· all caught up!</strong>`) +
+        `</div>`;
+    } else {
+      setBanner('err', `Sync failed: ${esc(d.error||r.status)}`);
+    }
+  } catch(e){
+    setBanner('err', `Sync failed: ${esc(e.message||e)}`);
+  }
+  btn.disabled=false;
+  await loadLinks();
+}
+
+function renderTable(){
+  const tb=document.getElementById('tb');
+  const q=(document.getElementById('searchBox').value||'').toLowerCase().trim();
+  let rows = ALL_LINKS;
+  if(q){
+    rows = rows.filter(l =>
+      (l.title||'').toLowerCase().includes(q) ||
+      (l.url||'').toLowerCase().includes(q) ||
+      (l.affiliate_url||'').toLowerCase().includes(q) ||
+      (l.genius_url||'').toLowerCase().includes(q) ||
+      String(l.id||'').includes(q) ||
+      asinFrom(l.url||l.affiliate_url||'').toLowerCase().includes(q)
+    );
+  }
+  rows = rows.slice().sort((a,b)=>{
+    let av, bv;
+    if (SORT.key==='clicks') { av=clicksOf(a); bv=clicksOf(b); }
+    else if (SORT.key==='id') { av=Number(a.id||0); bv=Number(b.id||0); }
+    else if (SORT.key==='asin') { av=asinFrom(a.url||a.affiliate_url||''); bv=asinFrom(b.url||b.affiliate_url||''); }
+    else if (SORT.key==='network') { av=networkOf(a); bv=networkOf(b); }
+    else { av=String(a[SORT.key]||''); bv=String(b[SORT.key]||''); }
+    if (av < bv) return -SORT.dir;
+    if (av > bv) return SORT.dir;
+    return 0;
+  });
+  // Cap render to 2000 rows for speed
+  const cap = 2000;
+  const truncated = rows.length > cap;
+  rows = rows.slice(0, cap);
+
+  const html = rows.map(l=>{
+    const dest = l.url||l.affiliate_url||l.genius_url||'';
+    const asin = asinFrom(dest)||asinFrom(l.affiliate_url)||asinFrom(l.genius_url)||'';
+    const c = clicksOf(l);
+    const cClass = c>=100 ? 'clicks-hi' : (c>=1 ? 'clicks-mid' : 'clicks-zero');
+    const gu = l.genius_url||'';
+    const net = networkOf(l);
+    const title = l.title||'<span class="small" style="font-style:italic">(no title)</span>';
+    return `<tr>
+      <td class="${cClass}">${c.toLocaleString()}</td>
+      <td><div class="title">${l.title?esc(l.title):title}</div></td>
+      <td><span class="network net-${net}">${net}</span></td>
+      <td class="mono">${esc(asin)}</td>
+      <td class="mono">${esc(l.id||'')}</td>
+      <td class="mono">${fmtDate(l.created_at)}</td>
+      <td>${fmtAge(l.last_clicks_check)}</td>
+      <td class="mono">${gu?`<a class="gu" href="${esc(gu)}" target="_blank" rel="noopener">${esc(gu.replace('https://urlgeni.us/',''))}</a>`:''}</td>
+    </tr>`;
+  }).join('');
+  tb.innerHTML = html || '<tr><td colspan="8">No links match.</td></tr>';
+
+  if (truncated) {
+    tb.insertAdjacentHTML('beforeend',
+      `<tr><td colspan="8" class="small" style="text-align:center;padding:14px">Showing first ${cap.toLocaleString()} of ${ALL_LINKS.length.toLocaleString()} matching rows · refine search to narrow</td></tr>`);
+  }
+}
+
+async function loadLinks(){
+  const tb=document.getElementById('tb');
+  tb.innerHTML='<tr><td colspan="8">Loading…</td></tr>';
+  try{
+    const r=await fetch('/urlgenius/links?limit=25000');
+    const d=await r.json();
+    ALL_LINKS = d.links||[];
+    const total = d.total || ALL_LINKS.length;
+    const withClicks = ALL_LINKS.filter(l=>clicksOf(l)>0).length;
+    const synced = ALL_LINKS.filter(l=>l.last_clicks_check).length;
+    const totalClicks = ALL_LINKS.reduce((s,l)=>s+clicksOf(l),0);
+
+    if(!document.querySelector('#banner .banner')){
+      setBanner('ok',
+        `<strong>${ALL_LINKS.length.toLocaleString()}</strong> link${ALL_LINKS.length===1?'':'s'} loaded · ` +
+        `<strong>${withClicks.toLocaleString()}</strong> with clicks · ` +
+        `<strong>${totalClicks.toLocaleString()}</strong> total clicks · ` +
+        `${synced.toLocaleString()} live-synced`
+      );
+    }
+    renderTable();
+  } catch(e){
+    tb.innerHTML=`<tr><td colspan="8" style="color:#c00">Failed to load: ${esc(e.message||e)}</td></tr>`;
+  }
+}
+loadLinks();
+</script></body></html>

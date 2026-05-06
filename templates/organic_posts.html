@@ -255,9 +255,10 @@
   <div class="tb-page">Content Builder</div>
   <div class="tb-right">
     <a href="/archer/organic" class="tb-link active">Organic</a>
-    <a href="/archer/ads" class="tb-link">Ads</a>
+    <a href="/archer/campaigns" class="tb-link">Campaigns</a>
     <a href="/archer/collage" class="tb-link">Collage</a>
     <a href="/archer/products" class="tb-link">Products</a>
+    <a href="/urlgenius" class="tb-link">URLGenius</a>
     <a href="/" class="tb-link">Chat</a>
   </div>
 </div>
@@ -267,7 +268,7 @@
   <!-- ── 01 PRODUCT DISCOVERY ─────────────────────────────────────── -->
   <div class="section">
     <div class="slabel">01 — Product Discovery</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">Filter Archer's catalog — click any card to add to the Build Queue</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">Filter discovery source — Archer catalog or URLGenius top-clicked. Click any card to add to the Build Queue</div>
     <div class="disc-filters">
       <div class="df-group">
         <span class="df-label">Category</span>
@@ -295,6 +296,7 @@
           <option value="both">Trending + Steph Matched</option>
           <option value="matched">Steph Matched Only</option>
           <option value="trending">Archer Trending Only</option>
+          <option value="urlgenius">URLGenius Top Clicked (30d)</option>
         </select>
       </div>
       <div class="df-group">
@@ -320,7 +322,11 @@
   <div class="section">
     <div class="flex-b" style="margin-bottom:10px;">
       <div class="slabel" style="margin-bottom:0;">02 — Build Queue</div>
-      <button onclick="clearQueue()" style="font-size:11px;color:var(--text4);background:none;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Clear All</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button onclick="importTopClicked()" style="font-size:11px;color:var(--text2);background:#fff;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Import Top URLGenius (30d)</button>
+        <button onclick="syncUrlgeniusNow()" style="font-size:11px;color:var(--text2);background:#fff;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Sync URLGenius Now</button>
+        <button onclick="clearQueue()" style="font-size:11px;color:var(--text4);background:none;border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;">Clear All</button>
+      </div>
     </div>
     <div class="queue-chips" id="queue-chips">
       <span class="q-empty">No products selected yet</span>
@@ -518,6 +524,14 @@ window.onload = async () => {
   if (postId) {
     await loadSavedQueue(postId);
   }
+  const buildQueue = JSON.parse(sessionStorage.getItem('archer_build_queue') || '[]');
+  if (buildQueue.length) {
+    sessionStorage.removeItem('archer_build_queue');
+    for (const item of buildQueue) {
+      await addProduct(item.asin, { product_name: item.name, commission_payout: item.commission });
+    }
+    showToast(`${buildQueue.length} product${buildQueue.length > 1 ? 's' : ''} loaded from Archer`);
+  }
 };
 
 /* ════════════════════════════════════════════════════════════════
@@ -621,11 +635,16 @@ async function pullRecs() {
   if (comm !== '0') params.set('min_commission', comm);
 
   try {
-    const res = await fetch(`/archer/search?${params}`);
-    let products = (await res.json()).products || [];
-
-    if (signal === 'matched')  products = products.filter(p => p.steph_revenue && parseFloat(p.steph_revenue) > 0);
-    if (signal === 'trending') products = products.filter(p => !p.steph_revenue || parseFloat(p.steph_revenue) === 0);
+    let products = [];
+    if (signal === 'urlgenius') {
+      const ug = await fetch('/archer/discovery/top_clicked?min_clicks=300&limit=35');
+      products = (await ug.json()).products || [];
+    } else {
+      const res = await fetch(`/archer/search?${params}`);
+      products = (await res.json()).products || [];
+      if (signal === 'matched')  products = products.filter(p => p.steph_revenue && parseFloat(p.steph_revenue) > 0);
+      if (signal === 'trending') products = products.filter(p => !p.steph_revenue || parseFloat(p.steph_revenue) === 0);
+    }
 
     if (price) {
       products = products.filter(p => {
@@ -717,6 +736,59 @@ function clearQueue() {
   renderQueueChips();
   renderDiscovery();
 }
+
+
+
+async function syncUrlgeniusNow() {
+  const btn = event?.target;
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+  try {
+    const res = await fetch('/urlgenius/sync', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+    showToast(`URLGenius synced: ${data.seeded_links || 0} links`);
+  } catch (e) {
+    showToast(`URLGenius sync failed: ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = old || 'Sync URLGenius Now'; }
+  }
+}
+async function importTopClicked() {
+  try {
+    const res = await fetch('/archer/discovery/top_clicked?min_clicks=300&limit=35');
+    const data = await res.json();
+    const items = data.products || [];
+    if (!items.length) {
+      showToast(data.degraded ? 'URLGenius unavailable right now; try again shortly.' : 'No URLGenius products met 300+ clicks in last 30d.');
+      return;
+    }
+
+    let added = 0;
+    for (const p of items) {
+      const asin = (p.asin || '').trim();
+      if (!asin) continue;
+      if (state.products.find(x => x.asin === asin)) continue;
+      state.products.push({
+        asin,
+        product_name: p.product_name || asin,
+        company_name: p.company_name || '',
+        price: p.price || '',
+        commission_payout: p.commission_payout || '',
+        image_encoded_string: p.image_encoded_string || '',
+        clicks_30d: p.clicks_30d || 0,
+      });
+      added++;
+    }
+
+    renderQueueChips();
+    renderDiscovery();
+    showToast(`Imported ${added} top-clicked product${added===1?'':'s'} from URLGenius.`);
+  } catch (e) {
+    showToast('Could not import URLGenius products right now.');
+  }
+}
+
 
 function renderQueueChips() {
   const el = document.getElementById('queue-chips');
@@ -1050,6 +1122,7 @@ function _renderPostCard(post, source, medium, term) {
         <button class="ca-btn primary" onclick="copyPost('${esc(asin)}')">Copy Post + Link</button>
         ${postId ? `<button class="ca-btn" onclick="savePostEdit(${postId}, '${esc(asin)}')">💾 Save Edit</button>` : ''}
         ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'approved')" style="background:var(--green-light);color:var(--green);">✓ Approve</button>` : ''}
+        ${postId && status === 'posted' ? `<button class="ca-btn" onclick="boostThisPost(${postId})" style="background:var(--blue-light);color:var(--blue);">🚀 Boost as Ad</button>` : ''}
         ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'archived')" style="color:var(--red);">🗑 Archive</button>` : ''}
         <a href="https://www.amazon.com/dp/${esc(asin)}" target="_blank" class="ca-btn">Amazon ↗</a>
       </div>
@@ -1064,6 +1137,11 @@ function _selectedPostIds() {
 
 function toggleAllQueue(on) {
   document.querySelectorAll('.q-checkbox').forEach(el => { el.checked = on; });
+}
+
+function boostThisPost(postId) {
+  // Deep-link to /archer/campaigns with post-boost mode pre-loaded
+  window.open(`/archer/campaigns?boost_post=${postId}`, '_blank', 'noopener');
 }
 
 async function setPostStatus(postId, status) {
@@ -1397,7 +1475,7 @@ function _renderPublishedPill(data) {
       <button class="ca-btn primary" onclick="copyToClipboard('${esc(publicUrl)}')">Copy URL</button>
       <a class="ca-btn" href="${esc(publicUrl)}" target="_blank" rel="noopener">Open ↗</a>
       <a class="ca-btn" href="/archer/collage?slug=${esc(slug)}" target="_blank" rel="noopener">✏️ Edit</a>
-      <a class="ca-btn" href="/archer/ads?collection=${esc(slug)}" style="background:var(--blue-light);color:var(--blue);border-color:rgba(28,95,166,0.3);">🚀 Promote</a>
+      <a class="ca-btn" href="/archer/campaigns?collection=${esc(slug)}" style="background:var(--blue-light);color:var(--blue);border-color:rgba(28,95,166,0.3);">🚀 Promote</a>
     </div>
   </div>`;
 }

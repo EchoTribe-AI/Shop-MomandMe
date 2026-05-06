@@ -324,3 +324,72 @@ This branch now includes the approved storefront/insights improvements from the 
   - `https://shop.echotribe.ai/posts`
 - Subdomain rewrite hook in `app.py` now explicitly routes `GET /posts` to `shop_posts()` before slug fallback.
 - If adding future public shop pages, register explicit paths in `_route_shop_subdomain()` before the dynamic slug branch.
+
+### Campaign Builder v3 (Phase 3)
+
+#### Architecture
+- `campaign_builder.py` — pure functions producing spec-compliant Campaign Build
+  Packages (per `Campaign_Build_Package_Spec.md`). Two package types:
+  `new_campaign` (multi-layer per ASIN/collection) and `boost_post` (existing
+  organic post promotion).
+- `campaigns_v3` table — persisted packages with status (`draft` / `exported` /
+  `built`), full `package_json`, target metadata, asset URL, and per-package
+  defaults overrides.
+- Layer-specific copy prompt in `prompts.py` (`build_layer_copy_prompt`) — Claude
+  generates one set of headline/body/description/CTA per layer for a single
+  shared asset URL. Asset / Copy / CTA Link / Final Ad cleanly separated.
+
+#### Asset / Copy / CTA model (locked design)
+- **Asset** — one shared `image_url` or `video_url` per package
+- **Copy** — unique per layer (`creative_ref` = `AD_L1`, `AD_L2`, etc.) but each
+  asset entry points back to the same image
+- **CTA link** — affiliate link or `https://shop.echotribe.ai/<slug>`, with
+  layer-specific UTMs auto-generated when `utm_auto: true`
+- **Final ad** = asset + layer copy + CTA link
+
+#### New routes
+- `GET /archer/campaigns` — bulk builder page (4-step wizard)
+- `POST /archer/campaigns/generate` — bulk-generate N packages from target list
+- `GET /archer/campaigns/list` — list persisted packages
+- `GET /archer/campaigns/<id>` — fetch one
+- `PATCH /archer/campaigns/<id>` — edit package_json / status / asset_url
+- `DELETE /archer/campaigns/<id>` — delete
+- `POST /archer/campaigns/<id>/export` — validate + mark exported + return Ryze prompt
+- `POST /archer/campaigns/boost` — build a boost_post package from a posts.id +
+  manually-pasted Meta `post_id`
+
+#### Schema additions
+- `creators.fb_page_id` (TEXT) — Meta Page ID, required for Campaign Builder.
+  Steph seeded with `100065251532225`.
+- `creators.defaults_json` (TEXT) — per-creator default overrides for budget /
+  age / geo / audience that override the spec hardcoded defaults but yield to
+  per-package overrides.
+- `campaigns_v3` (new table) — full package persistence
+
+#### Topbar / handoff changes
+- `/archer/ads` removed from topbar nav (kept as a route for direct linking)
+- `/archer/campaigns` is the new primary entry point
+- Mode C published pill `🚀 Promote` button now deep-links to
+  `/archer/campaigns?collection=<slug>` (was `/archer/ads`)
+- Mode B post cards with `status='posted'` show a `🚀 Boost as Ad` button that
+  opens `/archer/campaigns?boost_post=<post_id>`
+- Dashboard "Ads Builder" tile is now "Campaigns Builder"
+
+#### Defaults precedence
+1. Per-package `defaults_override` (highest)
+2. Per-creator `defaults_json`
+3. `SPEC_DEFAULTS` from spec (lowest fallback)
+
+#### UTM auto-generation
+Per the UTM_Schema_Reference. Defaults to ON. Toggle OFF when supplying custom
+tracking. Format examples (Section "Full Examples" of the spec):
+- New campaign, ASIN: `utm_content=ad_l1_evergreen_static`
+- New campaign, collection: `utm_content=ad_l1_evergreen_static_collection`
+- Boost post: `utm_content=boosted_<product_slug>_<creative_ref>`
+
+
+### Campaign Builder v3 — Replit test notes (April 29, 2026)
+- `/archer/campaigns` ASIN picker now merges **session build queue** + **persisted approved/posted products** (`/archer/posts` filtered to `approved` + `posted`) so ASIN targets remain selectable after refresh/restart.
+- Campaign package generation now applies a safe fallback to default creator `fb_page_id` when a creator record is missing it, preventing hard failures during collection/package generation in mixed test data.
+- `/urlgenius/links` now degrades gracefully to `{links: []}` when URLGenius API listing times out, so dashboard widgets keep loading instead of surfacing a blocking 500.
+- Product Discovery expansion (top-clicked + trending from URLGenius reports + Archer top review/click data) is **not yet implemented in this patch** and should be handled as a follow-up story with new aggregation endpoints.

@@ -1,0 +1,49 @@
+Fix the /archer/products page: add "Send to Builder" action buttons after product selection
+
+In templates/archer_products.html, the Selection Tray in the sidebar (id tray-actions) currently only shows "📋 Copy All Links" and "Clear selection" when products are selected. It needs three additional routing buttons so the user can push selected products into the content creation workflow.
+
+What to add:
+
+Replace the contents of <div class="tray-actions" id="tray-actions" style="display:none;"> (around line 345) with this new layout:
+<div class="tray-actions" id="tray-actions" style="display:none;">
+  <div style="font-family:var(--mono);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text4);margin-bottom:8px;">Send to builder</div>
+  <button class="btn btn-primary" onclick="sendToBuilder('/archer/organic')">✍️ Build Organic Posts</button>
+  <button class="btn btn-outline" style="border-color:var(--blue-mid);color:var(--blue-text);" onclick="sendToBuilder('/archer/campaigns')">📢 Build Campaigns (Ads)</button>
+  <button class="btn btn-outline" onclick="sendToBuilder('/archer/collage')">🖼️ Build Collection Page</button>
+  <div style="height:1px;background:var(--border);margin:6px 0;"></div>
+  <button class="btn btn-outline" onclick="copyAllLinks()">📋 Copy All Links</button>
+  <button class="btn btn-outline" style="color:var(--text4);" onclick="clearTray()">Clear selection</button>
+</div>
+Add this JavaScript function in the <script> block, after the clearTray() function:
+function sendToBuilder(destination) {
+  if (!state.tray.length) {
+    showToast('Select at least one product first');
+    return;
+  }
+  // Save selected products to sessionStorage for the destination page to read
+  const queue = state.tray.map(t => ({
+    asin: t.asin,
+    name: t.name,
+    commission: t.commission,
+    link: t.link || state.linkedAsins[t.asin] || null,
+  }));
+  sessionStorage.setItem('archer_build_queue', JSON.stringify(queue));
+  window.location.href = destination;
+}
+How it integrates with existing pages:
+
+templates/archer_campaigns.html already reads sessionStorage.getItem('archer_build_queue') on window.onload and populates its product tray — this will work immediately with no changes to that file.
+templates/organic_posts.html (the /archer/organic route) needs to read the same key on load. In that file's window.onload or DOMContentLoaded, add:
+const buildQueue = JSON.parse(sessionStorage.getItem('archer_build_queue') || '[]');
+if (buildQueue.length) {
+  sessionStorage.removeItem('archer_build_queue'); // consume it
+  // Pre-populate the product queue display if a queue/tray UI exists,
+  // or store in a local variable for the next content generation action.
+  // At minimum, show a toast: "X products loaded from Archer"
+  showToast && showToast(`${buildQueue.length} product${buildQueue.length > 1 ? 's' : ''} loaded from Archer`);
+  // If organic_posts.html has a selectedProducts array or similar, push them here.
+}
+templates/archer_collage.html (the /archer/collage route): do the same pattern — read archer_build_queue on load, auto-populate the product selection in Mode C so the user sees their chosen products pre-loaded before naming the collection.
+Do not change any existing route handlers in app.py. All three destination routes (/archer/organic, /archer/campaigns, /archer/collage) already exist. This is a pure frontend change.
+
+That prompt gives the Replit agent everything it needs: the exact element to replace, the exact JS to add, and how each destination page should consume the queue. The campaigns page will work immediately since it already reads archer_build_queue. The organic posts and collage pages need the small read-on-load snippet added.

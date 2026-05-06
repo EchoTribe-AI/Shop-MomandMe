@@ -343,8 +343,13 @@
         <div class="tray-empty">No products selected yet</div>
       </div>
       <div class="tray-actions" id="tray-actions" style="display:none;">
-        <button class="btn btn-primary" onclick="copyAllLinks()">📋 Copy All Links</button>
-        <button class="btn btn-outline" onclick="clearTray()">Clear selection</button>
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text4);margin-bottom:8px;">Send to builder</div>
+        <button class="btn btn-primary" onclick="sendToBuilder('/archer/organic')">✍️ Build Organic Posts</button>
+        <button class="btn btn-outline" style="border-color:var(--blue-mid);color:var(--blue-text);" onclick="sendToBuilder('/archer/campaigns')">📢 Build Campaigns (Ads)</button>
+        <button class="btn btn-outline" onclick="sendToBuilder('/archer/collage')">🖼️ Build Collection Page</button>
+        <div style="height:1px;background:var(--border);margin:6px 0;"></div>
+        <button class="btn btn-outline" onclick="copyAllLinks()">📋 Copy All Links</button>
+        <button class="btn btn-outline" style="color:var(--text4);" onclick="clearTray()">Clear selection</button>
       </div>
     </div>
 
@@ -1044,6 +1049,21 @@
     state.tray.forEach(t => document.getElementById(`card-${t.asin}`)?.classList.remove('selected'));
     state.tray = [];
     updateTray();
+  }
+
+  function sendToBuilder(destination) {
+    if (!state.tray.length) {
+      showToast('Select at least one product first');
+      return;
+    }
+    const queue = state.tray.map(t => ({
+      asin: t.asin,
+      name: t.name,
+      commission: t.commission,
+      link: t.link || state.linkedAsins[t.asin] || null,
+    }));
+    sessionStorage.setItem('archer_build_queue', JSON.stringify(queue));
+    window.location.href = destination;
   }
 
   async function copyAllLinks() {

@@ -201,7 +201,7 @@
   <div class="tb-page">Collage Builder</div>
   <div class="tb-right">
     <a href="/archer/organic" class="tb-link">Organic</a>
-    <a href="/archer/ads" class="tb-link">Ads</a>
+    <a href="/archer/campaigns" class="tb-link">Campaigns</a>
     <a href="/archer/collage" class="tb-link">Collage</a>
     <a href="/archer/products" class="tb-link">Products</a>
     <a href="/" class="tb-link">Chat</a>
@@ -378,6 +378,15 @@
     }
     if (collectionSlug) {
       await loadCollectionForEdit(collectionSlug);
+    }
+    const buildQueue = JSON.parse(sessionStorage.getItem('archer_build_queue') || '[]');
+    if (buildQueue.length) {
+      sessionStorage.removeItem('archer_build_queue');
+      const asinList = buildQueue.map(item => item.asin).slice(0, MAX_SLOTS);
+      for (const asin of asinList) {
+        await addProductByAsin(asin);
+      }
+      showToast(`${asinList.length} product${asinList.length > 1 ? 's' : ''} loaded from Archer`);
     }
     renderSlots();
     generateSlug();
