@@ -213,11 +213,50 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_status ON campaigns_v3(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_target ON campaigns_v3(target_type, target_value)")
 
+        init_collection_content_drafts_schema(conn)
         init_walmart_trends_schema(conn)
 
         conn.commit()
     finally:
         conn.close()
+
+
+def init_collection_content_drafts_schema(conn: sqlite3.Connection) -> None:
+    """Create draft content table for trend collection post/page generation."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS collection_content_drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL,
+            source_collection_slug TEXT NOT NULL,
+            source_collection_id TEXT,
+            creator_id TEXT DEFAULT 'everydaywithsteph',
+            title TEXT,
+            description TEXT,
+            voice_source_text TEXT,
+            voice_raw_transcript TEXT,
+            social_post TEXT,
+            landing_intro TEXT,
+            hooks_json TEXT,
+            cta TEXT,
+            platform TEXT DEFAULT 'facebook_group',
+            tone TEXT,
+            product_snapshot_json TEXT,
+            status TEXT DEFAULT 'draft',
+            public_slug TEXT,
+            published_collage_slug TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            published_at TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_collection_content_source "
+        "ON collection_content_drafts(source_type, source_collection_slug)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_collection_content_creator "
+        "ON collection_content_drafts(creator_id, status)"
+    )
 
 
 def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:

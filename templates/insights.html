@@ -187,7 +187,7 @@
             </td>
             <td>
               {% for ct in c.campaign_types %}
-                <span class="ct-pill ct-{{ ct }}">{{ ct }}</span>
+                <span class="ct-pill ct-{{ ct }}">{{ 'Walmart Trend' if ct == 'walmart_trend' else ct }}</span>
               {% endfor %}
             </td>
             <td class="num num-clicks">{{ '{:,}'.format(c.clicks) }}</td>

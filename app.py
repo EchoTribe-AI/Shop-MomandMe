@@ -1708,13 +1708,26 @@ def _require_walmart_trends_admin():
         return jsonify({'error': 'unauthorized'}), 401
     return None
 
+
+def _require_walmart_admin_if_configured():
+    """Require the Walmart admin token only when a token is configured."""
+    if not (
+        os.environ.get('WALMART_TRENDS_ADMIN_TOKEN')
+        or os.environ.get('ADMIN_API_TOKEN')
+        or os.environ.get('ADMIN_SECRET')
+    ):
+        return None
+    return _require_walmart_trends_admin()
+
+
 @app.route('/walmart/trending-now')
 def walmart_trending_now_page():
     """Mobile-first Walmart What's Trending Now landing page."""
     from walmart_trends import get_trending_page_data
 
     data = get_trending_page_data()
-    return render_template('walmart_trending_now.html', data=data)
+    admin_mode = request.args.get('admin') == '1'
+    return render_template('walmart_trending_now.html', data=data, admin_mode=admin_mode)
 
 
 @app.route('/api/walmart/trending-now')
@@ -1723,6 +1736,97 @@ def walmart_trending_now_api():
     from walmart_trends import get_trending_page_data
 
     return jsonify(get_trending_page_data())
+
+
+@app.route('/walmart/collections/<collection_slug>/create-post')
+def walmart_collection_create_post(collection_slug):
+    """Dedicated creator-voice post/page flow for one Walmart trend collection."""
+    import collection_content as cc
+
+    collection = cc.get_walmart_collection(collection_slug)
+    if not collection:
+        return "Walmart collection not found", 404
+    creator_id = (request.args.get('creator_id') or 'everydaywithsteph').strip()
+    products = collection.get('items', [])[:10]
+    default_public_slug = cc.slugify(f"walmart-{collection.get('name') or collection_slug}")
+    return render_template(
+        'walmart_collection_create_post.html',
+        collection=collection,
+        products=products,
+        creator_id=creator_id,
+        default_public_slug=default_public_slug,
+    )
+
+
+@app.route('/api/walmart/collections/<collection_slug>/generate-post', methods=['POST'])
+def walmart_collection_generate_post(collection_slug):
+    guard = _require_walmart_admin_if_configured()
+    if guard:
+        return guard
+    import collection_content as cc
+
+    body = request.get_json(silent=True) or {}
+    try:
+        generated = cc.generate_walmart_collection_content(
+            collection_slug=collection_slug,
+            creator_id=(body.get('creator_id') or 'everydaywithsteph').strip(),
+            voice_source_text=body.get('voice_source_text') or '',
+            platform=body.get('platform') or 'facebook_group',
+            tone=body.get('tone') or 'warm mom-to-mom',
+            audience_context=body.get('audience_context') or 'busy moms looking for timely Walmart finds',
+        )
+        draft_id = body.get('draft_id')
+        response = {'source_type': cc.SOURCE_WALMART_TREND, 'source_collection_slug': collection_slug, **generated}
+        if draft_id:
+            response['draft_id'] = draft_id
+        return jsonify(response)
+    except cc.CollectionContentError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        logging.exception('[WALMART_CONTENT] generate failed')
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/walmart/collections/<collection_slug>/draft-page', methods=['POST'])
+def walmart_collection_draft_page(collection_slug):
+    guard = _require_walmart_admin_if_configured()
+    if guard:
+        return guard
+    import collection_content as cc
+
+    body = request.get_json(silent=True) or {}
+    try:
+        draft = cc.save_walmart_collection_draft(collection_slug, body, status='draft')
+        preview = cc.materialize_preview(int(draft['id']))
+        return jsonify({
+            'draft_id': draft['id'],
+            'status': 'draft',
+            'public_slug': preview['public_slug'],
+            'preview_url': preview['preview_url'],
+            'draft': draft,
+        })
+    except cc.CollectionContentError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        logging.exception('[WALMART_CONTENT] draft failed')
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/collection-content-drafts/<int:draft_id>/publish', methods=['POST'])
+def collection_content_draft_publish(draft_id):
+    guard = _require_walmart_admin_if_configured()
+    if guard:
+        return guard
+    import collection_content as cc
+
+    try:
+        result = cc.publish_draft(draft_id)
+        return jsonify(result)
+    except cc.CollectionContentError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        logging.exception('[WALMART_CONTENT] publish failed')
+        return jsonify({'error': str(exc)}), 500
 
 
 @app.route('/admin/walmart-trends/bootstrap', methods=['POST'])
