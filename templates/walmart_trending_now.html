@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>What's Trending Now | Walmart Finds</title>
-  <meta name="description" content="Weekly refreshed Walmart products and curated trending collections.">
+  <meta name="description" content="Workbook-backed Walmart products and curated trending collections.">
   <style>
     :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; }
     * { box-sizing: border-box; }
@@ -43,15 +43,15 @@
 <body>
   <main class="page">
     <header class="hero">
-      <div class="eyebrow">🔥 Walmart weekly trends</div>
+      <div class="eyebrow">🔥 Walmart trends</div>
       <h1>What's Trending Now</h1>
-      <p class="subhead">Mobile-first Walmart finds refreshed from performance data, with curated collections built around what shoppers are buying now.</p>
+      <p class="subhead">Mobile-first Walmart finds bootstrapped from the May 6 workbook, with curated collections built around what shoppers are buying now.</p>
       <div class="refreshed">Last refreshed: {{ data['last_refreshed'] or 'Not refreshed yet' }}</div>
     </header>
 
     {% if not data['collections'] %}
       <div class="empty">
-        No Walmart trend collections are active yet. Run the workbook bootstrap or weekly refresh to populate this page.
+        No Walmart trend collections are active yet. In the Replit shell, run: uv run python scripts/refresh_walmart_trends.py --mode bootstrap --workbook attached_assets/Walmart_May6th_Analysis.xlsx
       </div>
     {% endif %}
 
