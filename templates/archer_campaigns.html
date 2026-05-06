@@ -317,11 +317,15 @@ const LAYERS = {
   L6: {name: 'IG Native (Reels)',  budget: 'CBO', default: false, desc: 'Sound-off readable'},
 };
 
+const ASIN_RE  = /^B[A-Z0-9]{9}$/;
+const SKU_RE   = /^\d{6,12}$/;
+
 const state = {
   mode: 'asin',
   targets: { asin: [], collection: [], post: [] },
   selectedTargets: new Set(),
   selectedLayers: new Set(['L1','L2']),
+  ownProducts: [],   // fetched product objects for own-product mode
 };
 
 // ── INIT ───────────────────────────────────────────────────────────
@@ -358,8 +362,11 @@ function setTargetMode(mode, btn) {
   state.selectedTargets.clear();
   document.querySelectorAll('.tm-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById('post-meta-id-row').style.display = mode === 'post' ? 'block' : 'none';
-  renderTargetGrid();
+  const isOwn = mode === 'own-product';
+  document.getElementById('target-grid').style.display      = isOwn ? 'none' : '';
+  document.getElementById('own-product-panel').style.display = isOwn ? 'block' : 'none';
+  document.getElementById('post-meta-id-row').style.display  = mode === 'post' ? 'block' : 'none';
+  if (!isOwn) renderTargetGrid();
   updateTargetCount();
 }
 
@@ -481,6 +488,140 @@ function updateTargetCount() {
   document.getElementById('target-count').textContent = `${state.selectedTargets.size} selected`;
 }
 
+// ── OWN-PRODUCT: DETECT ────────────────────────────────────────────
+function detectIds() {
+  const raw = document.getElementById('own-product-input').value;
+  const tokens = raw.split(/[\n,]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  const detected = tokens.map(id => {
+    if (ASIN_RE.test(id))  return { rawId: id, platform: 'amazon',  url: `https://www.amazon.com/dp/${id}` };
+    if (SKU_RE.test(id))   return { rawId: id, platform: 'walmart', url: `https://www.walmart.com/ip/${id}` };
+    return { rawId: id, platform: 'unknown', url: '' };
+  });
+  const pillBox = document.getElementById('detect-pills');
+  pillBox.innerHTML = detected.map(d => {
+    const label = d.platform === 'amazon' ? '🟠 Amazon' : d.platform === 'walmart' ? '🔵 Walmart' : '⚪ Unknown';
+    return `<span class="detect-pill ${d.platform}">${label} · ${esc(d.rawId)}</span>`;
+  }).join('');
+  const hasValid = detected.some(d => d.platform !== 'unknown');
+  document.getElementById('fetch-btn').disabled = !hasValid;
+  return detected;
+}
+
+// ── OWN-PRODUCT: FETCH ─────────────────────────────────────────────
+async function fetchOwnProducts() {
+  const detected = detectIds().filter(d => d.platform !== 'unknown');
+  if (!detected.length) return;
+
+  // Reset state for this fetch run
+  state.ownProducts = detected.map(d => ({ ...d, status: 'fetching', name: '', price: '', imageUrl: '' }));
+  state.selectedTargets.clear();
+  renderOwnProductCards();
+  updateTargetCount();
+
+  const btn      = document.getElementById('fetch-btn');
+  const spin     = document.getElementById('fetch-spin');
+  const label    = document.getElementById('fetch-btn-label');
+  const progress = document.getElementById('fetch-progress');
+  btn.disabled = true;
+  spin.style.display = 'inline-block';
+  progress.style.display = 'inline';
+
+  for (let i = 0; i < detected.length; i++) {
+    const d = detected[i];
+    label.textContent = `Fetching ${i + 1} of ${detected.length}…`;
+    progress.textContent = `${i + 1} / ${detected.length}`;
+    try {
+      const res  = await fetch('/archer/campaigns/fetch-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rawId: d.rawId, platform: d.platform, url: d.url }),
+      });
+      const data = await res.json();
+      state.ownProducts[i] = { ...d, ...data };
+    } catch(e) {
+      state.ownProducts[i] = { ...d, status: 'error', error: e.message };
+    }
+    // Auto-select fetched products
+    if (state.ownProducts[i].status === 'fetched') {
+      state.selectedTargets.add(`own-${d.rawId}`);
+    }
+    renderOwnProductCards();
+    updateTargetCount();
+  }
+
+  btn.disabled = false;
+  spin.style.display = 'none';
+  label.textContent = 'Fetch product details';
+  progress.style.display = 'none';
+}
+
+async function retryOwnProduct(rawId) {
+  const idx = state.ownProducts.findIndex(p => p.rawId === rawId);
+  if (idx === -1) return;
+  const d = state.ownProducts[idx];
+  state.ownProducts[idx] = { ...d, status: 'fetching' };
+  renderOwnProductCards();
+  try {
+    const res  = await fetch('/archer/campaigns/fetch-product', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rawId: d.rawId, platform: d.platform, url: d.url }),
+    });
+    const data = await res.json();
+    state.ownProducts[idx] = { ...d, ...data };
+    if (data.status === 'fetched') state.selectedTargets.add(`own-${d.rawId}`);
+  } catch(e) {
+    state.ownProducts[idx] = { ...d, status: 'error', error: e.message };
+  }
+  renderOwnProductCards();
+  updateTargetCount();
+}
+
+// ── OWN-PRODUCT: RENDER CARDS ──────────────────────────────────────
+function renderOwnProductCards() {
+  const container = document.getElementById('own-product-cards');
+  if (!state.ownProducts.length) { container.innerHTML = ''; return; }
+  container.innerHTML = state.ownProducts.map(p => {
+    const ownId  = `own-${p.rawId}`;
+    const sel    = state.selectedTargets.has(ownId);
+    const clickable = p.status !== 'fetching' ? `onclick="toggleOwnProduct('${esc(p.rawId)}')"` : '';
+    const thumb  = p.imageUrl
+      ? `<img class="prod-thumb" src="${esc(p.imageUrl)}" onerror="this.style.display='none'">`
+      : `<div class="prod-thumb-ph">${p.platform === 'amazon' ? '🟠' : '🔵'}</div>`;
+    const platformLabel = p.platform === 'amazon' ? 'Amazon' : 'Walmart';
+
+    let body = '';
+    if (p.status === 'fetching') {
+      body = `<div class="prod-name" style="color:var(--text3)">Fetching…</div>
+              <div class="prod-meta">${esc(p.rawId)} · ${platformLabel}</div>`;
+    } else if (p.status === 'fetched') {
+      body = `<div class="prod-name">${esc(p.name)}</div>
+              <div class="prod-meta">${p.price ? '$' + esc(p.price) + ' · ' : ''}${esc(p.rawId)} · ${platformLabel}</div>`;
+    } else if (p.status === 'manual') {
+      body = `<div class="prod-name" style="color:var(--text2)">${esc(p.rawId)}</div>
+              <div class="prod-meta"><a href="${esc(p.url)}" target="_blank" style="color:var(--blue)">${platformLabel} listing ↗</a> · verify manually</div>`;
+    } else {
+      body = `<div class="prod-name" style="color:var(--red)">${esc(p.rawId)}</div>
+              <div class="prod-meta" style="color:var(--red)">${esc(p.error || 'Fetch failed')}</div>
+              <span class="prod-retry" onclick="retryOwnProduct('${esc(p.rawId)}')">↺ Retry</span>`;
+    }
+
+    return `<div class="prod-card ${sel ? 'selected' : ''} ${p.status === 'fetching' ? 'fetching' : ''}" ${clickable}>
+      ${thumb}
+      <div class="prod-info">${body}</div>
+      <span class="prod-badge ${p.status}">${p.status}</span>
+    </div>`;
+  }).join('');
+}
+
+function toggleOwnProduct(rawId) {
+  const id = `own-${rawId}`;
+  if (state.selectedTargets.has(id)) state.selectedTargets.delete(id);
+  else state.selectedTargets.add(id);
+  renderOwnProductCards();
+  updateTargetCount();
+}
+
 // ── LAYERS ─────────────────────────────────────────────────────────
 function renderLayerGrid() {
   const grid = document.getElementById('layer-grid');
@@ -513,6 +654,28 @@ async function generatePackages() {
   // Build targets payload
   const targets = [];
   state.selectedTargets.forEach(id => {
+    // Own-product targets (own-{rawId})
+    if (id.startsWith('own-')) {
+      const rawId = id.slice(4);
+      const p = state.ownProducts.find(x => x.rawId === rawId);
+      if (p && p.status === 'fetched') {
+        const fallbackImg = p.platform === 'amazon'
+          ? `https://ws-na.amazon-adsystem.com/widgets/q?_encoding=UTF8&ASIN=${rawId}&Format=_SL250_`
+          : '';
+        targets.push({
+          kind: p.platform === 'walmart' ? 'walmart' : 'asin',
+          value: rawId,
+          product_name: p.name || rawId,
+          brand: '',
+          price: p.price || '',
+          asset_url: p.imageUrl || fallbackImg,
+          asset_type: 'static_image',
+          destination_url: p.url,
+        });
+      }
+      return;
+    }
+
     const [kind, ...rest] = id.split('-');
     const value = rest.join('-');
     if (kind === 'asin') {
@@ -532,7 +695,6 @@ async function generatePackages() {
         kind: 'collection', value: t.slug,
         product_name: t.slug.replace(/-/g,' '),
         asset_type: 'static_image',
-        // asset_url filled in below from first product image
       });
     }
   });
