@@ -132,7 +132,35 @@
   .errbar.show { display: block; }
 
   .spin { display: inline-block; width: 12px; height: 12px; border: 1.5px solid rgba(255,255,255,0.45); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .spin-dark { display: inline-block; width: 12px; height: 12px; border: 1.5px solid rgba(26,26,23,0.2); border-top-color: var(--text2); border-radius: 50%; animation: spin 0.7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── OWN-PRODUCT PANEL ── */
+  .own-id-area { width: 100%; border: 0.5px solid var(--border2); border-radius: var(--r); padding: 10px 12px; font-size: 12px; line-height: 1.7; background: var(--bg); resize: vertical; outline: none; font-family: var(--mono); min-height: 96px; }
+  .own-id-area:focus { border-color: var(--archer); background: var(--surface); }
+  .detect-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; min-height: 20px; }
+  .detect-pill { padding: 3px 10px; border-radius: 12px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.4px; font-weight: 600; cursor: default; }
+  .detect-pill.amazon  { background: #fff8eb; color: #7a5c00; border: 0.5px solid rgba(122,92,0,0.25); }
+  .detect-pill.walmart { background: var(--blue-light); color: var(--blue); border: 0.5px solid rgba(28,95,166,0.25); }
+  .detect-pill.unknown { background: var(--bg2); color: var(--text4); border: 0.5px solid var(--border2); }
+
+  /* ── PRODUCT CARDS ── */
+  .prod-card { background: var(--bg); border: 1.5px solid transparent; border-radius: 8px; padding: 11px 13px; display: flex; gap: 12px; align-items: flex-start; margin-bottom: 8px; cursor: pointer; transition: all 0.12s; }
+  .prod-card:hover { background: var(--bg2); }
+  .prod-card.selected { border-color: var(--archer); background: var(--archer-light); }
+  .prod-card.fetching { opacity: 0.65; cursor: default; }
+  .prod-thumb { width: 50px; height: 50px; border-radius: 6px; object-fit: contain; background: #fff; flex-shrink: 0; border: 0.5px solid var(--border); }
+  .prod-thumb-ph { width: 50px; height: 50px; border-radius: 6px; background: var(--bg2); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 18px; border: 0.5px solid var(--border); }
+  .prod-info { flex: 1; min-width: 0; }
+  .prod-name { font-size: 12px; font-weight: 500; line-height: 1.3; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .prod-meta { font-family: var(--mono); font-size: 10px; color: var(--text3); margin-top: 2px; }
+  .prod-badge { padding: 2px 7px; border-radius: 10px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.4px; text-transform: uppercase; font-weight: 600; flex-shrink: 0; align-self: flex-start; }
+  .prod-badge.fetched  { background: var(--green-light); color: var(--green); border: 0.5px solid rgba(39,105,58,0.3); }
+  .prod-badge.fetching { background: var(--bg2); color: var(--text3); border: 0.5px solid var(--border2); }
+  .prod-badge.manual   { background: #fff8eb; color: #7a5c00; border: 0.5px solid rgba(122,92,0,0.25); }
+  .prod-badge.error    { background: #fff0f0; color: var(--red); border: 0.5px solid rgba(160,40,40,0.3); }
+  .prod-retry { font-size: 10px; color: var(--blue); cursor: pointer; margin-top: 4px; display: inline-block; }
+  .prod-retry:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -158,13 +186,34 @@
       <span id="target-count" style="text-transform:none;letter-spacing:0;font-family:var(--mono);font-size:11px;color:var(--text3);">0 selected</span>
     </div>
     <div class="target-mode">
-      <button class="tm-btn active" data-mode="asin"       onclick="setTargetMode('asin', this)">ASINs (Build Queue)</button>
-      <button class="tm-btn"        data-mode="collection" onclick="setTargetMode('collection', this)">Collections</button>
-      <button class="tm-btn"        data-mode="post"       onclick="setTargetMode('post', this)">Boost a Posted Post</button>
+      <button class="tm-btn active" data-mode="asin"        onclick="setTargetMode('asin', this)">ASINs (Build Queue)</button>
+      <button class="tm-btn"        data-mode="own-product" onclick="setTargetMode('own-product', this)">Own Products (ASIN / Walmart SKU)</button>
+      <button class="tm-btn"        data-mode="collection"  onclick="setTargetMode('collection', this)">Collections</button>
+      <button class="tm-btn"        data-mode="post"        onclick="setTargetMode('post', this)">Boost a Posted Post</button>
     </div>
+
+    <!-- Standard target grid (asin / collection / post modes) -->
     <div class="target-grid" id="target-grid">
       <div class="empty">Loading targets…</div>
     </div>
+
+    <!-- Own-product paste panel -->
+    <div id="own-product-panel" style="display:none;">
+      <textarea class="own-id-area" id="own-product-input"
+        placeholder="Paste one ID per line, or comma-separated:&#10;&#10;B0CLRNS4DD&#10;123456789&#10;B07XJ8C8F5, 987654321"
+        oninput="detectIds()"
+        rows="5"></textarea>
+      <div class="detect-pills" id="detect-pills"></div>
+      <div class="row" style="margin-top:14px;gap:12px;align-items:center;">
+        <button class="btn btn-primary" id="fetch-btn" onclick="fetchOwnProducts()" disabled>
+          <span id="fetch-spin" class="spin" style="display:none;border-color:rgba(255,255,255,0.45);border-top-color:#fff;"></span>
+          <span id="fetch-btn-label">Fetch product details</span>
+        </button>
+        <span id="fetch-progress" style="font-size:12px;color:var(--text4);display:none;"></span>
+      </div>
+      <div id="own-product-cards" style="margin-top:16px;"></div>
+    </div>
+
     <div id="post-meta-id-row" style="display:none;margin-top:12px;">
       <div class="dfield">
         <label class="dfield-label">Meta post_id (paste from Meta Business Suite → Posts → URL)</label>

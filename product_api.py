@@ -72,6 +72,30 @@ class WalmartAPI:
         except Exception as e:
             return []
     
+    def get_item_by_id(self, sku: str) -> Optional[Dict]:
+        """Fetch a single Walmart product by item ID / SKU via the Affiliate API."""
+        endpoint = f"{self.BASE_URL}/api-proxy/service/affil/product/v2/items/{sku}"
+        params = {'publisherId': self.publisher_id, 'format': 'json'}
+        try:
+            headers = self._build_headers(endpoint, params)
+            if not headers:
+                return None
+            response = requests.get(endpoint, params=params, headers=headers, timeout=10)
+            response.raise_for_status()
+            item = response.json()
+            price_val = item.get('salePrice') or item.get('msrp') or 0
+            price_str = f"{float(price_val):.2f}" if price_val else ''
+            return {
+                'name': item.get('name', ''),
+                'price': price_str,
+                'imageUrl': item.get('largeImage', '') or item.get('mediumImage', ''),
+                'description': '',
+                'sku': str(item.get('itemId', sku)),
+                'url': item.get('productUrl', f'https://www.walmart.com/ip/{sku}'),
+            }
+        except Exception:
+            return None
+
     def _build_headers(self, endpoint: str, params: Dict) -> Dict:
         """Build RSA-signed headers for Walmart Affiliate API"""
         try:

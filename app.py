@@ -2201,6 +2201,53 @@ def archer_track_click():
     conn.close()
     return jsonify({'ok': True})
 
+@app.route('/archer/campaigns/fetch-product', methods=['POST'])
+def archer_fetch_product():
+    """Fetch product details for a single ASIN (via Crawlbase) or Walmart SKU (via Walmart API).
+
+    Body: {"rawId": "B0CLRNS4DD", "platform": "amazon", "url": "https://..."}
+    Returns: product object with name, price, imageUrl, status
+    """
+    from product_api import WalmartAPI
+    from utils.crawlbase import get_amazon_product
+
+    body = request.get_json() or {}
+    raw_id  = (body.get('rawId') or '').strip()
+    platform = (body.get('platform') or '').strip()
+    url      = (body.get('url') or '').strip()
+
+    if not raw_id or not platform:
+        return jsonify({'error': 'rawId and platform are required'}), 400
+
+    base = {'rawId': raw_id, 'platform': platform, 'url': url}
+
+    try:
+        if platform == 'amazon':
+            data = get_amazon_product(raw_id)
+            if data and (data.get('name') or data.get('price')):
+                return jsonify({**base, 'name': data.get('name', ''),
+                                'price': (data.get('price') or '').replace('$', '').strip(),
+                                'imageUrl': data.get('imageUrl', ''),
+                                'description': '', 'status': 'fetched'})
+            return jsonify({**base, 'status': 'manual'})
+
+        if platform == 'walmart':
+            walmart = WalmartAPI()
+            data = walmart.get_item_by_id(raw_id)
+            if data and data.get('name'):
+                return jsonify({**base, 'name': data.get('name', ''),
+                                'price': data.get('price', ''),
+                                'imageUrl': data.get('imageUrl', ''),
+                                'description': '', 'status': 'fetched'})
+            return jsonify({**base, 'status': 'manual'})
+
+        return jsonify({**base, 'status': 'error', 'error': 'Unknown platform'}), 400
+
+    except Exception as e:
+        logging.exception('[FETCH-PRODUCT] failed')
+        return jsonify({**base, 'status': 'error', 'error': str(e)}), 500
+
+
 @app.route('/archer/image_proxy')
 def archer_image_proxy():
     """Proxy an image URL so the browser can download it without CORS issues."""
