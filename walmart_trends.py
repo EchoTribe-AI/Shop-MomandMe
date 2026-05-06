@@ -1,9 +1,8 @@
 """Walmart What's Trending Now refresh workflow.
 
 This module keeps the Walmart trending landing page independent from the
-existing Archer/Amazon collage flow. Workbook bootstrap uses workbook data plus
-URLGenius-only CTA wrapping; Impact remains isolated to later weekly refresh
-paths and is never used for workbook CTA generation.
+existing Archer/Amazon collage flow while reusing the existing Walmart, Impact,
+and URLGenius API clients from product_api.py.
 """
 from __future__ import annotations
 
@@ -27,7 +26,6 @@ from product_api import ImpactAPI, URLGeniusAPI, WalmartAPI
 
 DB_PATH = db_schema.DB_PATH
 DEFAULT_WORKBOOK = Path("attached_assets/Walmart_May6th_Analysis.xlsx")
-BOOTSTRAP_LINK_MODES = {"urlgenius", "workbook-only"}
 SHEET_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 
@@ -327,7 +325,7 @@ class WalmartTrendStore:
                 ON CONFLICT(sku) DO UPDATE SET
                     item_name = COALESCE(NULLIF(excluded.item_name, ''), walmart_products.item_name),
                     category_list = COALESCE(NULLIF(excluded.category_list, ''), walmart_products.category_list),
-                    canonical_url = excluded.canonical_url,
+                    canonical_url = COALESCE(walmart_products.canonical_url, excluded.canonical_url),
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (record.sku, record.item_name, record.category_list, f"https://www.walmart.com/ip/{record.sku}"),
@@ -582,52 +580,32 @@ class WalmartTrendStore:
                     (collection["slug"],),
                 ).fetchall()
                 items = []
-                collection_meta = json.loads(collection["metadata_json"] or "{}")
-                is_workbook = collection["source_type"] == "workbook_bootstrap"
-                link_mode = collection_meta.get("link_mode") or ("workbook-only" if is_workbook else "impact-urlgenius")
                 for row in item_rows:
                     rd = dict(row)
-                    impact_url = ""
-                    genius_url = ""
-                    canonical_shop_url = f"https://www.walmart.com/ip/{rd['sku']}"
-                    if is_workbook:
-                        if link_mode == "urlgenius":
-                            genius = conn.execute(
-                                """
-                                SELECT genius_url
-                                FROM walmart_urlgenius_links
-                                WHERE destination_url = ? AND status IN ('active', 'fallback')
-                                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
-                                LIMIT 1
-                                """,
-                                (canonical_shop_url,),
-                            ).fetchone()
-                            genius_url = genius["genius_url"] if genius else ""
-                    else:
-                        product_url = rd.get("canonical_url") or canonical_shop_url
-                        affiliate = conn.execute(
+                    affiliate = conn.execute(
+                        """
+                        SELECT impact_url
+                        FROM walmart_affiliate_links
+                        WHERE sku = ? AND status IN ('active', 'fallback')
+                        ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                        LIMIT 1
+                        """,
+                        (rd["sku"],),
+                    ).fetchone()
+                    impact_url = affiliate["impact_url"] if affiliate else ""
+                    genius = None
+                    if impact_url:
+                        genius = conn.execute(
                             """
-                            SELECT impact_url
-                            FROM walmart_affiliate_links
-                            WHERE sku = ? AND status IN ('active', 'fallback')
+                            SELECT genius_url
+                            FROM walmart_urlgenius_links
+                            WHERE destination_url = ? AND status IN ('active', 'fallback')
                             ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
                             LIMIT 1
                             """,
-                            (rd["sku"],),
+                            (impact_url,),
                         ).fetchone()
-                        impact_url = affiliate["impact_url"] if affiliate else product_url
-                        if impact_url:
-                            genius = conn.execute(
-                                """
-                                SELECT genius_url
-                                FROM walmart_urlgenius_links
-                                WHERE destination_url = ? AND status IN ('active', 'fallback')
-                                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
-                                LIMIT 1
-                                """,
-                                (impact_url,),
-                            ).fetchone()
-                            genius_url = genius["genius_url"] if genius else ""
+                    genius_url = genius["genius_url"] if genius else ""
                     badges = json.loads(rd.get("badges_json") or "[]")
                     items.append({
                         "sku": rd["sku"],
@@ -643,14 +621,14 @@ class WalmartTrendStore:
                         "sale_amount": rd.get("sale_amount") or 0,
                         "total_earnings": rd.get("total_earnings") or 0,
                         "badges": badges,
-                        "shop_url": genius_url or impact_url or canonical_shop_url,
+                        "shop_url": genius_url or impact_url or rd.get("canonical_url") or f"https://www.walmart.com/ip/{rd['sku']}",
                     })
                 collections.append({
                     "slug": collection["slug"],
                     "name": collection["name"],
                     "description": collection["description"] or "",
                     "items": items,
-                    "metadata": collection_meta,
+                    "metadata": json.loads(collection["metadata_json"] or "{}"),
                 })
             return {
                 "last_run": dict(run) if run else None,
@@ -817,25 +795,17 @@ class CollectionBuilder:
 
     def _top_sellers(self, by_units: Iterable[TrendRecord], by_earnings: Iterable[TrendRecord]) -> dict[str, Any]:
         merged: dict[str, dict[str, Any]] = {}
-        for source, records in (("1A", by_units), ("1B", by_earnings)):
+        for source, badge, records in (("1A", "Top by Units", by_units), ("1B", "Top by Earnings", by_earnings)):
             for record in records:
                 item = merged.setdefault(record.sku, self._item(record))
+                item.setdefault("badges", [])
+                if badge not in item["badges"]:
+                    item["badges"].append(badge)
                 item.setdefault("metadata", {})[source] = {"rank": record.rank}
-        for item in merged.values():
-            in_units = "1A" in item.get("metadata", {})
-            in_earnings = "1B" in item.get("metadata", {})
-            if in_units and in_earnings:
-                item["badges"] = ["Hot Find"]
-            elif in_units:
-                item["badges"] = ["Popular Pick"]
-            elif in_earnings:
-                item["badges"] = ["Trending Deal"]
-            else:
-                item["badges"] = []
         return {
             "slug": "top-sellers",
-            "name": "Trending Now",
-            "description": "Popular Walmart finds shoppers are checking out right now.",
+            "name": "Top Sellers",
+            "description": "The products moving fastest by units and earnings.",
             "metadata": {"source": "combined_1A_1B", "dedupe": "sku"},
             "items": list(merged.values()),
         }
@@ -850,28 +820,11 @@ class CollectionBuilder:
             "metadata": {"source_list_type": record.source_list_type, "rank": record.rank},
         }
 
-    SHOPPER_COLLECTION_DESCRIPTIONS = {
-        "spring-yard-refresh-mulch-soil-sand": "Easy outdoor refresh picks for gardens, patios, planters, and weekend yard projects.",
-        "backyard-fun-trampolines-pools-bubbles": "Pool-day picks, backyard activities, and outdoor fun for warmer weather.",
-        "patio-cookout-outdoor-living": "Grills, patio pieces, and outdoor upgrades made for easy weekends outside.",
-        "organize-moving-day-essentials": "Storage bins, baskets, and practical helpers for getting your space under control.",
-        "kids-room-character-favorites": "Fun bedding, room refreshes, and character finds kids will actually get excited about.",
-        "kids-summer-basics-underwear": "Everyday kid essentials to stock up on before the next growth spurt.",
-        "beauty-sunscreen-personal-care-stock-up": "Easy personal-care and sun-care picks to keep on hand.",
-        "pet-pantry-food-litter-treats": "Pet food, litter, and treats worth adding to the next Walmart run.",
-        "kitchen-prep-serveware-small-appliances": "Kitchen helpers, prep tools, and serveware for easier meals and hosting.",
-        "high-aov-home-furniture-electronics": "Bigger-ticket home and tech finds shoppers are checking out now.",
-    }
-
     def _description_for(self, name: str, records: list[TrendRecord]) -> str:
-        slug = _slugify(name)
-        if slug in self.SHOPPER_COLLECTION_DESCRIPTIONS:
-            return self.SHOPPER_COLLECTION_DESCRIPTIONS[slug]
-        normalized = slug.replace("-and-", "-")
-        return self.SHOPPER_COLLECTION_DESCRIPTIONS.get(
-            normalized,
-            "Timely Walmart finds worth checking out right now.",
-        )
+        cats = sorted({r.category_list for r in records if r.category_list})
+        if cats:
+            return f"Curated Walmart picks across {', '.join(cats[:2])}."
+        return f"Curated Walmart picks for {name}."
 
     def _weekly_collection_name(self, category: str) -> str:
         labels = {
@@ -975,29 +928,12 @@ class WalmartTrendRefreshService:
         self.affiliates = AffiliateLinkService(self.store)
         self.urlgenius = URLGeniusLinkService(self.store)
 
-    def bootstrap_from_workbook(
-        self,
-        workbook_path: str | os.PathLike[str] = DEFAULT_WORKBOOK,
-        link_mode: str = "urlgenius",
-        skip_link_generation: bool | None = None,
-    ) -> RefreshResult:
-        if skip_link_generation is not None:
-            link_mode = "workbook-only" if skip_link_generation else "urlgenius"
-        if link_mode not in BOOTSTRAP_LINK_MODES:
-            raise ValueError(f"Unsupported bootstrap link_mode: {link_mode}")
+    def bootstrap_from_workbook(self, workbook_path: str | os.PathLike[str] = DEFAULT_WORKBOOK) -> RefreshResult:
         run_id = self.store.create_run("workbook_bootstrap", str(workbook_path))
         try:
             parser = WorkbookTrendParser(workbook_path)
             parsed = parser.parse()
-            diagnostics = {
-                **parser.diagnostics(parsed),
-                "link_mode": link_mode,
-                "link_generation_skipped": link_mode == "workbook-only",
-                "impact_calls_made": 0,
-                "urlgenius_calls_made": 0,
-                "urlgenius_links_created_or_reused": 0,
-                "fallback_canonical_links_used": 0,
-            }
+            diagnostics = parser.diagnostics(parsed)
             all_records = parsed.get("1A", []) + parsed.get("1B", []) + parsed.get("collections", [])
             if not all_records:
                 raise WorkbookValidationError("Workbook parsed successfully but produced no trend records")
@@ -1007,8 +943,6 @@ class WalmartTrendRefreshService:
                 all_records,
                 self.builder.from_workbook(parsed),
                 diagnostics=diagnostics,
-                link_mode=link_mode,
-                skip_product_enrichment=True,
             )
         except Exception as exc:
             failures = [{"stage": "workbook_parse", "error": str(exc)}]
@@ -1040,12 +974,7 @@ class WalmartTrendRefreshService:
         window_start: str = "",
         window_end: str = "",
         diagnostics: dict[str, Any] | None = None,
-        link_mode: str = "impact-urlgenius",
-        skip_link_generation: bool | None = None,
-        skip_product_enrichment: bool = False,
     ) -> RefreshResult:
-        if skip_link_generation is not None:
-            link_mode = "workbook-only" if skip_link_generation else "impact-urlgenius"
         failures: list[dict[str, str]] = []
         unique_skus = sorted({r.sku for r in records})
         for record in records:
@@ -1055,41 +984,15 @@ class WalmartTrendRefreshService:
             except Exception as exc:
                 failures.append({"stage": "snapshot", "sku": record.sku, "error": str(exc)})
 
-        impact_calls_made = 0
-        urlgenius_calls_made = 0
-        urlgenius_links_created_or_reused = 0
-        fallback_canonical_links_used = 0
-        should_process_links = link_mode != "workbook-only" or not skip_product_enrichment
-        if should_process_links:
-            for sku in unique_skus:
-                try:
-                    if skip_product_enrichment:
-                        product = self.store.get_product(sku) or {}
-                    else:
-                        product = self.enricher.enrich(sku)
-                    canonical_url = f"https://www.walmart.com/ip/{sku}"
-                    product_url = canonical_url if link_mode in BOOTSTRAP_LINK_MODES else (product.get("canonical_url") or canonical_url)
-                    if link_mode == "urlgenius":
-                        urlgenius_calls_made += 1
-                        genius_url = self.urlgenius.ensure(canonical_url, sku)
-                        if genius_url and genius_url != canonical_url:
-                            urlgenius_links_created_or_reused += 1
-                        else:
-                            fallback_canonical_links_used += 1
-                    elif link_mode not in BOOTSTRAP_LINK_MODES:
-                        impact_calls_made += 1
-                        impact_url = self.affiliates.ensure(sku, product_url)
-                        urlgenius_calls_made += 1
-                        genius_url = self.urlgenius.ensure(impact_url, sku)
-                        if genius_url and genius_url != impact_url:
-                            urlgenius_links_created_or_reused += 1
-                        elif impact_url == product_url:
-                            fallback_canonical_links_used += 1
-                except Exception as exc:
-                    failures.append({"stage": "link_or_enrich", "sku": sku, "error": str(exc)})
+        for sku in unique_skus:
+            try:
+                product = self.enricher.enrich(sku)
+                product_url = product.get("canonical_url") or f"https://www.walmart.com/ip/{sku}"
+                impact_url = self.affiliates.ensure(sku, product_url)
+                self.urlgenius.ensure(impact_url, sku)
+            except Exception as exc:
+                failures.append({"stage": "link_or_enrich", "sku": sku, "error": str(exc)})
 
-        for collection in collections:
-            collection.setdefault("metadata", {})["link_mode"] = link_mode if source_type == "workbook_bootstrap" else collection.get("metadata", {}).get("link_mode", "")
         collection_item_rows = sum(len(collection.get("items", [])) for collection in collections)
         try:
             self.store.replace_collections(run_id, source_type, collections)
@@ -1105,24 +1008,9 @@ class WalmartTrendRefreshService:
             "collection_rows_inserted_updated": len(collections),
             "collection_item_rows_inserted": collection_item_rows,
             "active_collections": active_diagnostics.get("active_collection_count", 0),
-            "link_mode": link_mode,
-            "link_generation_skipped": link_mode == "workbook-only",
-            "impact_calls_made": impact_calls_made,
-            "urlgenius_calls_made": urlgenius_calls_made,
-            "urlgenius_links_created_or_reused": urlgenius_links_created_or_reused,
-            "fallback_canonical_links_used": fallback_canonical_links_used,
             "failures": len(failures),
         }
-        merged_diagnostics = {
-            **(diagnostics or {}),
-            **active_diagnostics,
-            "link_mode": link_mode,
-            "link_generation_skipped": link_mode == "workbook-only",
-            "impact_calls_made": impact_calls_made,
-            "urlgenius_calls_made": urlgenius_calls_made,
-            "urlgenius_links_created_or_reused": urlgenius_links_created_or_reused,
-            "fallback_canonical_links_used": fallback_canonical_links_used,
-        }
+        merged_diagnostics = {**(diagnostics or {}), **active_diagnostics}
         logging.info("[WALMART_TRENDS] refresh diagnostics: %s", json.dumps(merged_diagnostics, sort_keys=True))
         status = "partial" if failures else "success"
         self.store.finish_run(run_id, status, counts, failures)

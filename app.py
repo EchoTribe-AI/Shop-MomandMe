@@ -1738,9 +1738,8 @@ def admin_walmart_trends_bootstrap():
 
     body = request.get_json(silent=True) or {}
     workbook = body.get('workbook') or str(DEFAULT_WORKBOOK)
-    link_mode = body.get('link_mode') or body.get('linkMode') or 'urlgenius'
     try:
-        result = WalmartTrendRefreshService().bootstrap_from_workbook(workbook, link_mode=link_mode)
+        result = WalmartTrendRefreshService().bootstrap_from_workbook(workbook)
     except RefreshAlreadyRunning as exc:
         return jsonify({'status': 'locked', 'error': str(exc)}), 409
     status_code = 200 if result.status in {'success', 'partial'} else 500
@@ -1749,7 +1748,6 @@ def admin_walmart_trends_bootstrap():
         'status': result.status,
         'counts': result.counts,
         'failures': result.failures,
-        'diagnostics': result.diagnostics,
     }), status_code
 
 
@@ -1771,7 +1769,6 @@ def admin_walmart_trends_refresh():
         'status': result.status,
         'counts': result.counts,
         'failures': result.failures,
-        'diagnostics': result.diagnostics,
     }), status_code
 
 @app.route('/sitemap.xml')

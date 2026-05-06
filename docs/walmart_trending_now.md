@@ -24,8 +24,8 @@
 ## What is reused
 
 - Walmart product lookup reuses `product_api.WalmartAPI`.
+- Impact Walmart affiliate links reuse `product_api.ImpactAPI`.
 - URLGenius link creation and registry dedupe reuse `product_api.URLGeniusAPI`.
-- `product_api.ImpactAPI` is reserved for later weekly reporting/affiliate phases and is not used by workbook bootstrap.
 - The page follows the existing Flask/Jinja template pattern and does not introduce a new frontend framework.
 
 ## Data model
@@ -47,7 +47,7 @@ Each refresh run tracks source type, source window, source file, processed count
 Run the initial workbook bootstrap with either endpoint or CLI:
 
 ```bash
-python scripts/refresh_walmart_trends.py --mode bootstrap --workbook attached_assets/Walmart_May6th_Analysis.xlsx --link-mode urlgenius
+python scripts/refresh_walmart_trends.py --mode bootstrap --workbook attached_assets/Walmart_May6th_Analysis.xlsx
 ```
 
 or:
@@ -56,10 +56,8 @@ or:
 curl -X POST http://localhost:5000/admin/walmart-trends/bootstrap \
   -H 'Content-Type: application/json' \
   -H 'X-Walmart-Trends-Admin-Token: <token>' \
-  -d '{"workbook":"attached_assets/Walmart_May6th_Analysis.xlsx","link_mode":"urlgenius"}'
+  -d '{"workbook":"attached_assets/Walmart_May6th_Analysis.xlsx"}'
 ```
-
-Phase 1 workbook bootstrap is data/page population plus URLGenius-only CTA wrapping. It never calls Impact, the Impact ConversionLink endpoint, Impact for product details, weekly Impact reporting, or Impact affiliate-link creation. With the default `--link-mode urlgenius`, each CTA is generated/reused from the canonical Walmart URL (`https://www.walmart.com/ip/{sku}`) through URLGenius and falls back to that canonical Walmart URL. Use `--link-mode workbook-only` or the legacy `--skip-links` flag for zero external calls.
 
 The bootstrap parser reads:
 
@@ -67,25 +65,12 @@ The bootstrap parser reads:
 - `Trending - Earnings First` as source list `1B`
 - `Curated Collections` as collection rows
 
-The CLI output includes workbook diagnostics: workbook path, sheet names found, parsed record counts, curated collection names, inserted/updated product and collection counts, active collection count, first active collection slug, first three SKUs in that collection, `link_mode`, `link_generation_skipped`, `impact_calls_made`, `urlgenius_calls_made`, `urlgenius_links_created_or_reused`, and `fallback_canonical_links_used`.
+The CLI output includes workbook diagnostics: workbook path, sheet names found, parsed record counts, curated collection names, inserted/updated product and collection counts, active collection count, first active collection slug, and the first three SKUs in that collection.
 
 It creates:
 
-- One `Trending Now` collection by combining `1A` and `1B`, deduping by SKU, and preserving `Popular Pick` / `Trending Deal` / `Hot Find` badges.
+- One `Top Sellers` collection by combining `1A` and `1B`, deduping by SKU, and preserving `Top by Units` / `Top by Earnings` badges.
 - One section for each workbook curated collection.
-
-Diagnostic command for checking the first 10 API CTA URLs:
-
-```bash
-uv run python - <<'PY'
-from app import app
-with app.test_client() as c:
-    data = c.get('/api/walmart/trending-now').get_json()
-    urls = [p['shop_url'] for col in data.get('collections', []) for p in col.get('items', [])]
-    for url in urls[:10]:
-        print(url)
-PY
-```
 
 ## Weekly refresh workflow
 
@@ -118,9 +103,8 @@ The weekly process:
 ## Fallback behavior
 
 - If Walmart product enrichment fails, workbook or Impact performance values remain available and the product is marked with fallback enrichment status.
-- Phase 1 workbook bootstrap never calls Impact.
-- In `urlgenius` mode, URLGenius failures fall back to canonical Walmart URLs and do not block page population.
-- In `workbook-only` mode, workbook bootstrap skips external link calls entirely.
+- If Impact link generation fails, the workflow falls back to the best known Walmart product URL.
+- If URLGenius is unavailable or `URLGENIUS_API_KEY` is missing, the Impact URL is used directly and recorded as a fallback URLGenius row.
 - Refresh failures are stored in `walmart_refresh_runs.failures_json`; a partial run can still publish usable collections.
 - Failed weekly Impact runs do not deactivate existing active collections, so the public page continues showing the last successful or partial published collection set.
 - Refresh runs use a SQLite guard to prevent overlapping bootstrap/weekly refreshes. A fresh `running` run blocks new refreshes; stale running rows older than two hours are marked failed before a new run starts.
@@ -134,9 +118,9 @@ The page renders:
 
 - Title: “What’s Trending Now”
 - Last refreshed timestamp
-- Trending Now section first
+- Top Sellers section first
 - One horizontal product rail per curated collection
-- Phase 1 CTA links point to URLGenius links when available, otherwise canonical Walmart product URLs
+- URLGenius CTA links when available, with Impact/Walmart fallback links
 - Empty states when no active collections exist
 
 ## Cron/Replit scheduled deployment
@@ -147,4 +131,4 @@ Configure a weekly scheduled command similar to:
 python scripts/refresh_walmart_trends.py --mode weekly
 ```
 
-For first-time setup or reseeding from the workbook, run bootstrap manually with `--link-mode urlgenius` before enabling any later scheduled workflow.
+For first-time setup or reseeding from the workbook, run bootstrap manually before enabling the weekly schedule.
