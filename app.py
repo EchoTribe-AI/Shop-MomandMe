@@ -1683,6 +1683,94 @@ def shop_posts():
     )
 
 
+
+
+def _require_walmart_trends_admin():
+    """Protect Walmart trend mutation endpoints with an env-backed token.
+
+    Existing admin pages in this app are hidden but not authenticated, so these
+    API mutation routes use a stricter Replit Secret guard. Send the token as
+    `X-Walmart-Trends-Admin-Token` or `Authorization: Bearer <token>`.
+    """
+    expected = (
+        os.environ.get('WALMART_TRENDS_ADMIN_TOKEN')
+        or os.environ.get('ADMIN_API_TOKEN')
+        or os.environ.get('ADMIN_SECRET')
+    )
+    if not expected:
+        return jsonify({'error': 'Walmart trends admin token is not configured'}), 503
+    supplied = request.headers.get('X-Walmart-Trends-Admin-Token', '')
+    auth = request.headers.get('Authorization', '')
+    if not supplied and auth.lower().startswith('bearer '):
+        supplied = auth.split(' ', 1)[1].strip()
+    import hmac as hmac_lib
+    if not supplied or not hmac_lib.compare_digest(supplied, expected):
+        return jsonify({'error': 'unauthorized'}), 401
+    return None
+
+@app.route('/walmart/trending-now')
+def walmart_trending_now_page():
+    """Mobile-first Walmart What's Trending Now landing page."""
+    from walmart_trends import get_trending_page_data
+
+    data = get_trending_page_data()
+    return render_template('walmart_trending_now.html', data=data)
+
+
+@app.route('/api/walmart/trending-now')
+def walmart_trending_now_api():
+    """JSON source for the Walmart What's Trending Now page."""
+    from walmart_trends import get_trending_page_data
+
+    return jsonify(get_trending_page_data())
+
+
+@app.route('/admin/walmart-trends/bootstrap', methods=['POST'])
+def admin_walmart_trends_bootstrap():
+    """Seed Walmart trends from the attached workbook.
+
+    Optional JSON body: {"workbook": "attached_assets/Walmart_May6th_Analysis.xlsx"}
+    """
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from walmart_trends import DEFAULT_WORKBOOK, RefreshAlreadyRunning, WalmartTrendRefreshService
+
+    body = request.get_json(silent=True) or {}
+    workbook = body.get('workbook') or str(DEFAULT_WORKBOOK)
+    try:
+        result = WalmartTrendRefreshService().bootstrap_from_workbook(workbook)
+    except RefreshAlreadyRunning as exc:
+        return jsonify({'status': 'locked', 'error': str(exc)}), 409
+    status_code = 200 if result.status in {'success', 'partial'} else 500
+    return jsonify({
+        'run_id': result.run_id,
+        'status': result.status,
+        'counts': result.counts,
+        'failures': result.failures,
+    }), status_code
+
+
+@app.route('/admin/walmart-trends/refresh', methods=['POST'])
+def admin_walmart_trends_refresh():
+    """Run the recurring 7-day Impact API Walmart trend refresh."""
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from walmart_trends import RefreshAlreadyRunning, WalmartTrendRefreshService
+
+    try:
+        result = WalmartTrendRefreshService().refresh_from_impact()
+    except RefreshAlreadyRunning as exc:
+        return jsonify({'status': 'locked', 'error': str(exc)}), 409
+    status_code = 200 if result.status in {'success', 'partial'} else 500
+    return jsonify({
+        'run_id': result.run_id,
+        'status': result.status,
+        'counts': result.counts,
+        'failures': result.failures,
+    }), status_code
+
 @app.route('/sitemap.xml')
 def shop_sitemap():
     """Auto-generated sitemap of all published collections.

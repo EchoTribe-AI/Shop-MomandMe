@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>What's Trending Now | Walmart Finds</title>
+  <meta name="description" content="Weekly refreshed Walmart products and curated trending collections.">
+  <style>
+    :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:linear-gradient(180deg, var(--bg), #fff 42%); }
+    .page { max-width: 520px; margin:0 auto; padding-bottom: 34px; }
+    .hero { padding: 22px 18px 14px; position: sticky; top: 0; z-index: 5; background: rgba(255,248,246,.94); backdrop-filter: blur(12px); border-bottom:1px solid var(--line); }
+    .eyebrow { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:var(--soft); color:var(--accent); font-size:12px; font-weight:800; letter-spacing:.02em; }
+    h1 { margin:12px 0 6px; font-size:32px; line-height: .98; letter-spacing:-.04em; }
+    .subhead { margin:0; color:var(--muted); font-size:14px; line-height:1.45; }
+    .refreshed { margin-top:10px; color:rgba(26,26,23,.45); font-size:11px; }
+    .empty { margin: 22px 18px; padding: 18px; border:1px dashed var(--line); border-radius:20px; background:#fff; color:var(--muted); line-height:1.45; }
+    .section { padding: 18px 0 4px; }
+    .section-head { padding: 0 18px 10px; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; }
+    .section h2 { margin:0; font-size:20px; letter-spacing:-.025em; }
+    .section-desc { margin:4px 0 0; color:var(--muted); font-size:12px; line-height:1.35; }
+    .rail { display:flex; gap:12px; overflow-x:auto; padding: 2px 18px 16px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling: touch; }
+    .rail::-webkit-scrollbar { display:none; }
+    .card { width: 178px; min-width:178px; background:var(--card); border:1px solid var(--line); border-radius:20px; overflow:hidden; box-shadow:0 10px 26px rgba(26,26,23,.07); scroll-snap-align:start; }
+    .top-sellers .card { width: 210px; min-width:210px; }
+    .image-wrap { width:100%; aspect-ratio:1/1; background:#f6f3ef; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+    .image-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
+    .placeholder { font-size:34px; opacity:.5; }
+    .body { padding: 11px 11px 12px; }
+    .badges { min-height: 23px; display:flex; gap:5px; flex-wrap:wrap; margin-bottom:7px; }
+    .badge { font-size:10px; line-height:1; font-weight:800; color:var(--green); background:#e8f6ef; border-radius:999px; padding:6px 7px; }
+    .name { min-height: 45px; font-size:13px; font-weight:750; line-height:1.25; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+    .brand { margin-bottom:4px; color:var(--muted); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .meta { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .price { font-size:15px; font-weight:900; color:var(--accent); }
+    .units { color:var(--muted); font-size:10px; white-space:nowrap; }
+    .cta { margin-top:10px; display:block; text-align:center; text-decoration:none; color:#fff; background:var(--accent); border-radius:12px; padding:10px 8px; font-size:12px; font-weight:850; box-shadow:0 7px 16px rgba(232,93,38,.22); }
+    .fine { padding: 8px 18px 0; color:rgba(26,26,23,.42); font-size:10px; line-height:1.45; text-align:center; }
+    @media (min-width: 560px) { .page { border-left:1px solid var(--line); border-right:1px solid var(--line); min-height:100vh; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="eyebrow">🔥 Walmart weekly trends</div>
+      <h1>What's Trending Now</h1>
+      <p class="subhead">Mobile-first Walmart finds refreshed from performance data, with curated collections built around what shoppers are buying now.</p>
+      <div class="refreshed">Last refreshed: {{ data['last_refreshed'] or 'Not refreshed yet' }}</div>
+    </header>
+
+    {% if not data['collections'] %}
+      <div class="empty">
+        No Walmart trend collections are active yet. Run the workbook bootstrap or weekly refresh to populate this page.
+      </div>
+    {% endif %}
+
+    {% for collection in data['collections'] %}
+      <section class="section {% if collection['slug'] == 'top-sellers' %}top-sellers{% endif %}">
+        <div class="section-head">
+          <div>
+            <h2>{{ collection['name'] }}</h2>
+            {% if collection['description'] %}<p class="section-desc">{{ collection['description'] }}</p>{% endif %}
+          </div>
+        </div>
+        {% if collection['items'] %}
+          <div class="rail" aria-label="{{ collection['name'] }} products">
+            {% for product in collection['items'] %}
+              <article class="card">
+                <div class="image-wrap">
+                  {% if product['image_url'] %}
+                    <img src="{{ product['image_url'] }}" alt="{{ product['title'] }}" loading="lazy" onerror="this.style.display='none'">
+                  {% else %}
+                    <div class="placeholder">🛒</div>
+                  {% endif %}
+                </div>
+                <div class="body">
+                  <div class="badges">
+                    {% for badge in product['badges'] %}<span class="badge">{{ badge }}</span>{% endfor %}
+                  </div>
+                  {% if product['brand'] %}<div class="brand">{{ product['brand'] }}</div>{% endif %}
+                  <div class="name">{{ product['title'] }}</div>
+                  <div class="meta">
+                    <div class="price">{{ product['price_display'] or 'Shop deal' }}</div>
+                    {% if product['item_count'] %}<div class="units">{{ product['item_count'] }} sold</div>{% endif %}
+                  </div>
+                  <a class="cta" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Shop at Walmart →</a>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty">This collection is waiting on product data.</div>
+        {% endif %}
+      </section>
+    {% endfor %}
+
+    <p class="fine">As an affiliate, we may earn from qualifying purchases. Product details can change at Walmart.</p>
+  </main>
+</body>
+</html>

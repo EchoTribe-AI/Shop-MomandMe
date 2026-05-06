@@ -213,9 +213,141 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_status ON campaigns_v3(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_target ON campaigns_v3(target_type, target_value)")
 
+        init_walmart_trends_schema(conn)
+
         conn.commit()
     finally:
         conn.close()
+
+
+def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
+    """Create normalized tables for the Walmart What's Trending Now workflow."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_refresh_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL,
+            source_file TEXT,
+            window_start DATE,
+            window_end DATE,
+            status TEXT NOT NULL DEFAULT 'running',
+            counts_json TEXT DEFAULT '{}',
+            failures_json TEXT DEFAULT '[]',
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            finished_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_runs_status ON walmart_refresh_runs(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_runs_source ON walmart_refresh_runs(source_type, window_end)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_products (
+            sku TEXT PRIMARY KEY,
+            item_name TEXT,
+            product_title TEXT,
+            brand TEXT,
+            category_list TEXT,
+            taxonomy TEXT,
+            image_url TEXT,
+            current_price REAL,
+            price_display TEXT,
+            availability TEXT,
+            rating REAL,
+            review_count INTEGER,
+            canonical_url TEXT,
+            enrichment_status TEXT DEFAULT 'pending',
+            enrichment_error TEXT,
+            raw_product_json TEXT DEFAULT '{}',
+            first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_products_category ON walmart_products(category_list)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_product_performance_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            refresh_run_id INTEGER,
+            sku TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_list_type TEXT,
+            collection_name TEXT,
+            window_start DATE,
+            window_end DATE,
+            item_count INTEGER DEFAULT 0,
+            sale_amount REAL DEFAULT 0,
+            total_earnings REAL DEFAULT 0,
+            rank INTEGER,
+            metadata_json TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(refresh_run_id, sku, source_list_type, collection_name)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_perf_sku ON walmart_product_performance_snapshots(sku)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_perf_run ON walmart_product_performance_snapshots(refresh_run_id)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_affiliate_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku TEXT NOT NULL,
+            product_url TEXT NOT NULL,
+            impact_url TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(sku, product_url)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_affiliate_sku ON walmart_affiliate_links(sku)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_urlgenius_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            destination_url TEXT NOT NULL UNIQUE,
+            genius_url TEXT NOT NULL,
+            link_id TEXT,
+            status TEXT DEFAULT 'active',
+            error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_collections (
+            slug TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            source_type TEXT NOT NULL,
+            refresh_run_id INTEGER,
+            display_order INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            metadata_json TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_collections_active ON walmart_collections(is_active, display_order)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS walmart_collection_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection_slug TEXT NOT NULL,
+            sku TEXT NOT NULL,
+            refresh_run_id INTEGER,
+            display_order INTEGER DEFAULT 0,
+            item_count INTEGER DEFAULT 0,
+            sale_amount REAL DEFAULT 0,
+            total_earnings REAL DEFAULT 0,
+            badges_json TEXT DEFAULT '[]',
+            metadata_json TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(collection_slug, sku)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_collection_items_slug ON walmart_collection_items(collection_slug, display_order)")
 
 
 def seed_default_creator() -> None:
