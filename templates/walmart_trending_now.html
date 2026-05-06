@@ -24,9 +24,11 @@
     .rail::-webkit-scrollbar { display:none; }
     .card { width: 178px; min-width:178px; background:var(--card); border:1px solid var(--line); border-radius:20px; overflow:hidden; box-shadow:0 10px 26px rgba(26,26,23,.07); scroll-snap-align:start; }
     .top-sellers .card { width: 210px; min-width:210px; }
-    .image-wrap { width:100%; aspect-ratio:1/1; background:#f6f3ef; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+    .image-wrap { width:100%; aspect-ratio:1/1; background:#f6f3ef; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; }
     .image-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
-    .placeholder { font-size:34px; opacity:.5; }
+    .image-placeholder { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:18px; text-align:center; background:linear-gradient(135deg, #f7f1ec, #fff8f2); color:rgba(26,26,23,.48); font-size:12px; font-weight:800; letter-spacing:.01em; }
+    .image-wrap img + .image-placeholder { display:none; }
+    .image-wrap img.is-hidden + .image-placeholder { display:flex; }
     .body { padding: 11px 11px 12px; }
     .badges { min-height: 23px; display:flex; gap:5px; flex-wrap:wrap; margin-bottom:7px; }
     .badge { font-size:10px; line-height:1; font-weight:800; color:var(--green); background:#e8f6ef; border-radius:999px; padding:6px 7px; }
@@ -70,7 +72,8 @@
 
     {% for collection in data['collections'] %}
       {% set display_title = 'Trending Now' if loop.first else collection['name'] %}
-      {% set display_description = 'Popular Walmart finds shoppers are checking out right now.' if loop.first else collection_descriptions.get(collection['name'], collection['description']) %}
+      {% set display_description = 'Popular Walmart finds shoppers are checking out right now.' if loop.first else collection_descriptions.get(collection['name'], 'Fresh Walmart finds worth checking out right now.') %}
+      {% set is_top_collection = loop.first %}
       <section class="section {% if collection['slug'] == 'top-sellers' %}top-sellers{% endif %}">
         <div class="section-head">
           <div>
@@ -80,35 +83,64 @@
         </div>
         {% if collection['items'] %}
           <div class="rail" aria-label="{{ display_title }} products">
+            {% set top_display = namespace(count=0, seen_families=[]) %}
             {% for product in collection['items'] %}
-              <article class="card">
-                <div class="image-wrap">
-                  {% if product['image_url'] %}
-                    <img src="{{ product['image_url'] }}" alt="{{ product['title'] }}" loading="lazy" onerror="this.style.display='none'">
-                  {% else %}
-                    <div class="placeholder">🛒</div>
-                  {% endif %}
-                </div>
-                <div class="body">
-                  <div class="badges">
-                    {% set has_top_units = 'Top by Units' in product['badges'] %}
-                    {% set has_top_earnings = 'Top by Earnings' in product['badges'] %}
-                    {% if has_top_units and has_top_earnings %}
-                      <span class="badge">Hot Find</span>
+              {% set title_key = (' ' ~ product['title']|lower ~ ' ')
+                .replace(' brown ', ' ')
+                .replace(' red ', ' ')
+                .replace(' black ', ' ')
+                .replace(' white ', ' ')
+                .replace(' blue ', ' ')
+                .replace(' gray ', ' ')
+                .replace(' grey ', ' ')
+                .replace(' green ', ' ')
+                .replace('  ', ' ')
+                .strip() %}
+              {% set family_key = title_key.split()[:6]|join(' ') %}
+              {% set show_card = not (is_top_collection and top_display.count < 8 and family_key in top_display.seen_families) %}
+              {% if show_card %}
+                {% if is_top_collection %}
+                  {% set top_display.count = top_display.count + 1 %}
+                  {% if family_key %}{% set _ = top_display.seen_families.append(family_key) %}{% endif %}
+                {% endif %}
+                <article class="card">
+                  <div class="image-wrap">
+                    {% set image_url = (product['image_url'] or '')|trim %}
+                    {% set image_lower = image_url|lower %}
+                    {% if image_url and image_url.startswith('http') and 'placeholder' not in image_lower %}
+                      <img src="{{ image_url }}" alt="{{ product['title'] }}" loading="lazy" onerror="this.classList.add('is-hidden'); this.setAttribute('aria-hidden', 'true');">
+                      <div class="image-placeholder">Image coming soon</div>
                     {% else %}
-                      {% if has_top_units %}<span class="badge">Popular Pick</span>{% endif %}
-                      {% if has_top_earnings %}<span class="badge">Trending Deal</span>{% endif %}
-                      {% for badge in product['badges'] if badge not in ['Top by Units', 'Top by Earnings'] %}<span class="badge">{{ badge }}</span>{% endfor %}
+                      <div class="image-placeholder">Image coming soon</div>
                     {% endif %}
                   </div>
-                  {% if product['brand'] %}<div class="brand">{{ product['brand'] }}</div>{% endif %}
-                  <div class="name">{{ product['title'] }}</div>
-                  <div class="meta">
-                    <div class="price">{{ product['price_display'] or 'Shop deal' }}</div>
+                  <div class="body">
+                    <div class="badges">
+                      {% set has_top_units = 'Top by Units' in product['badges'] %}
+                      {% set has_top_earnings = 'Top by Earnings' in product['badges'] %}
+                      {% if is_top_collection and top_display.count <= 10 %}<span class="badge">#{{ top_display.count }} most purchased</span>{% endif %}
+                      {% if has_top_units and has_top_earnings %}
+                        <span class="badge">Hot Find</span>
+                      {% elif has_top_units %}
+                        <span class="badge">Popular Pick</span>
+                      {% elif has_top_earnings %}
+                        <span class="badge">Trending Deal</span>
+                      {% elif not is_top_collection %}
+                        {% for badge in product['badges'] if badge not in ['Top by Units', 'Top by Earnings'] %}<span class="badge">{{ badge }}</span>{% endfor %}
+                      {% endif %}
+                    </div>
+                    {% if product['brand'] %}<div class="brand">{{ product['brand'] }}</div>{% endif %}
+                    <div class="name">{{ product['title'] }}</div>
+                    <div class="meta">
+                      {% set price_text = (product['price_display'] or '')|trim %}
+                      {% set price_lower = price_text|lower %}
+                      {% set missing_price = not price_text or price_lower == 'shop deal' or price_text in ['0', '0.0', '0.00', '$0', '$0.0', '$0.00'] %}
+                      <div class="price">{{ 'See price at Walmart' if missing_price else price_text }}</div>
+                    </div>
+                    <a class="cta" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Shop at Walmart</a>
                   </div>
-                  <a class="cta" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Check price</a>
-                </div>
-              </article>
+                </article>
+              {% endif %}
             {% endfor %}
           </div>
         {% else %}
