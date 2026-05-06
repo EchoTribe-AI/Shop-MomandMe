@@ -141,17 +141,49 @@ def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int = 
         shop_url = str(product.get("shop_url") or "").strip()
         if not sku or not shop_url:
             raise CollectionContentError(f"Walmart product {sku or '(missing sku)'} is missing shop_url")
-        adapted.append({
+        metadata = product.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        source_rank = (
+            product.get("source_rank")
+            or product.get("rank")
+            or metadata.get("rank")
+            or (metadata.get("1A") or {}).get("rank")
+            or (metadata.get("1B") or {}).get("rank")
+        )
+        adapted_product = {
             "asin": sku,
             "product_name": product.get("title") or "Walmart find",
             "company_name": product.get("brand") or "",
             "brand": product.get("brand") or "",
-            "price": product.get("price_display") or "",
+            "price": product.get("price_display") or product.get("current_price") or "",
+            "current_price": product.get("current_price") or product.get("price_display") or "",
+            "price_display": product.get("price_display") or "",
             "image_encoded_string": product.get("image_url") or "",
             "attribution_link": shop_url,
             "retailer": "Walmart",
+            "retailer_name": "Walmart",
             "network": "walmart",
-        })
+            "category": product.get("category") or "",
+            "item_count": product.get("item_count"),
+            "source_rank": source_rank,
+            "rank": source_rank,
+            "source_badges": product.get("badges") or [],
+        }
+        for optional_field in (
+            "sale_amount",
+            "total_earnings",
+            "retail_price",
+            "list_price",
+            "was_price",
+            "original_price",
+            "strike_price",
+            "msrp",
+            "compare_at_price",
+        ):
+            if product.get(optional_field) not in (None, ""):
+                adapted_product[optional_field] = product.get(optional_field)
+        adapted.append(adapted_product)
     if not adapted:
         raise CollectionContentError("Collection has no products to publish")
     return adapted
@@ -339,6 +371,24 @@ def get_draft(draft_id: int) -> dict[str, Any] | None:
         conn.close()
 
 
+
+def _shopper_safe_description(description: Any) -> str:
+    """Keep published Walmart Trend subtitles shopper-facing."""
+    text = _clean_text(description, 300)
+    lowered = text.lower()
+    internal_markers = (
+        "units",
+        "earnings",
+        "workbook",
+        "backend",
+        "api",
+        "item count",
+        "curated walmart picks across",
+    )
+    if not text or any(marker in lowered for marker in internal_markers):
+        return "Fresh Walmart finds shoppers are checking out right now."
+    return text
+
 def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str, str]:
     products = draft.get("product_snapshot") or []
     if not products:
@@ -390,7 +440,7 @@ def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str
                 status,
                 json.dumps(campaign_types),
                 draft.get("title") or public_slug.replace("-", " ").title(),
-                draft.get("description") or "",
+                _shopper_safe_description(draft.get("description")),
             ),
         )
         now = _now()

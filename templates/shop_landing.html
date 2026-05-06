@@ -88,11 +88,13 @@
   .pc-img-placeholder { font-size: 32px; }
 
   .pc-body { padding: 10px 12px 12px; }
+  .pc-social-proof { display: inline-flex; align-items: center; width: fit-content; max-width: 100%; margin-bottom: 7px; padding: 4px 8px; border-radius: 999px; background: #fff7d6; color: #7a4a00; font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: 0.1px; }
   .pc-brand { font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: rgba(0,0,0,0.35); margin-bottom: 3px; }
   .pc-name { font-size: 12px; font-weight: 500; color: #1a1a17; line-height: 1.4; margin-bottom: 6px; }
-  .pc-price-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .pc-price-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-bottom: 8px; }
   .pc-price { font-size: 14px; font-weight: 600; color: var(--accent); }
-  .pc-was { font-size: 11px; color: rgba(0,0,0,0.3); text-decoration: line-through; }
+  .pc-was { font-size: 11px; color: rgba(0,0,0,0.38); text-decoration: line-through; }
+  .pc-now-label { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: rgba(0,0,0,0.42); margin-right: 4px; }
   .pc-deal { font-size: 10px; background: #fff3e0; color: #e65100; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
 
   .shop-btn { display: block; width: 100%; padding: 10px; background: var(--btn); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; text-align: center; cursor: pointer; text-decoration: none; transition: opacity 0.15s; }
@@ -185,10 +187,34 @@ fbq('track', 'PageView');
         {% endif %}
       </div>
       <div class="pc-body">
+        {% set product_retailer = (product.retailer or product.retailer_name or '')|lower %}
+        {% set product_network = (product.network or '')|lower %}
+        {% set is_walmart_product = product_network == 'walmart' or product_retailer == 'walmart' %}
+        {% set is_amazon_product = product_network == 'amazon' or product_retailer == 'amazon' %}
+        {% set is_walmart_trend_page = is_walmart_product or ('walmart_trend' in (collage.campaign_types or '')) %}
+        {% if is_walmart_trend_page %}
+          {% set proof_rank = product.source_rank or product.rank or loop.index %}
+          <div class="pc-social-proof">{% if proof_rank and loop.index <= 10 %}#{{ proof_rank }} most purchased{% else %}Popular pick{% endif %}</div>
+        {% endif %}
         <div class="pc-brand">{{ product.company_name or product.brand or '' }}</div>
         <div class="pc-name">{{ product.product_name or product.name or '' }}</div>
+        {% set raw_price = product.price_display or product.price or product.current_price or '' %}
+        {% set price_text = raw_price|string|trim %}
+        {% set valid_price = price_text and price_text|lower not in ['shop deal', '0', '$0', '$0.00', '0.00', 'none', 'null'] %}
+        {% set compare_price = product.retail_price or product.list_price or product.was_price or product.original_price or product.strike_price or product.msrp or product.compare_at_price or '' %}
+        {% set current_num = price_text|replace('$','')|replace(',','')|float %}
+        {% set compare_num = (compare_price|string)|replace('$','')|replace(',','')|float %}
         <div class="pc-price-row">
-          <span class="pc-price">{{ product.price_display or product.price or '' }}</span>
+          {% if valid_price %}
+            {% if compare_price and compare_num > current_num and current_num > 0 %}
+            <span class="pc-was">Was {{ compare_price }}</span>
+            <span class="pc-price"><span class="pc-now-label">Now</span>{{ price_text }}</span>
+            {% else %}
+            <span class="pc-price">{{ price_text }}</span>
+            {% endif %}
+          {% elif is_walmart_product %}
+            <span class="pc-price">See price at Walmart</span>
+          {% endif %}
           {% if product.deal and product.deal.get('final_discount_%') %}
           <span class="pc-deal">{{ product.deal['final_discount_%'] }} off</span>
           {% endif %}
@@ -198,14 +224,14 @@ fbq('track', 'PageView');
            href="https://www.amazon.com/dp/{{ product.asin }}?tag=mommymedeals-20"
            onclick="trackClick('{{ product.asin }}', '{{ product.attribution_link or '' }}')"
            target="_blank" rel="noopener">
-          View on Amazon →
+          {% if is_walmart_product %}Shop Walmart →{% elif is_amazon_product or collage.direct_to_amazon %}Shop Amazon →{% else %}Shop Now →{% endif %}
         </a>
         {% else %}
         <a class="shop-btn"
            href="{{ product.attribution_link or 'https://www.amazon.com/dp/' + product.asin }}"
            onclick="trackClick('{{ product.asin }}', '{{ product.attribution_link or '' }}')"
            target="_blank" rel="noopener">
-          Shop Now →
+          {% if is_walmart_product %}Shop Walmart →{% elif is_amazon_product %}Shop Amazon →{% else %}Shop Now →{% endif %}
         </a>
         {% endif %}
       </div>
