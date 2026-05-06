@@ -34,6 +34,7 @@ def main() -> int:
         "status": result.status,
         "counts": result.counts,
         "failures": result.failures,
+        "diagnostics": result.diagnostics,
     }, indent=2))
     return 0 if result.status in {"success", "partial"} else 1
 

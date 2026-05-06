@@ -49,6 +49,7 @@ class RefreshResult:
     status: str
     counts: dict[str, int]
     failures: list[dict[str, str]]
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 class RefreshAlreadyRunning(RuntimeError):
@@ -109,6 +110,7 @@ class WorkbookTrendParser:
 
     def __init__(self, workbook_path: str | os.PathLike[str] = DEFAULT_WORKBOOK):
         self.workbook_path = Path(workbook_path)
+        self.sheet_names_found: list[str] = []
 
     def parse(self) -> dict[str, list[TrendRecord]]:
         if not self.workbook_path.exists():
@@ -132,6 +134,7 @@ class WorkbookTrendParser:
         with zipfile.ZipFile(self.workbook_path) as zf:
             shared = self._shared_strings(zf)
             sheet_paths = self._sheet_paths(zf)
+            self.sheet_names_found = list(sheet_paths.keys())
             out: dict[str, list[dict[str, str]]] = {}
             for sheet_name, sheet_path in sheet_paths.items():
                 raw_rows = self._sheet_rows(zf, sheet_path, shared)
@@ -217,6 +220,17 @@ class WorkbookTrendParser:
                 missing_columns.append(f"{sheet}: {', '.join(missing)}")
         if missing_columns:
             raise WorkbookValidationError(f"Workbook missing required columns: {'; '.join(missing_columns)}")
+
+    def diagnostics(self, parsed: dict[str, list[TrendRecord]]) -> dict[str, Any]:
+        collection_names = sorted({r.collection_name for r in parsed.get("collections", []) if r.collection_name})
+        return {
+            "workbook_path": str(self.workbook_path),
+            "sheet_names_found": self.sheet_names_found,
+            "item_count_trend_records": len(parsed.get("1A", [])),
+            "earnings_trend_records": len(parsed.get("1B", [])),
+            "curated_collection_names_found": collection_names,
+            "curated_collection_count": len(collection_names),
+        }
 
     def _records_from_sheet(self, rows: list[dict[str, str]], source_type: str) -> list[TrendRecord]:
         records = []
@@ -504,6 +518,43 @@ class WalmartTrendStore:
                         ),
                     )
             conn.commit()
+        finally:
+            conn.close()
+
+    def active_collection_diagnostics(self) -> dict[str, Any]:
+        conn = _connect()
+        try:
+            active_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM walmart_collections WHERE is_active = 1"
+            ).fetchone()["c"]
+            first = conn.execute(
+                """
+                SELECT slug
+                FROM walmart_collections
+                WHERE is_active = 1
+                ORDER BY display_order ASC, name ASC
+                LIMIT 1
+                """
+            ).fetchone()
+            first_slug = first["slug"] if first else ""
+            first_skus = []
+            if first_slug:
+                rows = conn.execute(
+                    """
+                    SELECT sku
+                    FROM walmart_collection_items
+                    WHERE collection_slug = ?
+                    ORDER BY display_order ASC
+                    LIMIT 3
+                    """,
+                    (first_slug,),
+                ).fetchall()
+                first_skus = [row["sku"] for row in rows]
+            return {
+                "active_collection_count": active_count,
+                "first_active_collection_slug": first_slug,
+                "first_active_collection_first_3_skus": first_skus,
+            }
         finally:
             conn.close()
 
@@ -882,10 +933,17 @@ class WalmartTrendRefreshService:
         try:
             parser = WorkbookTrendParser(workbook_path)
             parsed = parser.parse()
+            diagnostics = parser.diagnostics(parsed)
             all_records = parsed.get("1A", []) + parsed.get("1B", []) + parsed.get("collections", [])
             if not all_records:
                 raise WorkbookValidationError("Workbook parsed successfully but produced no trend records")
-            return self._process_records(run_id, "workbook_bootstrap", all_records, self.builder.from_workbook(parsed))
+            return self._process_records(
+                run_id,
+                "workbook_bootstrap",
+                all_records,
+                self.builder.from_workbook(parsed),
+                diagnostics=diagnostics,
+            )
         except Exception as exc:
             failures = [{"stage": "workbook_parse", "error": str(exc)}]
             self.store.finish_run(run_id, "failed", {"records": 0}, failures)
@@ -915,6 +973,7 @@ class WalmartTrendRefreshService:
         collections: list[dict[str, Any]],
         window_start: str = "",
         window_end: str = "",
+        diagnostics: dict[str, Any] | None = None,
     ) -> RefreshResult:
         failures: list[dict[str, str]] = []
         unique_skus = sorted({r.sku for r in records})
@@ -934,20 +993,28 @@ class WalmartTrendRefreshService:
             except Exception as exc:
                 failures.append({"stage": "link_or_enrich", "sku": sku, "error": str(exc)})
 
+        collection_item_rows = sum(len(collection.get("items", [])) for collection in collections)
         try:
             self.store.replace_collections(run_id, source_type, collections)
         except Exception as exc:
             failures.append({"stage": "collections", "error": str(exc)})
 
+        active_diagnostics = self.store.active_collection_diagnostics()
         counts = {
             "records": len(records),
             "unique_skus": len(unique_skus),
+            "products_inserted_updated": len(unique_skus),
             "collections": len(collections),
+            "collection_rows_inserted_updated": len(collections),
+            "collection_item_rows_inserted": collection_item_rows,
+            "active_collections": active_diagnostics.get("active_collection_count", 0),
             "failures": len(failures),
         }
+        merged_diagnostics = {**(diagnostics or {}), **active_diagnostics}
+        logging.info("[WALMART_TRENDS] refresh diagnostics: %s", json.dumps(merged_diagnostics, sort_keys=True))
         status = "partial" if failures else "success"
         self.store.finish_run(run_id, status, counts, failures)
-        return RefreshResult(run_id, status, counts, failures)
+        return RefreshResult(run_id, status, counts, failures, merged_diagnostics)
 
     def _update_run_window(self, run_id: int, window_start: str, window_end: str) -> None:
         conn = _connect()

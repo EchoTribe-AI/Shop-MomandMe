@@ -65,6 +65,8 @@ The bootstrap parser reads:
 - `Trending - Earnings First` as source list `1B`
 - `Curated Collections` as collection rows
 
+The CLI output includes workbook diagnostics: workbook path, sheet names found, parsed record counts, curated collection names, inserted/updated product and collection counts, active collection count, first active collection slug, and the first three SKUs in that collection.
+
 It creates:
 
 - One `Top Sellers` collection by combining `1A` and `1B`, deduping by SKU, and preserving `Top by Units` / `Top by Earnings` badges.
