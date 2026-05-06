@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>What's Trending Now | Walmart Finds</title>
-  <meta name="description" content="Workbook-backed Walmart products and curated trending collections.">
+  <meta name="description" content="Fresh Walmart finds people are grabbing right now.">
   <style>
     :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; }
     * { box-sizing: border-box; }
@@ -34,7 +34,6 @@
     .brand { margin-bottom:4px; color:var(--muted); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .meta { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .price { font-size:15px; font-weight:900; color:var(--accent); }
-    .units { color:var(--muted); font-size:10px; white-space:nowrap; }
     .cta { margin-top:10px; display:block; text-align:center; text-decoration:none; color:#fff; background:var(--accent); border-radius:12px; padding:10px 8px; font-size:12px; font-weight:850; box-shadow:0 7px 16px rgba(232,93,38,.22); }
     .fine { padding: 8px 18px 0; color:rgba(26,26,23,.42); font-size:10px; line-height:1.45; text-align:center; }
     @media (min-width: 560px) { .page { border-left:1px solid var(--line); border-right:1px solid var(--line); min-height:100vh; } }
@@ -43,15 +42,15 @@
 <body>
   <main class="page">
     <header class="hero">
-      <div class="eyebrow">🔥 Walmart trends</div>
+      <div class="eyebrow">🔥 Walmart finds</div>
       <h1>What's Trending Now</h1>
-      <p class="subhead">Mobile-first Walmart finds bootstrapped from the May 6 workbook, with curated collections built around what shoppers are buying now.</p>
-      <div class="refreshed">Last refreshed: {{ data['last_refreshed'] or 'Not refreshed yet' }}</div>
+      <p class="subhead">Fresh Walmart finds people are grabbing right now — from backyard upgrades to home refreshes, kids’ favorites, and everyday deals worth checking before they’re gone.</p>
+      <div class="refreshed">Updated: {{ data['last_refreshed'] or 'Not refreshed yet' }}</div>
     </header>
 
     {% if not data['collections'] %}
       <div class="empty">
-        No Walmart trend collections are active yet. In the Replit shell, run: uv run python scripts/refresh_walmart_trends.py --mode bootstrap --workbook attached_assets/Walmart_May6th_Analysis.xlsx --skip-links
+        Fresh finds are being added now — check back soon.
       </div>
     {% endif %}
 
@@ -81,10 +80,9 @@
                   {% if product['brand'] %}<div class="brand">{{ product['brand'] }}</div>{% endif %}
                   <div class="name">{{ product['title'] }}</div>
                   <div class="meta">
-                    <div class="price">{{ product['price_display'] or 'Shop deal' }}</div>
-                    {% if product['item_count'] %}<div class="units">{{ product['item_count'] }} sold</div>{% endif %}
+                    <div class="price">{{ product['price_display'] or 'See item' }}</div>
                   </div>
-                  <a class="cta" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Shop at Walmart →</a>
+                  <a class="cta" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Check price</a>
                 </div>
               </article>
             {% endfor %}

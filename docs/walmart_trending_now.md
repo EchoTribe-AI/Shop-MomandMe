@@ -71,8 +71,21 @@ The CLI output includes workbook diagnostics: workbook path, sheet names found, 
 
 It creates:
 
-- One `Top Sellers` collection by combining `1A` and `1B`, deduping by SKU, and preserving `Top by Units` / `Top by Earnings` badges.
+- One `Trending Now` collection by combining `1A` and `1B`, deduping by SKU, and preserving `Popular Pick` / `Trending Deal` / `Hot Find` badges.
 - One section for each workbook curated collection.
+
+Diagnostic command for checking the first 10 API CTA URLs:
+
+```bash
+uv run python - <<'PY'
+from app import app
+with app.test_client() as c:
+    data = c.get('/api/walmart/trending-now').get_json()
+    urls = [p['shop_url'] for col in data.get('collections', []) for p in col.get('items', [])]
+    for url in urls[:10]:
+        print(url)
+PY
+```
 
 ## Weekly refresh workflow
 
@@ -120,7 +133,7 @@ The page renders:
 
 - Title: “What’s Trending Now”
 - Last refreshed timestamp
-- Top Sellers section first
+- Trending Now section first
 - One horizontal product rail per curated collection
 - Phase 1 CTA links point to canonical Walmart product URLs
 - Empty states when no active collections exist

@@ -325,7 +325,7 @@ class WalmartTrendStore:
                 ON CONFLICT(sku) DO UPDATE SET
                     item_name = COALESCE(NULLIF(excluded.item_name, ''), walmart_products.item_name),
                     category_list = COALESCE(NULLIF(excluded.category_list, ''), walmart_products.category_list),
-                    canonical_url = COALESCE(walmart_products.canonical_url, excluded.canonical_url),
+                    canonical_url = excluded.canonical_url,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (record.sku, record.item_name, record.category_list, f"https://www.walmart.com/ip/{record.sku}"),
@@ -609,6 +609,11 @@ class WalmartTrendStore:
                                 (impact_url,),
                             ).fetchone()
                             genius_url = genius["genius_url"] if genius else ""
+                    canonical_shop_url = (
+                        f"https://www.walmart.com/ip/{rd['sku']}"
+                        if not use_external_links
+                        else (rd.get("canonical_url") or f"https://www.walmart.com/ip/{rd['sku']}")
+                    )
                     badges = json.loads(rd.get("badges_json") or "[]")
                     items.append({
                         "sku": rd["sku"],
@@ -624,7 +629,7 @@ class WalmartTrendStore:
                         "sale_amount": rd.get("sale_amount") or 0,
                         "total_earnings": rd.get("total_earnings") or 0,
                         "badges": badges,
-                        "shop_url": genius_url or impact_url or rd.get("canonical_url") or f"https://www.walmart.com/ip/{rd['sku']}",
+                        "shop_url": genius_url or impact_url or canonical_shop_url,
                     })
                 collections.append({
                     "slug": collection["slug"],
@@ -798,17 +803,25 @@ class CollectionBuilder:
 
     def _top_sellers(self, by_units: Iterable[TrendRecord], by_earnings: Iterable[TrendRecord]) -> dict[str, Any]:
         merged: dict[str, dict[str, Any]] = {}
-        for source, badge, records in (("1A", "Top by Units", by_units), ("1B", "Top by Earnings", by_earnings)):
+        for source, records in (("1A", by_units), ("1B", by_earnings)):
             for record in records:
                 item = merged.setdefault(record.sku, self._item(record))
-                item.setdefault("badges", [])
-                if badge not in item["badges"]:
-                    item["badges"].append(badge)
                 item.setdefault("metadata", {})[source] = {"rank": record.rank}
+        for item in merged.values():
+            in_units = "1A" in item.get("metadata", {})
+            in_earnings = "1B" in item.get("metadata", {})
+            if in_units and in_earnings:
+                item["badges"] = ["Hot Find"]
+            elif in_units:
+                item["badges"] = ["Popular Pick"]
+            elif in_earnings:
+                item["badges"] = ["Trending Deal"]
+            else:
+                item["badges"] = []
         return {
             "slug": "top-sellers",
-            "name": "Top Sellers",
-            "description": "The products moving fastest by units and earnings.",
+            "name": "Trending Now",
+            "description": "Popular Walmart finds shoppers are checking out right now.",
             "metadata": {"source": "combined_1A_1B", "dedupe": "sku"},
             "items": list(merged.values()),
         }
@@ -823,11 +836,28 @@ class CollectionBuilder:
             "metadata": {"source_list_type": record.source_list_type, "rank": record.rank},
         }
 
+    SHOPPER_COLLECTION_DESCRIPTIONS = {
+        "spring-yard-refresh-mulch-soil-sand": "Easy outdoor refresh picks for gardens, patios, planters, and weekend yard projects.",
+        "backyard-fun-trampolines-pools-bubbles": "Pool-day picks, backyard activities, and outdoor fun for warmer weather.",
+        "patio-cookout-outdoor-living": "Grills, patio pieces, and outdoor upgrades made for easy weekends outside.",
+        "organize-moving-day-essentials": "Storage bins, baskets, and practical helpers for getting your space under control.",
+        "kids-room-character-favorites": "Fun bedding, room refreshes, and character finds kids will actually get excited about.",
+        "kids-summer-basics-underwear": "Everyday kid essentials to stock up on before the next growth spurt.",
+        "beauty-sunscreen-personal-care-stock-up": "Easy personal-care and sun-care picks to keep on hand.",
+        "pet-pantry-food-litter-treats": "Pet food, litter, and treats worth adding to the next Walmart run.",
+        "kitchen-prep-serveware-small-appliances": "Kitchen helpers, prep tools, and serveware for easier meals and hosting.",
+        "high-aov-home-furniture-electronics": "Bigger-ticket home and tech finds shoppers are checking out now.",
+    }
+
     def _description_for(self, name: str, records: list[TrendRecord]) -> str:
-        cats = sorted({r.category_list for r in records if r.category_list})
-        if cats:
-            return f"Curated Walmart picks across {', '.join(cats[:2])}."
-        return f"Curated Walmart picks for {name}."
+        slug = _slugify(name)
+        if slug in self.SHOPPER_COLLECTION_DESCRIPTIONS:
+            return self.SHOPPER_COLLECTION_DESCRIPTIONS[slug]
+        normalized = slug.replace("-and-", "-")
+        return self.SHOPPER_COLLECTION_DESCRIPTIONS.get(
+            normalized,
+            "Timely Walmart finds worth checking out right now.",
+        )
 
     def _weekly_collection_name(self, category: str) -> str:
         labels = {

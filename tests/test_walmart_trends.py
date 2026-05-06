@@ -59,7 +59,10 @@ class WalmartTrendsTestCase(unittest.TestCase):
         top = builder._top_sellers(by_units, by_earnings)
         self.assertEqual(len(top["items"]), 2)
         item_one = next(item for item in top["items"] if item["sku"] == "1")
-        self.assertEqual(set(item_one["badges"]), {"Top by Units", "Top by Earnings"})
+        self.assertEqual(item_one["badges"], ["Hot Find"])
+        item_two = next(item for item in top["items"] if item["sku"] == "2")
+        self.assertEqual(item_two["badges"], ["Trending Deal"])
+        self.assertEqual(top["name"], "Trending Now")
 
     def test_fallback_affiliate_link_reuse(self):
         store = self.wt.WalmartTrendStore()
@@ -131,9 +134,9 @@ class WalmartTrendsTestCase(unittest.TestCase):
         store.upsert_product_from_record(record)
         store.replace_collections(run_id, "workbook_bootstrap", [{
             "slug": "top-sellers",
-            "name": "Top Sellers",
+            "name": "Trending Now",
             "description": "Existing",
-            "items": [{"sku": "sku1", "badges": ["Top by Units"]}],
+            "items": [{"sku": "sku1", "badges": ["Popular Pick"]}],
         }])
         store.finish_run(run_id, "success", {"records": 1}, [])
 
