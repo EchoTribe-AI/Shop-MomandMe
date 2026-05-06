@@ -76,6 +76,48 @@ class WalmartTrendsTestCase(unittest.TestCase):
         service = self.wt.URLGeniusLinkService(store)
         self.assertEqual(service.ensure("https://impact.example/sku1", "sku1"), "https://impact.example/sku1")
 
+
+    def test_workbook_bootstrap_skip_links_does_not_call_impact_or_urlgenius(self):
+        impact_calls = []
+        urlgenius_calls = []
+        enrich_calls = []
+        original_impact = self.wt.ImpactAPI.generate_walmart_link
+        original_urlgenius = self.wt.URLGeniusAPI.create_link
+        original_enrich = self.wt.WalmartProductEnricher.enrich
+
+        def fail_impact(*args, **kwargs):
+            impact_calls.append((args, kwargs))
+            raise AssertionError("Impact should not be called during Phase 1 workbook bootstrap")
+
+        def fail_urlgenius(*args, **kwargs):
+            urlgenius_calls.append((args, kwargs))
+            raise AssertionError("URLGenius should not be called during Phase 1 workbook bootstrap")
+
+        def fail_enrich(*args, **kwargs):
+            enrich_calls.append((args, kwargs))
+            raise AssertionError("External enrichment should not be called during Phase 1 workbook bootstrap")
+
+        self.wt.ImpactAPI.generate_walmart_link = fail_impact
+        self.wt.URLGeniusAPI.create_link = fail_urlgenius
+        self.wt.WalmartProductEnricher.enrich = fail_enrich
+        try:
+            result = self.wt.WalmartTrendRefreshService().bootstrap_from_workbook(
+                "attached_assets/Walmart_May6th_Analysis.xlsx",
+                skip_link_generation=True,
+            )
+        finally:
+            self.wt.ImpactAPI.generate_walmart_link = original_impact
+            self.wt.URLGeniusAPI.create_link = original_urlgenius
+            self.wt.WalmartProductEnricher.enrich = original_enrich
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.counts["impact_calls_made"], 0)
+        self.assertEqual(result.counts["urlgenius_calls_made"], 0)
+        self.assertTrue(result.counts["link_generation_skipped"])
+        self.assertEqual(impact_calls, [])
+        self.assertEqual(urlgenius_calls, [])
+        self.assertEqual(enrich_calls, [])
+
     def test_refresh_lock_prevents_overlap(self):
         store = self.wt.WalmartTrendStore()
         store.create_run("workbook_bootstrap")

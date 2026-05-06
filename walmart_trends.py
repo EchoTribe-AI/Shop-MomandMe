@@ -580,32 +580,35 @@ class WalmartTrendStore:
                     (collection["slug"],),
                 ).fetchall()
                 items = []
+                use_external_links = collection["source_type"] != "workbook_bootstrap"
                 for row in item_rows:
                     rd = dict(row)
-                    affiliate = conn.execute(
-                        """
-                        SELECT impact_url
-                        FROM walmart_affiliate_links
-                        WHERE sku = ? AND status IN ('active', 'fallback')
-                        ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
-                        LIMIT 1
-                        """,
-                        (rd["sku"],),
-                    ).fetchone()
-                    impact_url = affiliate["impact_url"] if affiliate else ""
-                    genius = None
-                    if impact_url:
-                        genius = conn.execute(
+                    impact_url = ""
+                    genius_url = ""
+                    if use_external_links:
+                        affiliate = conn.execute(
                             """
-                            SELECT genius_url
-                            FROM walmart_urlgenius_links
-                            WHERE destination_url = ? AND status IN ('active', 'fallback')
+                            SELECT impact_url
+                            FROM walmart_affiliate_links
+                            WHERE sku = ? AND status IN ('active', 'fallback')
                             ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
                             LIMIT 1
                             """,
-                            (impact_url,),
+                            (rd["sku"],),
                         ).fetchone()
-                    genius_url = genius["genius_url"] if genius else ""
+                        impact_url = affiliate["impact_url"] if affiliate else ""
+                        if impact_url:
+                            genius = conn.execute(
+                                """
+                                SELECT genius_url
+                                FROM walmart_urlgenius_links
+                                WHERE destination_url = ? AND status IN ('active', 'fallback')
+                                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                                LIMIT 1
+                                """,
+                                (impact_url,),
+                            ).fetchone()
+                            genius_url = genius["genius_url"] if genius else ""
                     badges = json.loads(rd.get("badges_json") or "[]")
                     items.append({
                         "sku": rd["sku"],
@@ -928,12 +931,21 @@ class WalmartTrendRefreshService:
         self.affiliates = AffiliateLinkService(self.store)
         self.urlgenius = URLGeniusLinkService(self.store)
 
-    def bootstrap_from_workbook(self, workbook_path: str | os.PathLike[str] = DEFAULT_WORKBOOK) -> RefreshResult:
+    def bootstrap_from_workbook(
+        self,
+        workbook_path: str | os.PathLike[str] = DEFAULT_WORKBOOK,
+        skip_link_generation: bool = True,
+    ) -> RefreshResult:
         run_id = self.store.create_run("workbook_bootstrap", str(workbook_path))
         try:
             parser = WorkbookTrendParser(workbook_path)
             parsed = parser.parse()
-            diagnostics = parser.diagnostics(parsed)
+            diagnostics = {
+                **parser.diagnostics(parsed),
+                "link_generation_skipped": skip_link_generation,
+                "impact_calls_made": 0,
+                "urlgenius_calls_made": 0,
+            }
             all_records = parsed.get("1A", []) + parsed.get("1B", []) + parsed.get("collections", [])
             if not all_records:
                 raise WorkbookValidationError("Workbook parsed successfully but produced no trend records")
@@ -943,6 +955,8 @@ class WalmartTrendRefreshService:
                 all_records,
                 self.builder.from_workbook(parsed),
                 diagnostics=diagnostics,
+                skip_link_generation=skip_link_generation,
+                skip_product_enrichment=skip_link_generation,
             )
         except Exception as exc:
             failures = [{"stage": "workbook_parse", "error": str(exc)}]
@@ -974,6 +988,8 @@ class WalmartTrendRefreshService:
         window_start: str = "",
         window_end: str = "",
         diagnostics: dict[str, Any] | None = None,
+        skip_link_generation: bool = False,
+        skip_product_enrichment: bool = False,
     ) -> RefreshResult:
         failures: list[dict[str, str]] = []
         unique_skus = sorted({r.sku for r in records})
@@ -984,14 +1000,23 @@ class WalmartTrendRefreshService:
             except Exception as exc:
                 failures.append({"stage": "snapshot", "sku": record.sku, "error": str(exc)})
 
-        for sku in unique_skus:
-            try:
-                product = self.enricher.enrich(sku)
-                product_url = product.get("canonical_url") or f"https://www.walmart.com/ip/{sku}"
-                impact_url = self.affiliates.ensure(sku, product_url)
-                self.urlgenius.ensure(impact_url, sku)
-            except Exception as exc:
-                failures.append({"stage": "link_or_enrich", "sku": sku, "error": str(exc)})
+        impact_calls_made = 0
+        urlgenius_calls_made = 0
+        if not skip_link_generation or not skip_product_enrichment:
+            for sku in unique_skus:
+                try:
+                    if skip_product_enrichment:
+                        product = self.store.get_product(sku) or {}
+                    else:
+                        product = self.enricher.enrich(sku)
+                    product_url = product.get("canonical_url") or f"https://www.walmart.com/ip/{sku}"
+                    if not skip_link_generation:
+                        impact_calls_made += 1
+                        impact_url = self.affiliates.ensure(sku, product_url)
+                        urlgenius_calls_made += 1
+                        self.urlgenius.ensure(impact_url, sku)
+                except Exception as exc:
+                    failures.append({"stage": "link_or_enrich", "sku": sku, "error": str(exc)})
 
         collection_item_rows = sum(len(collection.get("items", [])) for collection in collections)
         try:
@@ -1008,9 +1033,18 @@ class WalmartTrendRefreshService:
             "collection_rows_inserted_updated": len(collections),
             "collection_item_rows_inserted": collection_item_rows,
             "active_collections": active_diagnostics.get("active_collection_count", 0),
+            "link_generation_skipped": bool(skip_link_generation),
+            "impact_calls_made": impact_calls_made,
+            "urlgenius_calls_made": urlgenius_calls_made,
             "failures": len(failures),
         }
-        merged_diagnostics = {**(diagnostics or {}), **active_diagnostics}
+        merged_diagnostics = {
+            **(diagnostics or {}),
+            **active_diagnostics,
+            "link_generation_skipped": bool(skip_link_generation),
+            "impact_calls_made": impact_calls_made,
+            "urlgenius_calls_made": urlgenius_calls_made,
+        }
         logging.info("[WALMART_TRENDS] refresh diagnostics: %s", json.dumps(merged_diagnostics, sort_keys=True))
         status = "partial" if failures else "success"
         self.store.finish_run(run_id, status, counts, failures)

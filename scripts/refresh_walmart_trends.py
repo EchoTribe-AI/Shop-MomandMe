@@ -18,12 +18,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Refresh Walmart What's Trending Now data")
     parser.add_argument("--mode", choices=["bootstrap", "weekly"], default="weekly")
     parser.add_argument("--workbook", default=str(DEFAULT_WORKBOOK), help="Workbook path for bootstrap mode")
+    parser.add_argument(
+        "--skip-links",
+        action="store_true",
+        default=None,
+        help="Skip Impact and URLGenius link generation. Defaults to true for bootstrap mode.",
+    )
+    parser.add_argument(
+        "--with-links",
+        action="store_false",
+        dest="skip_links",
+        help="Allow link generation. Do not use for Phase 1 workbook bootstrap.",
+    )
     args = parser.parse_args()
+    skip_links = args.skip_links if args.skip_links is not None else args.mode == "bootstrap"
 
     service = WalmartTrendRefreshService()
     try:
         if args.mode == "bootstrap":
-            result = service.bootstrap_from_workbook(args.workbook)
+            result = service.bootstrap_from_workbook(args.workbook, skip_link_generation=skip_links)
         else:
             result = service.refresh_from_impact()
     except RefreshAlreadyRunning as exc:
