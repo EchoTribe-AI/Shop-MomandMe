@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>What's Trending Now | Walmart Finds</title>
-  <meta name="description" content="Workbook-backed Walmart products and curated trending collections.">
+  <meta name="description" content="Fresh Walmart finds people are grabbing right now.">
   <style>
     :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; }
     * { box-sizing: border-box; }
@@ -34,7 +34,7 @@
     .brand { margin-bottom:4px; color:var(--muted); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .meta { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .price { font-size:15px; font-weight:900; color:var(--accent); }
-    .units { color:var(--muted); font-size:10px; white-space:nowrap; }
+    .detail-note { color:var(--muted); font-size:10px; white-space:nowrap; }
     .cta { margin-top:10px; display:block; text-align:center; text-decoration:none; color:#fff; background:var(--accent); border-radius:12px; padding:10px 8px; font-size:12px; font-weight:850; box-shadow:0 7px 16px rgba(232,93,38,.22); }
     .fine { padding: 8px 18px 0; color:rgba(26,26,23,.42); font-size:10px; line-height:1.45; text-align:center; }
     @media (min-width: 560px) { .page { border-left:1px solid var(--line); border-right:1px solid var(--line); min-height:100vh; } }
@@ -43,28 +43,43 @@
 <body>
   <main class="page">
     <header class="hero">
-      <div class="eyebrow">🔥 Walmart trends</div>
-      <h1>What's Trending Now</h1>
-      <p class="subhead">Mobile-first Walmart finds bootstrapped from the May 6 workbook, with curated collections built around what shoppers are buying now.</p>
-      <div class="refreshed">Last refreshed: {{ data['last_refreshed'] or 'Not refreshed yet' }}</div>
+      <div class="eyebrow">🔥 Walmart finds</div>
+      <h1>What’s Trending Now</h1>
+      <p class="subhead">Fresh Walmart finds people are grabbing right now — from backyard upgrades to home refreshes, kids’ favorites, and everyday deals worth checking before they’re gone.</p>
+      <div class="refreshed">Updated: {{ data['last_refreshed'] or 'Today' }}</div>
     </header>
 
     {% if not data['collections'] %}
       <div class="empty">
-        No Walmart trend collections are active yet. In the Replit shell, run: uv run python scripts/refresh_walmart_trends.py --mode bootstrap --workbook attached_assets/Walmart_May6th_Analysis.xlsx
+        Fresh Walmart finds are being gathered. Check back soon for the latest picks.
       </div>
     {% endif %}
 
+    {% set collection_descriptions = {
+      'Spring Yard Refresh: Mulch, Soil & Sand': 'Easy outdoor refresh picks for gardens, patios, planters, and weekend yard projects.',
+      'Backyard Fun: Trampolines, Pools & Bubbles': 'Pool-day picks, backyard activities, and outdoor fun for warmer weather.',
+      'Patio Cookout & Outdoor Living': 'Grills, patio pieces, and outdoor upgrades made for easy weekends outside.',
+      'Organize + Moving Day Essentials': 'Storage bins, baskets, and practical helpers for getting your space under control.',
+      'Kids Room + Character Favorites': 'Fun bedding, room refreshes, and character finds kids will actually get excited about.',
+      'Kids Summer Basics & Underwear': 'Everyday kid essentials to stock up on before the next growth spurt.',
+      'Beauty, Sunscreen & Personal Care Stock-Up': 'Easy personal-care and sun-care picks to keep on hand.',
+      'Pet Pantry: Food, Litter & Treats': 'Pet food, litter, and treats worth adding to the next Walmart run.',
+      'Kitchen Prep, Serveware & Small Appliances': 'Kitchen helpers, prep tools, and serveware for easier meals and hosting.',
+      'High-AOV Home, Furniture & Electronics': 'Bigger-ticket home and tech finds shoppers are checking out now.'
+    } %}
+
     {% for collection in data['collections'] %}
+      {% set display_title = 'Trending Now' if loop.first else collection['name'] %}
+      {% set display_description = 'Popular Walmart finds shoppers are checking out right now.' if loop.first else collection_descriptions.get(collection['name'], collection['description']) %}
       <section class="section {% if collection['slug'] == 'top-sellers' %}top-sellers{% endif %}">
         <div class="section-head">
           <div>
-            <h2>{{ collection['name'] }}</h2>
-            {% if collection['description'] %}<p class="section-desc">{{ collection['description'] }}</p>{% endif %}
+            <h2>{{ display_title }}</h2>
+            {% if display_description %}<p class="section-desc">{{ display_description }}</p>{% endif %}
           </div>
         </div>
         {% if collection['items'] %}
-          <div class="rail" aria-label="{{ collection['name'] }} products">
+          <div class="rail" aria-label="{{ display_title }} products">
             {% for product in collection['items'] %}
               <article class="card">
                 <div class="image-wrap">
@@ -76,15 +91,22 @@
                 </div>
                 <div class="body">
                   <div class="badges">
-                    {% for badge in product['badges'] %}<span class="badge">{{ badge }}</span>{% endfor %}
+                    {% set has_top_units = 'Top by Units' in product['badges'] %}
+                    {% set has_top_earnings = 'Top by Earnings' in product['badges'] %}
+                    {% if has_top_units and has_top_earnings %}
+                      <span class="badge">Hot Find</span>
+                    {% else %}
+                      {% if has_top_units %}<span class="badge">Popular Pick</span>{% endif %}
+                      {% if has_top_earnings %}<span class="badge">Trending Deal</span>{% endif %}
+                      {% for badge in product['badges'] if badge not in ['Top by Units', 'Top by Earnings'] %}<span class="badge">{{ badge }}</span>{% endfor %}
+                    {% endif %}
                   </div>
                   {% if product['brand'] %}<div class="brand">{{ product['brand'] }}</div>{% endif %}
                   <div class="name">{{ product['title'] }}</div>
                   <div class="meta">
                     <div class="price">{{ product['price_display'] or 'Shop deal' }}</div>
-                    {% if product['item_count'] %}<div class="units">{{ product['item_count'] }} sold</div>{% endif %}
                   </div>
-                  <a class="cta" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Shop at Walmart →</a>
+                  <a class="cta" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Check price</a>
                 </div>
               </article>
             {% endfor %}
