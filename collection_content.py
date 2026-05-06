@@ -22,6 +22,7 @@ DEFAULT_CREATOR_ID = "everydaywithsteph"
 DEFAULT_PLATFORM = "facebook_group"
 DEFAULT_TONE = "warm mom-to-mom"
 DEFAULT_CTA = "Shop the Walmart finds"
+HOOK_FRAMEWORKS = ["Fast Discovery", "Problem → Solution", "Creator Favorites"]
 
 
 class CollectionContentError(RuntimeError):
@@ -61,25 +62,45 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
     return parsed
 
 
+def _normalize_hook(raw: Any, idx: int) -> dict[str, str]:
+    hook_type = HOOK_FRAMEWORKS[idx] if idx < len(HOOK_FRAMEWORKS) else f"Hook {idx + 1}"
+    if isinstance(raw, dict):
+        hook_type = _clean_text(raw.get("type"), 80) or hook_type
+        text = _clean_text(raw.get("text"), 240)
+    else:
+        text = _clean_text(raw, 240)
+    return {"type": hook_type, "text": text}
+
+
 def _normalize_generated(payload: dict[str, Any]) -> dict[str, Any]:
-    hooks = payload.get("hooks") or []
-    if not isinstance(hooks, list):
-        hooks = []
-    hooks = [_clean_text(h, 240) for h in hooks if _clean_text(h, 240)][:3]
-    while len(hooks) < 3:
-        hooks.append([
-            "Fresh Walmart finds worth checking out right now",
-            "A quick Walmart roundup for the week",
-            "Easy finds to add to your next Walmart run",
-        ][len(hooks)])
+    hooks_raw = payload.get("hooks") or []
+    if not isinstance(hooks_raw, list):
+        hooks_raw = []
+    hooks = []
+    for idx in range(3):
+        raw = hooks_raw[idx] if idx < len(hooks_raw) else {}
+        hook = _normalize_hook(raw, idx)
+        if not hook["text"]:
+            hook["text"] = [
+                "Fresh Walmart finds worth checking out right now",
+                "A few easy finds that solve the weekend errand scramble",
+                "Steph’s quick Walmart picks to skim before your next run",
+            ][idx]
+        hooks.append(hook)
+    cleaned = _clean_text(
+        payload.get("cleaned_transcript")
+        or payload.get("cleaned_voice")
+        or payload.get("voice_source_text"),
+        10000,
+    )
     return {
+        "cleaned_transcript": cleaned,
         "social_post": _clean_text(payload.get("social_post"), 5000),
         "landing_intro": _clean_text(payload.get("landing_intro"), 3000),
         "hooks": hooks,
         "cta": _clean_text(payload.get("cta"), 120) or DEFAULT_CTA,
         "link_placeholder": _clean_text(payload.get("link_placeholder"), 80) or "[collection link]",
     }
-
 
 def get_walmart_collection(collection_slug: str) -> dict[str, Any] | None:
     """Return one active Walmart Trending collection from the existing page data."""
@@ -136,22 +157,22 @@ def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int = 
     return adapted
 
 
-def _fallback_generation(collection: dict[str, Any], voice_source_text: str) -> dict[str, Any]:
+def _demo_generation(collection: dict[str, Any], voice_source_text: str) -> dict[str, Any]:
     title = collection.get("name") or "Walmart finds"
-    note = voice_source_text.strip()
-    opener = note.split("\n", 1)[0][:160] if note else "I pulled together a few Walmart finds that caught my eye."
+    note = voice_source_text.strip() or "I pulled together a few Walmart finds that caught my eye."
+    cleaned = note.replace("Steph voice:", "").strip()
     return _normalize_generated({
+        "cleaned_transcript": cleaned,
         "hooks": [
-            f"{title} worth checking out at Walmart",
-            "A quick Walmart roundup for your next run",
-            "Fresh finds shoppers are looking at right now",
+            {"type": "Fast Discovery", "text": f"I found a quick Walmart roundup for {title.lower()}"},
+            {"type": "Problem → Solution", "text": "If your weekend list is scattered, these Walmart finds put the useful stuff in one place"},
+            {"type": "Creator Favorites", "text": "Steph’s Walmart picks for the yard, kids, and little home wins"},
         ],
-        "social_post": f"{opener}\n\nI rounded up these Walmart picks in one spot so you can skim them fast. Take a look here: [collection link]",
-        "landing_intro": f"Here are the {title.lower()} I’d put on your radar right now. Skim the picks below, compare prices at Walmart, and grab what makes sense for your home or family.",
+        "social_post": f"{cleaned}\n\nI rounded up the Walmart finds in one spot so you can skim them fast and decide what’s worth checking out. [collection link]",
+        "landing_intro": f"I pulled together this {title.lower()} page so you can quickly browse the Walmart finds from the post. Check the product cards below, compare the current Walmart price, and grab whatever fits your home, yard, or family.",
         "cta": DEFAULT_CTA,
         "link_placeholder": "[collection link]",
     })
-
 
 def generate_walmart_collection_content(
     collection_slug: str,
@@ -160,6 +181,8 @@ def generate_walmart_collection_content(
     platform: str = DEFAULT_PLATFORM,
     tone: str = DEFAULT_TONE,
     audience_context: str = "busy moms looking for timely Walmart finds",
+    allow_demo_fallback: bool = False,
+    regenerate_target: str = "",
 ) -> dict[str, Any]:
     """Generate strict JSON content for a Walmart trend collection."""
     collection = get_walmart_collection(collection_slug)
@@ -176,9 +199,11 @@ def generate_walmart_collection_content(
     audience_context = _clean_text(audience_context, 500)
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        generated = _fallback_generation(collection, voice_source_text)
-        generated["warning"] = "ANTHROPIC_API_KEY not configured; used deterministic demo fallback."
-        return generated
+        if allow_demo_fallback:
+            generated = _demo_generation(collection, voice_source_text)
+            generated["warning"] = "ANTHROPIC_API_KEY not configured; visible demo fallback generated editable draft copy."
+            return generated
+        raise CollectionContentError("AI key missing: ANTHROPIC_API_KEY is not configured. Enable Demo fallback or add the key to generate with Claude.")
 
     product_lines = "\n".join(
         f"- {p['name']} | brand: {p['brand'] or 'n/a'} | price: {p['price'] or 'price not shown'} | retailer: Walmart"
@@ -186,12 +211,16 @@ def generate_walmart_collection_content(
     )
     system = (
         "You create creator-voice social post and landing page copy for shoppable trend collections. "
-        "Return ONLY valid JSON with keys social_post, landing_intro, hooks, cta, link_placeholder. "
-        "Rules: preserve the creator voice from pasted notes; use the creator voice_prompt if provided; "
-        "do not invent product claims, personal experience, prices, availability, urgency, or scarcity; "
-        "do not mention workbook, earnings, units, backend, API, Impact, URLGenius, or internal data; "
-        "make the social_post click-driving in Facebook group style; make landing_intro complementary, not repetitive; "
-        "mention Walmart naturally; use 0-3 emojis max unless the pasted creator voice clearly uses more; "
+        "Use the existing Ryze/MCP-style campaign discipline: separate the hook angle from body copy, make every output structured, and keep CTA/link handling explicit. "
+        "Return ONLY valid JSON with keys cleaned_transcript, hooks, social_post, landing_intro, cta, link_placeholder. "
+        "hooks must be exactly three objects with these exact types in order: Fast Discovery, Problem → Solution, Creator Favorites. "
+        "Fast Discovery = quick timely find/roundup; Problem → Solution = practical problem solved by the collection; Creator Favorites = Steph/creator-curated picks. "
+        "Rules: preserve the creator voice from pasted/transcribed notes; use the creator voice_prompt if provided; "
+        "use the creator's words as the primary source; use Walmart collection title and products as context; "
+        "do not invent product claims, personal ownership, personal experience, prices, availability, urgency, or scarcity; "
+        "do not mention earnings, units, workbook, API, Impact, URLGenius, backend, or internal data; "
+        "make social_post click-driving in Facebook group style; make landing_intro support the shoppable page and not duplicate the social post; "
+        "mention Walmart and the collection theme naturally; use 0-3 emojis max unless the creator voice clearly uses more; "
         "include [collection link] as the link placeholder, never a raw URL."
     )
     user = (
@@ -203,7 +232,7 @@ def generate_walmart_collection_content(
         f"Collection description: {collection.get('description') or ''}\n"
         f"Products:\n{product_lines}\n\n"
         "Return JSON exactly like: "
-        '{"social_post":"...","landing_intro":"...","hooks":["...","...","..."],"cta":"Shop the Walmart finds","link_placeholder":"[collection link]"}'
+        '{"cleaned_transcript":"cleaned-up creator words","hooks":[{"type":"Fast Discovery","text":"..."},{"type":"Problem → Solution","text":"..."},{"type":"Creator Favorites","text":"..."}],"social_post":"...","landing_intro":"...","cta":"Shop the Walmart finds","link_placeholder":"[collection link]"}'
     )
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
     message = client.messages.create(
@@ -229,10 +258,15 @@ def save_walmart_collection_draft(
     title = _clean_text(payload.get("title"), 240) or collection.get("name") or "Walmart finds"
     description = _clean_text(payload.get("description"), 500) or collection.get("description") or ""
     public_slug = slugify(payload.get("public_slug") or f"walmart-{collection_slug}")
-    hooks = payload.get("hooks") or []
-    if not isinstance(hooks, list):
-        hooks = []
-    hooks = [_clean_text(h, 240) for h in hooks if _clean_text(h, 240)][:3]
+    hooks_raw = payload.get("hooks") or []
+    if not isinstance(hooks_raw, list):
+        hooks_raw = []
+    hooks = []
+    for idx in range(3):
+        raw = hooks_raw[idx] if idx < len(hooks_raw) else {}
+        hook = _normalize_hook(raw, idx)
+        if hook["text"]:
+            hooks.append(hook)
     now = _now()
     draft_id = payload.get("draft_id")
     fields = {
@@ -244,6 +278,7 @@ def save_walmart_collection_draft(
         "description": description,
         "voice_source_text": _clean_text(payload.get("voice_source_text"), 10000),
         "voice_raw_transcript": _clean_text(payload.get("voice_raw_transcript"), 10000),
+        "cleaned_transcript": _clean_text(payload.get("cleaned_transcript"), 10000),
         "social_post": _clean_text(payload.get("social_post"), 5000),
         "landing_intro": _clean_text(payload.get("landing_intro"), 3000),
         "hooks_json": json.dumps(hooks),

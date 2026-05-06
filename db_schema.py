@@ -234,6 +234,7 @@ def init_collection_content_drafts_schema(conn: sqlite3.Connection) -> None:
             description TEXT,
             voice_source_text TEXT,
             voice_raw_transcript TEXT,
+            cleaned_transcript TEXT,
             social_post TEXT,
             landing_intro TEXT,
             hooks_json TEXT,
@@ -249,6 +250,7 @@ def init_collection_content_drafts_schema(conn: sqlite3.Connection) -> None:
             published_at TEXT
         )
     """)
+    _add_column_if_missing(conn, 'collection_content_drafts', "cleaned_transcript TEXT")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_collection_content_source "
         "ON collection_content_drafts(source_type, source_collection_slug)"

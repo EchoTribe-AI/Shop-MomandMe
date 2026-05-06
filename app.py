@@ -4,6 +4,7 @@ import json
 import logging
 import sqlite3
 import time
+import tempfile
 import requests as req
 from flask import Flask, send_from_directory, request, jsonify, render_template, Response
 from dotenv import load_dotenv
@@ -1709,15 +1710,43 @@ def _require_walmart_trends_admin():
     return None
 
 
+def _walmart_content_demo_allowed() -> bool:
+    """Allow demo mutations without a secret only in local/Replit dev contexts."""
+    host = (request.host or '').split(':')[0].lower()
+    return bool(
+        os.environ.get('FLASK_ENV') == 'development'
+        or os.environ.get('FLASK_DEBUG') == '1'
+        or os.environ.get('REPLIT_DEV_DOMAIN')
+        or host in {'localhost', '127.0.0.1'}
+        or host.endswith('.replit.dev')
+        or host.endswith('.repl.co')
+    )
+
+
 def _require_walmart_admin_if_configured():
-    """Require the Walmart admin token only when a token is configured."""
-    if not (
+    """Protect content mutations while allowing explicit local/Replit demo mode."""
+    expected = (
         os.environ.get('WALMART_TRENDS_ADMIN_TOKEN')
         or os.environ.get('ADMIN_API_TOKEN')
         or os.environ.get('ADMIN_SECRET')
-    ):
+    )
+    supplied = request.headers.get('X-Walmart-Trends-Admin-Token', '')
+    auth = request.headers.get('Authorization', '')
+    if not supplied and auth.lower().startswith('bearer '):
+        supplied = auth.split(' ', 1)[1].strip()
+    if expected:
+        import hmac as hmac_lib
+        if supplied and hmac_lib.compare_digest(supplied, expected):
+            return None
+        if _walmart_content_demo_allowed() and request.headers.get('X-Walmart-Content-Demo') == '1':
+            return None
+        return jsonify({
+            'error': 'unauthorized',
+            'message': 'Admin token required. Open the page with ?admin_token=<token> or enable demo mode in a local/Replit dev environment.',
+        }), 401
+    if _walmart_content_demo_allowed():
         return None
-    return _require_walmart_trends_admin()
+    return jsonify({'error': 'admin token is not configured for this production environment'}), 503
 
 
 @app.route('/walmart/trending-now')
@@ -1727,7 +1756,8 @@ def walmart_trending_now_page():
 
     data = get_trending_page_data()
     admin_mode = request.args.get('admin') == '1'
-    return render_template('walmart_trending_now.html', data=data, admin_mode=admin_mode)
+    admin_token = (request.args.get('admin_token') or '').strip()
+    return render_template('walmart_trending_now.html', data=data, admin_mode=admin_mode, admin_token=admin_token)
 
 
 @app.route('/api/walmart/trending-now')
@@ -1747,6 +1777,7 @@ def walmart_collection_create_post(collection_slug):
     if not collection:
         return "Walmart collection not found", 404
     creator_id = (request.args.get('creator_id') or 'everydaywithsteph').strip()
+    admin_token = (request.args.get('admin_token') or '').strip()
     products = collection.get('items', [])[:10]
     default_public_slug = cc.slugify(f"walmart-{collection.get('name') or collection_slug}")
     return render_template(
@@ -1755,7 +1786,74 @@ def walmart_collection_create_post(collection_slug):
         products=products,
         creator_id=creator_id,
         default_public_slug=default_public_slug,
+        admin_token=admin_token,
+        demo_auth_allowed=_walmart_content_demo_allowed(),
     )
+
+
+@app.route('/api/walmart/collections/<collection_slug>/transcribe-voice', methods=['POST'])
+def walmart_collection_transcribe_voice(collection_slug):
+    guard = _require_walmart_admin_if_configured()
+    if guard:
+        return guard
+    import collection_content as cc
+
+    if not cc.get_walmart_collection(collection_slug):
+        return jsonify({'error': 'Walmart collection not found'}), 404
+    if 'audio' not in request.files:
+        return jsonify({'error': 'audio file is required'}), 400
+    audio = request.files['audio']
+    allowed = {'audio/webm', 'video/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a'}
+    mimetype = (audio.mimetype or '').lower()
+    if mimetype not in allowed:
+        return jsonify({'error': f'Unsupported audio type: {mimetype or "unknown"}'}), 400
+    audio.stream.seek(0, os.SEEK_END)
+    size = audio.stream.tell()
+    audio.stream.seek(0)
+    if size <= 0:
+        return jsonify({'error': 'audio file is empty'}), 400
+    if size > 10 * 1024 * 1024:
+        return jsonify({'error': 'audio file must be 10 MB or smaller'}), 400
+    if not os.environ.get('OPENAI_API_KEY'):
+        return jsonify({
+            'error': 'OPENAI_API_KEY missing',
+            'message': 'Voice transcription needs OPENAI_API_KEY. Paste notes still works.',
+        }), 503
+
+    suffix = {
+        'audio/webm': '.webm', 'video/webm': '.webm', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
+        'audio/mpeg': '.mp3', 'audio/mp4': '.mp4', 'audio/x-m4a': '.m4a',
+    }.get(mimetype, '.audio')
+    tmp_path = ''
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+            audio.save(tmp)
+        with open(tmp_path, 'rb') as fh:
+            resp = req.post(
+                'https://api.openai.com/v1/audio/transcriptions',
+                headers={'Authorization': f"Bearer {os.environ.get('OPENAI_API_KEY')}"},
+                data={'model': 'whisper-1'},
+                files={'file': (audio.filename or f'walmart-voice{suffix}', fh, mimetype)},
+                timeout=60,
+            )
+        if resp.status_code >= 400:
+            return jsonify({'error': 'transcription failed', 'message': resp.text[:500]}), 502
+        data = resp.json()
+        transcript = (data.get('text') or '').strip()
+        if not transcript:
+            return jsonify({'error': 'transcription returned no text'}), 502
+        return jsonify({
+            'transcript': transcript,
+            'collection_slug': collection_slug,
+            'message': 'Transcription complete',
+        })
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 @app.route('/api/walmart/collections/<collection_slug>/generate-post', methods=['POST'])
@@ -1774,6 +1872,8 @@ def walmart_collection_generate_post(collection_slug):
             platform=body.get('platform') or 'facebook_group',
             tone=body.get('tone') or 'warm mom-to-mom',
             audience_context=body.get('audience_context') or 'busy moms looking for timely Walmart finds',
+            allow_demo_fallback=bool(body.get('demo_fallback')),
+            regenerate_target=body.get('regenerate_target') or '',
         )
         draft_id = body.get('draft_id')
         response = {'source_type': cc.SOURCE_WALMART_TREND, 'source_collection_slug': collection_slug, **generated}

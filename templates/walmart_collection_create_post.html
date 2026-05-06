@@ -39,6 +39,7 @@
     .status { display:none; margin-top:12px; border-radius:14px; padding:10px 12px; background:#eef8f4; color:var(--green); font-size:13px; font-weight:800; }
     .status.err { background:#fff0ed; color:#a02828; }
     .fine { color:var(--muted); font-size:12px; line-height:1.45; margin-top:10px; }
+    .top-alert { margin-top:14px; padding:11px 12px; border-radius:14px; background:#fff3e0; color:#a45700; font-size:13px; font-weight:800; line-height:1.4; }
   </style>
 </head>
 <body>
@@ -52,6 +53,7 @@
       <span class="pill">Walmart trend collection</span>
       <h1>{{ collection['name'] }}</h1>
       <p class="sub">{{ collection['description'] or 'Use this Walmart trend collection to create a creator-style social post and matching shoppable landing page intro.' }}</p>
+      {% if demo_auth_allowed %}<div class="top-alert">Demo auth is enabled for this local/Replit environment. Production still requires an admin token.</div>{% endif %}
     </section>
 
     <div class="grid">
@@ -85,8 +87,37 @@
         </div>
         <label for="title">Landing page title</label>
         <input id="title" value="{{ collection['name'] }}">
-        <label for="voice">Paste creator voice or notes</label>
-        <textarea id="voice" placeholder="Paste what Steph would say, rough post notes, or the angle you want..."></textarea>
+        <div class="voice-tabs" style="display:flex;gap:8px;margin-top:14px;">
+          <button class="ghost" id="recordTabBtn" onclick="switchVoiceTab('record')" type="button">Record voice</button>
+          <button class="ghost" id="pasteTabBtn" onclick="switchVoiceTab('paste')" type="button">Paste notes</button>
+        </div>
+
+        <div id="recordPanel">
+          <label>Record voice</label>
+          <p class="fine">Record what Steph would say. After transcription, the page will generate hooks, a social post, and landing intro automatically.</p>
+          <div class="actions">
+            <button id="startRecordBtn" onclick="startRecording()" type="button">Start recording</button>
+            <button id="stopRecordBtn" class="secondary" onclick="stopRecording()" type="button" style="display:none;">Stop recording</button>
+            <button id="reRecordBtn" class="ghost" onclick="resetRecording()" type="button" style="display:none;">Re-record</button>
+            <button id="useRecordingBtn" class="secondary" onclick="useRecording()" type="button" style="display:none;">Use this recording</button>
+          </div>
+          <div class="fine" id="recordTimer">00:00</div>
+          <audio id="audioPlayback" controls style="display:none;width:100%;margin-top:10px;"></audio>
+          <label for="cleanedTranscript">Your words, cleaned up</label>
+          <textarea id="cleanedTranscript" placeholder="Transcript will appear here after recording, or you can edit it before saving."></textarea>
+        </div>
+
+        <div id="pastePanel" style="display:none;">
+          <label for="voice">Paste creator voice or notes</label>
+          <textarea id="voice" placeholder="Paste what Steph would say, rough post notes, or the angle you want..."></textarea>
+          <div class="actions">
+            <button class="ghost" onclick="useStephSampleVoice()" type="button">Use Steph sample voice</button>
+            <button onclick="generateFromPaste()" type="button">Generate from pasted notes</button>
+            <label style="display:flex;align-items:center;gap:8px;margin:0;text-transform:none;letter-spacing:0;font-size:12px;color:var(--muted);">
+              <input id="demoFallback" type="checkbox" style="width:auto;"> Demo fallback if AI key is missing
+            </label>
+          </div>
+        </div>
         <div class="row">
           <div>
             <label for="platform">Platform</label>
@@ -98,19 +129,21 @@
           </div>
         </div>
         <div class="actions">
-          <button id="generateBtn" onclick="generatePost()">Generate post</button>
-          <button class="ghost" onclick="copySocialPost()">Copy social post</button>
-          <button class="secondary" onclick="saveDraft()">Save draft</button>
-          <button class="ghost" onclick="previewPage()">Preview landing page</button>
-          <button class="secondary" onclick="publishPage()">Publish page</button>
+          <button id="generateBtn" onclick="generatePost()" type="button">Generate post</button>
+          <button class="ghost" onclick="tryAnotherVersion()" type="button">Try another version</button>
+          <button class="ghost" onclick="copySocialPost()" type="button">Copy social post</button>
+          <button class="secondary" onclick="saveDraft()" type="button">Save draft</button>
+          <button class="ghost" onclick="previewPage()" type="button">Preview landing page</button>
+          <button class="secondary" onclick="publishPage()" type="button">Publish page</button>
+          <a class="btn ghost" id="insightsLink" href="/insights?creator_id={{ creator_id }}" style="display:none;">View in Insights</a>
         </div>
         <div id="status" class="status"></div>
 
         <label>Hooks</label>
         <div class="hooks">
-          <input id="hook0" placeholder="Hook option 1">
-          <input id="hook1" placeholder="Hook option 2">
-          <input id="hook2" placeholder="Hook option 3">
+          <input id="hook0" placeholder="Fast Discovery hook">
+          <input id="hook1" placeholder="Problem → Solution hook">
+          <input id="hook2" placeholder="Creator Favorites hook">
         </div>
         <label for="socialPost">Social post</label>
         <textarea id="socialPost" placeholder="Generated social post will appear here..."></textarea>
@@ -124,8 +157,24 @@
 
   <script>
     const collectionSlug = {{ collection['slug']|tojson }};
+    const adminToken = {{ admin_token|tojson }};
+    const demoAuthAllowed = {{ demo_auth_allowed|tojson }};
+    const hookTypes = ['Fast Discovery', 'Problem → Solution', 'Creator Favorites'];
     let draftId = null;
     let previewUrl = '';
+    let rawTranscript = '';
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let recordingBlob = null;
+    let timerHandle = null;
+    let recordingStartedAt = 0;
+
+    function authHeaders(extra={}) {
+      const headers = {...extra};
+      if (adminToken) headers['X-Walmart-Trends-Admin-Token'] = adminToken;
+      if (demoAuthAllowed) headers['X-Walmart-Content-Demo'] = '1';
+      return headers;
+    }
 
     function setStatus(message, isError=false) {
       const box = document.getElementById('status');
@@ -134,39 +183,161 @@
       box.style.display = 'block';
     }
 
+    function switchVoiceTab(tab) {
+      document.getElementById('recordPanel').style.display = tab === 'record' ? 'block' : 'none';
+      document.getElementById('pastePanel').style.display = tab === 'paste' ? 'block' : 'none';
+    }
+
+    function useStephSampleVoice() {
+      document.getElementById('voice').value = "Steph voice: I’d tell the group these are easy Walmart finds I’d check before the weekend. I love when I can pull together practical stuff in one place — a few things for the yard, a few things for the kids, and the kind of random home finds that make life feel a little more put together without spending a fortune.";
+      setStatus('Steph sample voice added. Click Generate from pasted notes.');
+    }
+
+    function selectedVoiceText() {
+      return (document.getElementById('cleanedTranscript').value || '').trim()
+        || (document.getElementById('voice').value || '').trim();
+    }
+
     function payload() {
+      const hooks = [0,1,2].map(i => ({
+        type: hookTypes[i],
+        text: document.getElementById(`hook${i}`).value.trim()
+      })).filter(h => h.text);
       return {
         creator_id: document.getElementById('creatorId').value.trim() || 'everydaywithsteph',
         public_slug: document.getElementById('publicSlug').value.trim(),
         title: document.getElementById('title').value.trim(),
-        voice_source_text: document.getElementById('voice').value.trim(),
+        voice_source_text: selectedVoiceText(),
+        voice_raw_transcript: rawTranscript,
+        cleaned_transcript: document.getElementById('cleanedTranscript').value.trim(),
         platform: document.getElementById('platform').value.trim() || 'facebook_group',
         tone: document.getElementById('tone').value.trim() || 'warm mom-to-mom',
         social_post: document.getElementById('socialPost').value.trim(),
         landing_intro: document.getElementById('landingIntro').value.trim(),
-        hooks: [0,1,2].map(i => document.getElementById(`hook${i}`).value.trim()).filter(Boolean),
+        hooks,
         cta: document.getElementById('cta').value.trim() || 'Shop the Walmart finds',
         draft_id: draftId,
       };
     }
 
-    async function generatePost() {
+    function fillGeneratedFields(data) {
+      document.getElementById('cleanedTranscript').value = data.cleaned_transcript || document.getElementById('cleanedTranscript').value || '';
+      (data.hooks || []).slice(0,3).forEach((h, i) => {
+        document.getElementById(`hook${i}`).value = typeof h === 'string' ? h : (h.text || '');
+      });
+      document.getElementById('socialPost').value = data.social_post || '';
+      document.getElementById('landingIntro').value = data.landing_intro || '';
+      document.getElementById('cta').value = data.cta || 'Shop the Walmart finds';
+    }
+
+    function setRecordingTimer() {
+      const elapsed = Math.floor((Date.now() - recordingStartedAt) / 1000);
+      const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const ss = String(elapsed % 60).padStart(2, '0');
+      document.getElementById('recordTimer').textContent = `${mm}:${ss}`;
+    }
+
+    async function startRecording() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('Voice recording is not supported in this browser. Use Paste notes instead.');
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+        recordedChunks = [];
+        recordingBlob = null;
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = (event) => { if (event.data && event.data.size) recordedChunks.push(event.data); };
+        mediaRecorder.onstop = () => {
+          recordingBlob = new Blob(recordedChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
+          document.getElementById('audioPlayback').src = URL.createObjectURL(recordingBlob);
+          document.getElementById('audioPlayback').style.display = 'block';
+          document.getElementById('useRecordingBtn').style.display = 'inline-flex';
+          document.getElementById('reRecordBtn').style.display = 'inline-flex';
+          stream.getTracks().forEach(track => track.stop());
+        };
+        mediaRecorder.start();
+        recordingStartedAt = Date.now();
+        timerHandle = setInterval(setRecordingTimer, 500);
+        setRecordingTimer();
+        document.getElementById('startRecordBtn').style.display = 'none';
+        document.getElementById('stopRecordBtn').style.display = 'inline-flex';
+        setStatus('Recording… click Stop recording when you are done.');
+      } catch (err) {
+        switchVoiceTab('paste');
+        setStatus(`Mic unavailable: ${err.message}. Paste notes is ready as a fallback.`, true);
+      }
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+      clearInterval(timerHandle);
+      document.getElementById('stopRecordBtn').style.display = 'none';
+      document.getElementById('startRecordBtn').style.display = 'none';
+      setStatus('Recording captured. Use this recording to transcribe and generate.');
+    }
+
+    function resetRecording() {
+      recordingBlob = null;
+      recordedChunks = [];
+      rawTranscript = '';
+      document.getElementById('audioPlayback').style.display = 'none';
+      document.getElementById('useRecordingBtn').style.display = 'none';
+      document.getElementById('reRecordBtn').style.display = 'none';
+      document.getElementById('startRecordBtn').style.display = 'inline-flex';
+      document.getElementById('recordTimer').textContent = '00:00';
+      setStatus('Ready to record again.');
+    }
+
+    async function useRecording() {
+      if (!recordingBlob) return setStatus('Record audio first.', true);
+      try {
+        setStatus('Transcribing voice…');
+        const form = new FormData();
+        form.append('audio', recordingBlob, 'walmart-creator-voice.webm');
+        form.append('creator_id', document.getElementById('creatorId').value.trim() || 'everydaywithsteph');
+        form.append('platform', document.getElementById('platform').value.trim() || 'facebook_group');
+        form.append('tone', document.getElementById('tone').value.trim() || 'warm mom-to-mom');
+        form.append('audience_context', 'busy moms looking for timely Walmart finds');
+        const res = await fetch(`/api/walmart/collections/${collectionSlug}/transcribe-voice`, {
+          method: 'POST', headers: authHeaders(), body: form
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+        rawTranscript = data.transcript || '';
+        document.getElementById('cleanedTranscript').value = rawTranscript;
+        setStatus('Transcription complete. Generating post…');
+        await generatePost({voiceText: rawTranscript, fromTranscript: true});
+      } catch (err) {
+        setStatus(`Voice transcription failed: ${err.message}. Paste notes still works.`, true);
+      }
+    }
+
+    function generateFromPaste() {
+      switchVoiceTab('paste');
+      return generatePost({voiceText: document.getElementById('voice').value.trim()});
+    }
+
+    function tryAnotherVersion() {
+      return generatePost({regenerateTarget: 'full draft variation'});
+    }
+
+    async function generatePost(options={}) {
       const btn = document.getElementById('generateBtn');
       btn.disabled = true;
       btn.textContent = 'Generating…';
       try {
         const body = payload();
+        if (options.voiceText) body.voice_source_text = options.voiceText;
+        if (options.regenerateTarget) body.regenerate_target = options.regenerateTarget;
+        body.demo_fallback = document.getElementById('demoFallback')?.checked || false;
         body.audience_context = 'busy moms looking for timely Walmart finds';
         const res = await fetch(`/api/walmart/collections/${collectionSlug}/generate-post`, {
-          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+          method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(body)
         });
         const data = await res.json();
-        if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-        (data.hooks || []).slice(0,3).forEach((h, i) => document.getElementById(`hook${i}`).value = h);
-        document.getElementById('socialPost').value = data.social_post || '';
-        document.getElementById('landingIntro').value = data.landing_intro || '';
-        document.getElementById('cta').value = data.cta || 'Shop the Walmart finds';
-        setStatus(data.warning || 'Generated creator-voice post and landing intro.');
+        if (!res.ok || data.error) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+        fillGeneratedFields(data);
+        setStatus(data.warning || 'Generated hooks, social post, and landing intro.');
       } catch (err) {
         setStatus(`Generate failed: ${err.message}`, true);
       } finally {
@@ -178,7 +349,7 @@
     async function saveDraft() {
       try {
         const res = await fetch(`/api/walmart/collections/${collectionSlug}/draft-page`, {
-          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload())
+          method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(payload())
         });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
@@ -203,10 +374,12 @@
         if (!data) return;
       }
       try {
-        const res = await fetch(`/api/collection-content-drafts/${draftId}/publish`, { method:'POST' });
+        const res = await fetch(`/api/collection-content-drafts/${draftId}/publish`, { method:'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
         setStatus(`Published: ${data.public_url}`);
+        const insights = document.getElementById('insightsLink');
+        if (insights) { insights.href = data.insights_url || insights.href; insights.style.display = 'inline-flex'; }
         window.open(data.public_url, '_blank', 'noopener');
       } catch (err) {
         setStatus(`Publish failed: ${err.message}`, true);
@@ -225,6 +398,7 @@
         setStatus('Social post copied.');
       }
     }
+    switchVoiceTab('record');
   </script>
 </body>
 </html>
