@@ -18,6 +18,7 @@
     .empty { margin: 22px 18px; padding: 18px; border:1px dashed var(--line); border-radius:20px; background:#fff; color:var(--muted); line-height:1.45; }
     .section { padding: 18px 0 4px; }
     .section-head { padding: 0 18px 10px; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; }
+    .admin-action { flex:0 0 auto; align-self:flex-start; text-decoration:none; color:#fff; background:var(--ink); border-radius:999px; padding:8px 10px; font-size:11px; font-weight:850; box-shadow:0 6px 14px rgba(26,26,23,.14); }
     .section h2 { margin:0; font-size:20px; letter-spacing:-.025em; }
     .section-desc { margin:4px 0 0; color:var(--muted); font-size:12px; line-height:1.35; }
     .rail { display:flex; gap:12px; overflow-x:auto; padding: 2px 18px 16px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling: touch; }
@@ -80,6 +81,9 @@
             <h2>{{ display_title }}</h2>
             {% if display_description %}<p class="section-desc">{{ display_description }}</p>{% endif %}
           </div>
+          {% if admin_mode %}
+            <a class="admin-action" href="/walmart/collections/{{ collection['slug'] }}/create-post?creator_id=everydaywithsteph{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">Create post</a>
+          {% endif %}
         </div>
         {% if collection['items'] %}
           <div class="rail" aria-label="{{ display_title }} products">
