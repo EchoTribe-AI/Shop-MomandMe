@@ -113,6 +113,9 @@ def stale_walmart_link_reason(url: str) -> str:
         return STALE_DOUBLE_ENCODED_WALMART_GOTO_ERROR
     if "https%253A%252F%252Fwww.walmart.com" in url or "http%253A%252F%252Fwww.walmart.com" in url:
         return "stored URL contains a double-encoded Walmart destination"
+    parsed = urlparse(url)
+    if parsed.netloc.lower() in {"walmart.com", "www.walmart.com"}:
+        return "stored affiliate URL is raw Walmart destination"
     return ""
 
 
@@ -925,22 +928,9 @@ class AffiliateLinkService:
                 self.store.mark_affiliate_link_stale(sku, product_url, stale_reason)
             else:
                 return existing
-        if not self.client.auth_token:
-            fallback_url = self.client._build_manual_link(product_url, sku, sub_id1, sku, sub_id3)
-            self.store.save_affiliate_link(
-                sku, product_url, fallback_url, status="fallback",
-                error="IMPACT_AUTH_TOKEN not set",
-            )
-            return fallback_url
-        try:
-            impact_url = self.client.generate_walmart_link(product_url, sku, sub_id1=sub_id1, sub_id2=sku, sub_id3=sub_id3)
-            self.store.save_affiliate_link(sku, product_url, impact_url)
-            return impact_url
-        except Exception as exc:
-            logging.warning("[WALMART_TRENDS] Impact link failed for %s: %s", sku, exc)
-            fallback_url = self.client._build_manual_link(product_url, sku, sub_id1, sku, sub_id3)
-            self.store.save_affiliate_link(sku, product_url, fallback_url, status="fallback", error=str(exc))
-            return fallback_url
+        impact_url = self.client.generate_walmart_link(product_url, sku, sub_id1=sub_id1, sub_id2=sku, sub_id3=sub_id3)
+        self.store.save_affiliate_link(sku, product_url, impact_url)
+        return impact_url
 
 
 class URLGeniusLinkService:

@@ -62,17 +62,20 @@ class WalmartTrendsTestCase(unittest.TestCase):
         item_one = next(item for item in top["items"] if item["sku"] == "1")
         self.assertEqual(set(item_one["badges"]), {"Top by Units", "Top by Earnings"})
 
-    def test_fallback_affiliate_link_reuse(self):
+    def test_raw_walmart_affiliate_link_is_replaced_with_manual_goto(self):
         store = self.wt.WalmartTrendStore()
-        store.save_affiliate_link("sku1", "https://www.walmart.com/ip/sku1", "https://www.walmart.com/ip/sku1", status="fallback")
+        product_url = "https://www.walmart.com/ip/sku1"
+        store.save_affiliate_link("sku1", product_url, product_url, status="fallback")
         service = self.wt.AffiliateLinkService(store)
-        self.assertEqual(
-            service.ensure("sku1", "https://www.walmart.com/ip/sku1"),
-            "https://www.walmart.com/ip/sku1",
-        )
+
+        link = service.ensure("sku1", product_url)
+
+        self.assertTrue(link.startswith("https://goto.walmart.com/c/3590891/1398372/16662?"))
+        self.assertIn("u=https%3A%2F%2Fwww.walmart.com%2Fip%2Fsku1", link)
+        self.assertNotEqual(link, product_url)
 
 
-    def test_missing_impact_token_uses_manual_goto_fallback(self):
+    def test_missing_impact_token_uses_primary_manual_goto(self):
         original_token = os.environ.pop("IMPACT_AUTH_TOKEN", None)
         try:
             store = self.wt.WalmartTrendStore()

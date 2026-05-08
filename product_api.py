@@ -245,38 +245,8 @@ class ImpactAPI:
     def generate_walmart_link(self, product_url: str, product_id: str = None, 
                              sub_id1: str = "chat", sub_id2: str = None,
                              sub_id3: str = None) -> str:
-        """Generate an Impact vanity tracking link for a Walmart product."""
-        
-        endpoint = (
-            f"{self.BASE_URL}/{self.account_sid}/Programs/"
-            f"{self.WALMART_PROGRAM_ID}/TrackingLinks"
-        )
-        destination_url = self._normalize_walmart_destination_url(product_url)
-        
-        params = {
-            'Type': 'vanity',
-            'DeepLink': destination_url,
-            'subId1': sub_id1,
-            'subId2': sub_id2 or product_id or '',
-            'subId3': sub_id3 or ''
-        }
-        
-        auth = (self.account_sid, self.auth_token)
-        
-        try:
-            response = requests.post(endpoint, params=params, auth=auth, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            tracking_url = data.get('TrackingURL') or data.get('Uri')
-            
-            if tracking_url:
-                return tracking_url
-            else:
-                return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
-                
-        except requests.exceptions.RequestException as e:
-            print(f"Impact API error: {e}")
-            return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
+        """Build the primary manual goto.walmart affiliate link for Walmart."""
+        return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
     
     def _build_manual_link(self, product_url: str, product_id: str, 
                           sub_id1: str, sub_id2: str, sub_id3: str = None) -> str:
