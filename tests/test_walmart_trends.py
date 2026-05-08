@@ -180,6 +180,98 @@ class WalmartTrendsTestCase(unittest.TestCase):
         self.assertEqual(link, "https://urlgeni.us/walmart/fresh")
         self.assertTrue(create.call_args.kwargs["force_new"])
 
+
+    def test_regeneration_service_inspects_and_regenerates_stale_sku(self):
+        store = self.wt.WalmartTrendStore()
+        sku = "5454929532"
+        product_url = f"https://www.walmart.com/ip/{sku}"
+        stale_impact = (
+            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            f"&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F{sku}"
+        )
+        fresh_impact = (
+            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            f"&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F{sku}"
+        )
+        store.save_affiliate_link(sku, product_url, stale_impact, status="active")
+        store.save_urlgenius_link(stale_impact, "https://urlgeni.us/walmart/dQB0MO", status="active")
+
+        original_impact_token = os.environ.get("IMPACT_AUTH_TOKEN")
+        original_urlgenius_key = os.environ.get("URLGENIUS_API_KEY")
+        os.environ["IMPACT_AUTH_TOKEN"] = "impact-token"
+        os.environ["URLGENIUS_API_KEY"] = "urlgenius-key"
+        try:
+            service = self.wt.WalmartLinkRegenerationService(store)
+            service.affiliates.client.generate_walmart_link = lambda *args, **kwargs: fresh_impact
+            service.urlgenius.client.create_link = lambda *args, **kwargs: {
+                "link": {"genius_url": "https://urlgeni.us/walmart/fresh", "id": "fresh-id"}
+            }
+
+            before = service.inspect_sku(sku)
+            result = service.regenerate_sku(sku)
+            after = service.inspect_sku(sku)
+        finally:
+            if original_impact_token is None:
+                os.environ.pop("IMPACT_AUTH_TOKEN", None)
+            else:
+                os.environ["IMPACT_AUTH_TOKEN"] = original_impact_token
+            if original_urlgenius_key is None:
+                os.environ.pop("URLGENIUS_API_KEY", None)
+            else:
+                os.environ["URLGENIUS_API_KEY"] = original_urlgenius_key
+
+        self.assertTrue(before["affiliate_stale"])
+        self.assertTrue(before["urlgenius_stale"])
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["fresh_impact_url"], fresh_impact)
+        self.assertEqual(result["fresh_genius_url"], "https://urlgeni.us/walmart/fresh")
+        self.assertFalse(after["affiliate_stale"])
+        self.assertFalse(after["urlgenius_stale"])
+        self.assertEqual(after["impact_url"], fresh_impact)
+        self.assertEqual(after["genius_url"], "https://urlgeni.us/walmart/fresh")
+        self.assertIsNone(store.current_urlgenius_for_destination(stale_impact))
+
+    def test_regenerate_all_stale_finds_urlgenius_destination_by_sku_pattern(self):
+        store = self.wt.WalmartTrendStore()
+        sku = "5454929532"
+        stale_destination = (
+            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            f"&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F{sku}"
+        )
+        fresh_impact = (
+            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            f"&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F{sku}"
+        )
+        store.save_urlgenius_link(stale_destination, "https://urlgeni.us/walmart/dQB0MO", status="active")
+
+        original_impact_token = os.environ.get("IMPACT_AUTH_TOKEN")
+        original_urlgenius_key = os.environ.get("URLGENIUS_API_KEY")
+        os.environ["IMPACT_AUTH_TOKEN"] = "impact-token"
+        os.environ["URLGENIUS_API_KEY"] = "urlgenius-key"
+        try:
+            service = self.wt.WalmartLinkRegenerationService(store)
+            service.affiliates.client.generate_walmart_link = lambda *args, **kwargs: fresh_impact
+            service.urlgenius.client.create_link = lambda *args, **kwargs: {
+                "link": {"genius_url": "https://urlgeni.us/walmart/fresh", "id": "fresh-id"}
+            }
+
+            result = service.regenerate_all_stale()
+        finally:
+            if original_impact_token is None:
+                os.environ.pop("IMPACT_AUTH_TOKEN", None)
+            else:
+                os.environ["IMPACT_AUTH_TOKEN"] = original_impact_token
+            if original_urlgenius_key is None:
+                os.environ.pop("URLGENIUS_API_KEY", None)
+            else:
+                os.environ["URLGENIUS_API_KEY"] = original_urlgenius_key
+
+        self.assertEqual(result["stale_skus_found"], 1)
+        self.assertEqual(result["regenerated_count"], 1)
+        after = service.inspect_sku(sku)
+        self.assertEqual(after["impact_url"], fresh_impact)
+        self.assertEqual(after["genius_url"], "https://urlgeni.us/walmart/fresh")
+
     def test_refresh_lock_prevents_overlap(self):
         store = self.wt.WalmartTrendStore()
         store.create_run("workbook_bootstrap")

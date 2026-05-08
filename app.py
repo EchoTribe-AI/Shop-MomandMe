@@ -1975,6 +1975,48 @@ def admin_walmart_trends_refresh():
         'failures': result.failures,
     }), status_code
 
+
+
+@app.route('/admin/walmart-trends/links/<sku>', methods=['GET'])
+def admin_walmart_trends_link_inspect(sku):
+    """Inspect current stored Walmart Impact/URLGenius links for one SKU."""
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from walmart_trends import WalmartLinkRegenerationService
+
+    include_redirect = request.args.get('include_redirect') == '1'
+    return jsonify(WalmartLinkRegenerationService().inspect_sku(sku, include_redirect=include_redirect))
+
+
+@app.route('/admin/walmart-trends/links/<sku>/regenerate', methods=['POST'])
+def admin_walmart_trends_link_regenerate(sku):
+    """Regenerate stale Walmart Impact + URLGenius links for one SKU."""
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from walmart_trends import WalmartLinkRegenerationService
+
+    payload = request.get_json(silent=True) or {}
+    force = request.args.get('force') == '1' or bool(payload.get('force'))
+    include_redirect = request.args.get('include_redirect') == '1' or bool(payload.get('include_redirect'))
+    return jsonify(WalmartLinkRegenerationService().regenerate_sku(sku, force=force, include_redirect=include_redirect))
+
+
+@app.route('/admin/walmart-trends/links/regenerate-stale', methods=['POST'])
+def admin_walmart_trends_links_regenerate_stale():
+    """Regenerate all locally detected stale Walmart Impact + URLGenius links."""
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from walmart_trends import WalmartLinkRegenerationService
+
+    payload = request.get_json(silent=True) or {}
+    raw_limit = request.args.get('limit') or payload.get('limit')
+    limit = int(raw_limit) if raw_limit not in (None, '') else None
+    include_redirect = request.args.get('include_redirect') == '1' or bool(payload.get('include_redirect'))
+    return jsonify(WalmartLinkRegenerationService().regenerate_all_stale(limit=limit, include_redirect=include_redirect))
+
 @app.route('/sitemap.xml')
 def shop_sitemap():
     """Auto-generated sitemap of all published collections.
