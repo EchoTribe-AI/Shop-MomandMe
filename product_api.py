@@ -16,7 +16,7 @@ import time
 import base64
 import uuid
 from typing import List, Dict, Optional
-from urllib.parse import urlencode, quote
+from urllib.parse import urlencode, quote, unquote
 
 
 class WalmartAPI:
@@ -272,18 +272,46 @@ class ImpactAPI:
     
     def _build_manual_link(self, product_url: str, product_id: str, 
                           sub_id1: str, sub_id2: str) -> str:
-        """Build Impact tracking link manually"""
+        """Build Impact tracking link manually.
+
+        ``urlencode`` performs the required single encoding for query parameter
+        values.  Some callers/API payloads can provide an already-encoded
+        Walmart destination (for example ``https%3A%2F%2Fwww.walmart.com%2Fip``);
+        normalize it back to the raw destination first so the final ``u``
+        parameter is not double-encoded as ``https%253A%252F%252F...``.
+        """
         base = "https://goto.walmart.com/c/3590891/1398372/16662"
-        encoded_url = quote(product_url, safe='')
-        
+        destination_url = self._normalize_walmart_destination_url(product_url)
+
         params = {
             'veh': 'aff',
-            'u': encoded_url,
+            'u': destination_url,
             'subId1': sub_id1,
             'subId2': sub_id2 or product_id or ''
         }
         
         return f"{base}?{urlencode(params)}"
+
+    @staticmethod
+    def _normalize_walmart_destination_url(product_url: str) -> str:
+        """Return a raw Walmart destination URL before query encoding.
+
+        The manual Impact/goto link builder passes this value to ``urlencode``,
+        so this method intentionally does *not* quote the URL.  It only unwraps
+        a once-encoded destination when the scheme itself has been encoded.
+        """
+        if not product_url:
+            return ''
+
+        normalized = product_url.strip()
+        if normalized.lower().startswith(('http://', 'https://')):
+            return normalized
+
+        decoded = unquote(normalized)
+        if decoded.lower().startswith(('http://', 'https://')):
+            return decoded
+
+        return normalized
 
 
 def detect_category(query: str) -> str:
