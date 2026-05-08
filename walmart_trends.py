@@ -694,24 +694,26 @@ class AffiliateLinkService:
         self.store = store
         self.client = ImpactAPI()
 
-    def ensure(self, sku: str, product_url: str, sub_id1: str = "walmart-trending") -> str:
+    def ensure(self, sku: str, product_url: str, sub_id1: str = "walmart-trending", sub_id3: str = None) -> str:
         existing = self.store.affiliate_link_for(sku, product_url)
         if existing:
             return existing
-        if not self.client.account_sid or not self.client.auth_token:
+        if not self.client.auth_token:
+            fallback_url = self.client._build_manual_link(product_url, sku, sub_id1, sku, sub_id3)
             self.store.save_affiliate_link(
-                sku, product_url, product_url, status="fallback",
-                error="IMPACT_ACCOUNT_SID or IMPACT_AUTH_TOKEN not set",
+                sku, product_url, fallback_url, status="fallback",
+                error="IMPACT_AUTH_TOKEN not set",
             )
-            return product_url
+            return fallback_url
         try:
-            impact_url = self.client.generate_walmart_link(product_url, sku, sub_id1=sub_id1, sub_id2=sku)
+            impact_url = self.client.generate_walmart_link(product_url, sku, sub_id1=sub_id1, sub_id2=sku, sub_id3=sub_id3)
             self.store.save_affiliate_link(sku, product_url, impact_url)
             return impact_url
         except Exception as exc:
             logging.warning("[WALMART_TRENDS] Impact link failed for %s: %s", sku, exc)
-            self.store.save_affiliate_link(sku, product_url, product_url, status="fallback", error=str(exc))
-            return product_url
+            fallback_url = self.client._build_manual_link(product_url, sku, sub_id1, sku, sub_id3)
+            self.store.save_affiliate_link(sku, product_url, fallback_url, status="fallback", error=str(exc))
+            return fallback_url
 
 
 class URLGeniusLinkService:

@@ -70,6 +70,21 @@ class WalmartTrendsTestCase(unittest.TestCase):
             "https://www.walmart.com/ip/sku1",
         )
 
+
+    def test_missing_impact_token_uses_manual_goto_fallback(self):
+        original_token = os.environ.pop("IMPACT_AUTH_TOKEN", None)
+        try:
+            store = self.wt.WalmartTrendStore()
+            service = self.wt.AffiliateLinkService(store)
+            link = service.ensure("sku1", "https%3A%2F%2Fwww.walmart.com%2Fip%2Fsku1")
+        finally:
+            if original_token is not None:
+                os.environ["IMPACT_AUTH_TOKEN"] = original_token
+
+        self.assertTrue(link.startswith("https://goto.walmart.com/c/3590891/1398372/16662?"))
+        self.assertIn("u=https%3A%2F%2Fwww.walmart.com%2Fip%2Fsku1", link)
+        self.assertNotIn("https%253A%252F%252Fwww.walmart.com%252Fip%252Fsku1", link)
+
     def test_fallback_urlgenius_link_reuse(self):
         store = self.wt.WalmartTrendStore()
         store.save_urlgenius_link("https://impact.example/sku1", "https://impact.example/sku1", status="fallback")

@@ -234,44 +234,52 @@ class ImpactAPI:
     """Impact.com API for Walmart affiliate link generation"""
     
     BASE_URL = "https://api.impact.com/Mediapartners"
+    WALMART_ACCOUNT_ID = "3590891"
+    WALMART_REFERRAL_ID = "1398372"
+    WALMART_PROGRAM_ID = "16662"
     
     def __init__(self):
-        self.account_sid = os.environ.get('IMPACT_ACCOUNT_SID')
+        self.account_sid = os.environ.get('IMPACT_ACCOUNT_SID') or self.WALMART_ACCOUNT_ID
         self.auth_token = os.environ.get('IMPACT_AUTH_TOKEN')
     
     def generate_walmart_link(self, product_url: str, product_id: str = None, 
-                             sub_id1: str = "chat", sub_id2: str = None) -> str:
-        """Generate Impact affiliate link for Walmart product"""
+                             sub_id1: str = "chat", sub_id2: str = None,
+                             sub_id3: str = None) -> str:
+        """Generate an Impact vanity tracking link for a Walmart product."""
         
-        endpoint = f"{self.BASE_URL}/{self.account_sid}/Conversions/ConversionLink"
-        campaign_id = "16662"
+        endpoint = (
+            f"{self.BASE_URL}/{self.account_sid}/Programs/"
+            f"{self.WALMART_PROGRAM_ID}/TrackingLinks"
+        )
+        destination_url = self._normalize_walmart_destination_url(product_url)
         
         params = {
-            'DestinationUrl': product_url,
-            'CampaignId': campaign_id,
-            'SubId1': sub_id1,
-            'SubId2': sub_id2 or product_id or ''
+            'Type': 'vanity',
+            'DeepLink': destination_url,
+            'subId1': sub_id1,
+            'subId2': sub_id2 or product_id or '',
+            'subId3': sub_id3 or ''
         }
         
         auth = (self.account_sid, self.auth_token)
         
         try:
-            response = requests.get(endpoint, params=params, auth=auth, timeout=10)
+            response = requests.post(endpoint, params=params, auth=auth, timeout=10)
             response.raise_for_status()
             data = response.json()
-            tracking_url = data.get('VanityUrl') or data.get('TrackingUrl')
+            tracking_url = data.get('TrackingURL') or data.get('Uri')
             
             if tracking_url:
                 return tracking_url
             else:
-                return self._build_manual_link(product_url, product_id, sub_id1, sub_id2)
+                return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
                 
         except requests.exceptions.RequestException as e:
             print(f"Impact API error: {e}")
-            return self._build_manual_link(product_url, product_id, sub_id1, sub_id2)
+            return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
     
     def _build_manual_link(self, product_url: str, product_id: str, 
-                          sub_id1: str, sub_id2: str) -> str:
+                          sub_id1: str, sub_id2: str, sub_id3: str = None) -> str:
         """Build Impact tracking link manually.
 
         ``urlencode`` performs the required single encoding for query parameter
@@ -280,14 +288,18 @@ class ImpactAPI:
         normalize it back to the raw destination first so the final ``u``
         parameter is not double-encoded as ``https%253A%252F%252F...``.
         """
-        base = "https://goto.walmart.com/c/3590891/1398372/16662"
+        base = (
+            f"https://goto.walmart.com/c/{self.WALMART_ACCOUNT_ID}/"
+            f"{self.WALMART_REFERRAL_ID}/{self.WALMART_PROGRAM_ID}"
+        )
         destination_url = self._normalize_walmart_destination_url(product_url)
 
         params = {
             'veh': 'aff',
             'u': destination_url,
             'subId1': sub_id1,
-            'subId2': sub_id2 or product_id or ''
+            'subId2': sub_id2 or product_id or '',
+            'subId3': sub_id3 or ''
         }
         
         return f"{base}?{urlencode(params)}"

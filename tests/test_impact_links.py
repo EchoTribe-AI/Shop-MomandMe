@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 from product_api import ImpactAPI
@@ -14,6 +15,58 @@ class ImpactManualWalmartLinkTestCase(unittest.TestCase):
             if part.startswith(f"{name}="):
                 return part
         self.fail(f"Missing {name} query parameter in {url}")
+
+    def test_generate_walmart_link_uses_trackinglinks_vanity_contract(self):
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"TrackingURL": "https://goto.walmart.com/c/tracked"}
+
+        with patch("product_api.requests.post", return_value=Response()) as post:
+            link = self.client.generate_walmart_link(
+                "https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532",
+                "5454929532",
+                sub_id1="chat-recommendation",
+                sub_id2="5454929532",
+                sub_id3="creator-feed",
+            )
+
+        self.assertEqual(link, "https://goto.walmart.com/c/tracked")
+        post.assert_called_once()
+        endpoint = post.call_args.args[0]
+        params = post.call_args.kwargs["params"]
+        self.assertEqual(
+            endpoint,
+            "https://api.impact.com/Mediapartners/3590891/Programs/16662/TrackingLinks",
+        )
+        self.assertEqual(
+            params,
+            {
+                "Type": "vanity",
+                "DeepLink": "https://www.walmart.com/ip/5454929532",
+                "subId1": "chat-recommendation",
+                "subId2": "5454929532",
+                "subId3": "creator-feed",
+            },
+        )
+
+    def test_generate_walmart_link_accepts_uri_response_field(self):
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"Uri": "https://goto.walmart.com/c/uri-tracked"}
+
+        with patch("product_api.requests.post", return_value=Response()):
+            link = self.client.generate_walmart_link(
+                "https://www.walmart.com/ip/5454929532",
+                "5454929532",
+            )
+
+        self.assertEqual(link, "https://goto.walmart.com/c/uri-tracked")
 
     def test_product_destination_is_single_encoded_in_goto_u_parameter(self):
         link = self.client._build_manual_link(
