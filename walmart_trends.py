@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 
@@ -27,6 +28,7 @@ from product_api import ImpactAPI, URLGeniusAPI, WalmartAPI
 DB_PATH = db_schema.DB_PATH
 DEFAULT_WORKBOOK = Path("attached_assets/Walmart_May6th_Analysis.xlsx")
 SHEET_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+STALE_DOUBLE_ENCODED_WALMART_GOTO_ERROR = "stale double-encoded Walmart goto destination"
 
 
 @dataclass
@@ -74,6 +76,33 @@ def _connect() -> sqlite3.Connection:
 def _slugify(value: str, fallback: str = "collection") -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
     return slug or fallback
+
+
+def _is_double_encoded_walmart_destination(value: str) -> bool:
+    """Return True when a URL value still contains an encoded Walmart URL after one decode."""
+    if not value:
+        return False
+    decoded_once = unquote(value)
+    return (
+        "www.walmart.com" in decoded_once
+        and ("https%3A%2F%2F" in decoded_once or "http%3A%2F%2F" in decoded_once)
+    )
+
+
+def is_malformed_double_encoded_walmart_goto(url: str) -> bool:
+    """Detect the old broken goto.walmart.com pattern where `u` was encoded twice."""
+    if not url or "goto.walmart.com" not in url:
+        return False
+    parsed = urlparse(url)
+    if parsed.netloc.lower() != "goto.walmart.com":
+        return False
+    raw_query = parsed.query or ""
+    if "u=https%253A%252F%252Fwww.walmart.com" in raw_query or "u=http%253A%252F%252Fwww.walmart.com" in raw_query:
+        return True
+    for value in parse_qs(raw_query, keep_blank_values=True).get("u", []):
+        if _is_double_encoded_walmart_destination(value):
+            return True
+    return False
 
 
 def _to_int(value: Any) -> int:
@@ -420,6 +449,21 @@ class WalmartTrendStore:
         finally:
             conn.close()
 
+    def mark_affiliate_link_stale(self, sku: str, product_url: str, reason: str) -> None:
+        conn = _connect()
+        try:
+            conn.execute(
+                """
+                UPDATE walmart_affiliate_links
+                SET status = 'stale', error = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE sku = ? AND product_url = ? AND status IN ('active', 'fallback')
+                """,
+                (reason, sku, product_url),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def save_affiliate_link(self, sku: str, product_url: str, impact_url: str, status: str = "active", error: str = "") -> None:
         conn = _connect()
         try:
@@ -444,7 +488,7 @@ class WalmartTrendStore:
         try:
             row = conn.execute(
                 """
-                SELECT genius_url, link_id
+                SELECT destination_url, genius_url, link_id, status
                 FROM walmart_urlgenius_links
                 WHERE destination_url = ? AND status IN ('active', 'fallback')
                 ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
@@ -453,6 +497,59 @@ class WalmartTrendStore:
                 (destination_url,),
             ).fetchone()
             return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def mark_urlgenius_link_stale(self, destination_url: str, reason: str) -> None:
+        conn = _connect()
+        try:
+            conn.execute(
+                """
+                UPDATE walmart_urlgenius_links
+                SET status = 'stale', error = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE destination_url = ? AND status IN ('active', 'fallback')
+                """,
+                (reason, destination_url),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def walmart_link_diagnostics_for_sku(self, sku: str) -> dict[str, Any]:
+        conn = _connect()
+        try:
+            affiliate = conn.execute(
+                """
+                SELECT impact_url
+                FROM walmart_affiliate_links
+                WHERE sku = ? AND status IN ('active', 'fallback')
+                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                LIMIT 1
+                """,
+                (sku,),
+            ).fetchone()
+            impact_url = affiliate["impact_url"] if affiliate else ""
+            genius = None
+            if impact_url:
+                genius = conn.execute(
+                    """
+                    SELECT destination_url, genius_url
+                    FROM walmart_urlgenius_links
+                    WHERE destination_url = ? AND status IN ('active', 'fallback')
+                    ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (impact_url,),
+                ).fetchone()
+            destination_url = genius["destination_url"] if genius else ""
+            return {
+                "sku": sku,
+                "impact_url": impact_url,
+                "destination_url": destination_url,
+                "genius_url": genius["genius_url"] if genius else "",
+                "has_double_encoded_goto": is_malformed_double_encoded_walmart_goto(impact_url)
+                or is_malformed_double_encoded_walmart_goto(destination_url),
+            }
         finally:
             conn.close()
 
@@ -697,7 +794,10 @@ class AffiliateLinkService:
     def ensure(self, sku: str, product_url: str, sub_id1: str = "walmart-trending", sub_id3: str = None) -> str:
         existing = self.store.affiliate_link_for(sku, product_url)
         if existing:
-            return existing
+            if is_malformed_double_encoded_walmart_goto(existing):
+                self.store.mark_affiliate_link_stale(sku, product_url, STALE_DOUBLE_ENCODED_WALMART_GOTO_ERROR)
+            else:
+                return existing
         if not self.client.auth_token:
             fallback_url = self.client._build_manual_link(product_url, sku, sub_id1, sku, sub_id3)
             self.store.save_affiliate_link(
@@ -724,7 +824,11 @@ class URLGeniusLinkService:
     def ensure(self, destination_url: str, sku: str) -> str:
         existing = self.store.urlgenius_for(destination_url)
         if existing:
-            return existing.get("genius_url") or destination_url
+            stale_reason = self._stale_reason(existing)
+            if stale_reason:
+                self.store.mark_urlgenius_link_stale(destination_url, stale_reason)
+            else:
+                return existing.get("genius_url") or destination_url
         if not self.client.api_key:
             self.store.save_urlgenius_link(destination_url, destination_url, status="fallback", error="URLGENIUS_API_KEY not set")
             return destination_url
@@ -735,6 +839,7 @@ class URLGeniusLinkService:
                 utm_medium="affiliate",
                 utm_campaign="whats-trending-now",
                 utm_content=sku,
+                force_new=bool(existing),
             )
             link = result.get("link", {}) if isinstance(result, dict) else {}
             genius_url = link.get("genius_url") or link.get("short_url") or destination_url
@@ -744,6 +849,33 @@ class URLGeniusLinkService:
             logging.warning("[WALMART_TRENDS] URLGenius failed for %s: %s", sku, exc)
             self.store.save_urlgenius_link(destination_url, destination_url, status="fallback", error=str(exc))
             return destination_url
+
+    def _stale_reason(self, row: dict[str, str]) -> str:
+        destination_url = row.get("destination_url") or ""
+        genius_url = row.get("genius_url") or ""
+        if is_malformed_double_encoded_walmart_goto(destination_url):
+            return STALE_DOUBLE_ENCODED_WALMART_GOTO_ERROR
+        first_hop = self._first_hop_redirect(genius_url)
+        if first_hop and is_malformed_double_encoded_walmart_goto(first_hop):
+            return f"{STALE_DOUBLE_ENCODED_WALMART_GOTO_ERROR} in URLGenius first-hop redirect"
+        return ""
+
+    def _first_hop_redirect(self, genius_url: str) -> str:
+        if not genius_url:
+            return ""
+        parsed = urlparse(genius_url)
+        if not parsed.netloc.lower().endswith("urlgeni.us"):
+            return ""
+        try:
+            response = requests.head(genius_url, allow_redirects=False, timeout=10)
+            location = response.headers.get("Location") or response.headers.get("location") or ""
+            if response.status_code in {405, 501} or not location:
+                response = requests.get(genius_url, allow_redirects=False, timeout=10, stream=True)
+                location = response.headers.get("Location") or response.headers.get("location") or ""
+            return location
+        except Exception as exc:
+            logging.info("[WALMART_TRENDS] URLGenius first-hop check skipped for %s: %s", genius_url, exc)
+            return ""
 
 
 class CollectionBuilder:

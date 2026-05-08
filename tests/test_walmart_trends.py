@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class WalmartTrendsTestCase(unittest.TestCase):
@@ -90,6 +91,94 @@ class WalmartTrendsTestCase(unittest.TestCase):
         store.save_urlgenius_link("https://impact.example/sku1", "https://impact.example/sku1", status="fallback")
         service = self.wt.URLGeniusLinkService(store)
         self.assertEqual(service.ensure("https://impact.example/sku1", "sku1"), "https://impact.example/sku1")
+
+    def test_double_encoded_walmart_goto_detection(self):
+        broken = (
+            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532"
+        )
+        fixed = (
+            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
+        )
+
+        self.assertTrue(self.wt.is_malformed_double_encoded_walmart_goto(broken))
+        self.assertFalse(self.wt.is_malformed_double_encoded_walmart_goto(fixed))
+
+    def test_stale_double_encoded_affiliate_link_is_not_reused(self):
+        store = self.wt.WalmartTrendStore()
+        product_url = "https://www.walmart.com/ip/5454929532"
+        stale = (
+            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532"
+        )
+        store.save_affiliate_link("5454929532", product_url, stale, status="fallback")
+
+        original_token = os.environ.pop("IMPACT_AUTH_TOKEN", None)
+        try:
+            service = self.wt.AffiliateLinkService(store)
+            link = service.ensure("5454929532", product_url)
+        finally:
+            if original_token is not None:
+                os.environ["IMPACT_AUTH_TOKEN"] = original_token
+
+        self.assertNotEqual(link, stale)
+        self.assertIn("u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532", link)
+        self.assertNotIn("u=https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532", link)
+
+    def test_stale_double_encoded_urlgenius_destination_forces_fresh_link(self):
+        store = self.wt.WalmartTrendStore()
+        stale_destination = (
+            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532"
+        )
+        store.save_urlgenius_link(stale_destination, "https://urlgeni.us/walmart/dQB0MO")
+
+        original_key = os.environ.get("URLGENIUS_API_KEY")
+        os.environ["URLGENIUS_API_KEY"] = "test-key"
+        try:
+            service = self.wt.URLGeniusLinkService(store)
+            with patch.object(service.client, "create_link", return_value={"link": {"genius_url": "https://urlgeni.us/walmart/fresh", "id": "fresh-id"}}) as create:
+                link = service.ensure(stale_destination, "5454929532")
+        finally:
+            if original_key is None:
+                os.environ.pop("URLGENIUS_API_KEY", None)
+            else:
+                os.environ["URLGENIUS_API_KEY"] = original_key
+
+        self.assertEqual(link, "https://urlgeni.us/walmart/fresh")
+        self.assertTrue(create.call_args.kwargs["force_new"])
+
+    def test_stale_urlgenius_first_hop_redirect_forces_fresh_link(self):
+        store = self.wt.WalmartTrendStore()
+        destination = "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
+        store.save_urlgenius_link(destination, "https://urlgeni.us/walmart/dQB0MO")
+
+        original_key = os.environ.get("URLGENIUS_API_KEY")
+        os.environ["URLGENIUS_API_KEY"] = "test-key"
+        try:
+            service = self.wt.URLGeniusLinkService(store)
+            with patch.object(
+                service,
+                "_first_hop_redirect",
+                return_value=(
+                    "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+                    "&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532"
+                ),
+            ), patch.object(
+                service.client,
+                "create_link",
+                return_value={"link": {"genius_url": "https://urlgeni.us/walmart/fresh", "id": "fresh-id"}},
+            ) as create:
+                link = service.ensure(destination, "5454929532")
+        finally:
+            if original_key is None:
+                os.environ.pop("URLGENIUS_API_KEY", None)
+            else:
+                os.environ["URLGENIUS_API_KEY"] = original_key
+
+        self.assertEqual(link, "https://urlgeni.us/walmart/fresh")
+        self.assertTrue(create.call_args.kwargs["force_new"])
 
     def test_refresh_lock_prevents_overlap(self):
         store = self.wt.WalmartTrendStore()
