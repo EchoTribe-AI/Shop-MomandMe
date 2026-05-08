@@ -79,6 +79,57 @@ class ImpactManualWalmartLinkTestCase(unittest.TestCase):
             ["https://www.walmart.com/ip/5454929532"],
         )
 
+
+    def test_dirty_walmart_destination_is_cleaned_before_single_encoding(self):
+        dirty_destination = (
+            "https://www.walmart.com/ip/5454929532?irgwc=1&sourceid=old"
+            "&wmlspartner=partner&clickid=abc&affiliates_ad_id=ad"
+            "&campaign_id=camp&veh=aff&afsrc=1&utm_source=echo&utm_medium=chat"
+        )
+
+        link = self.client._build_manual_link(
+            dirty_destination,
+            "5454929532",
+            "chat-recommendation",
+            "5454929532",
+        )
+
+        destination = parse_qs(urlparse(link).query)["u"][0]
+        self.assertEqual(
+            destination,
+            "https://www.walmart.com/ip/5454929532?utm_source=echo&utm_medium=chat",
+        )
+        destination_query = parse_qs(urlparse(destination).query)
+        for param in (
+            "irgwc",
+            "sourceid",
+            "wmlspartner",
+            "clickid",
+            "affiliates_ad_id",
+            "campaign_id",
+            "veh",
+            "afsrc",
+        ):
+            self.assertNotIn(param, destination_query)
+
+    def test_existing_goto_destination_is_unwrapped_and_cleaned(self):
+        existing_goto = (
+            "https://goto.walmart.com/c/old/ref/program?sourceid=old&veh=aff"
+            "&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532%3Firgwc%3D1%26utm_source%3Decho%26clickid%3Dabc"
+        )
+
+        link = self.client._build_manual_link(
+            existing_goto,
+            "5454929532",
+            "chat-recommendation",
+            "5454929532",
+        )
+
+        self.assertTrue(link.startswith("https://goto.walmart.com/c/6365428/1398372/16662?"))
+        destination = parse_qs(urlparse(link).query)["u"][0]
+        self.assertEqual(destination, "https://www.walmart.com/ip/5454929532?utm_source=echo")
+        self.assertNotIn("goto.walmart.com", destination)
+
     def test_search_destination_keeps_query_and_utm_behavior_single_encoded(self):
         destination = "https://www.walmart.com/search?q=kids+advent+calendar&utm_source=echo&utm_medium=chat"
         link = self.client._build_manual_link(

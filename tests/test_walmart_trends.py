@@ -138,6 +138,43 @@ class WalmartTrendsTestCase(unittest.TestCase):
         self.assertEqual(self.wt.stale_walmart_link_reason(old_creator), "stored Walmart affiliate URL uses old creator goto path")
         self.assertEqual(self.wt.stale_walmart_link_reason(current_creator), "")
 
+
+    def test_walmart_goto_with_dirty_embedded_destination_is_stale(self):
+        dirty = (
+            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            "&subId2=5454929532&subId3=&sourceid=imp_000011112222333344&veh=aff"
+            "&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532%3Firgwc%3D1%26clickid%3Dabc%26utm_source%3Decho"
+        )
+
+        self.assertEqual(
+            self.wt.stale_walmart_link_reason(dirty),
+            "embedded Walmart destination contains prior affiliate params",
+        )
+
+    def test_walmart_goto_missing_sourceid_is_stale(self):
+        missing_sourceid = (
+            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            "&subId2=5454929532&subId3=&veh=aff"
+            "&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
+        )
+
+        self.assertEqual(
+            self.wt.stale_walmart_link_reason(missing_sourceid),
+            "stored Walmart affiliate URL missing required sourceid",
+        )
+
+    def test_walmart_goto_with_nested_goto_destination_is_stale(self):
+        nested = (
+            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            "&subId2=5454929532&subId3=&sourceid=imp_000011112222333344&veh=aff"
+            "&u=https%3A%2F%2Fgoto.walmart.com%2FWONqy3%3Fu%3Dhttps%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
+        )
+
+        self.assertEqual(
+            self.wt.stale_walmart_link_reason(nested),
+            "embedded Walmart destination is itself an affiliate goto link",
+        )
+
     def test_stale_double_encoded_affiliate_link_is_not_reused(self):
         store = self.wt.WalmartTrendStore()
         product_url = "https://www.walmart.com/ip/5454929532"

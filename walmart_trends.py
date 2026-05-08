@@ -128,8 +128,10 @@ def stale_walmart_link_reason(url: str) -> str:
         expected_source_id = os.environ.get("WALMART_IMPACT_SOURCE_ID") or ImpactAPI.WALMART_SOURCE_ID
         if query.get("sourceid", [""])[0] != expected_source_id:
             return "stored Walmart affiliate URL missing required sourceid"
-        if not query.get("u", [""])[0]:
-            return "stored Walmart affiliate URL missing Walmart destination"
+        destination = query.get("u", [""])[0]
+        destination_reason = ImpactAPI.walmart_destination_stale_reason(destination)
+        if destination_reason:
+            return destination_reason
     if netloc in {"walmart.com", "www.walmart.com"}:
         return "stored affiliate URL is raw Walmart destination"
     return ""

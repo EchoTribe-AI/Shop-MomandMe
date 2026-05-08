@@ -16,7 +16,7 @@ import time
 import base64
 import uuid
 from typing import List, Dict, Optional
-from urllib.parse import urlencode, quote, unquote
+from urllib.parse import parse_qsl, urlencode, quote, unquote, urlparse, urlunparse
 
 
 class WalmartAPI:
@@ -238,6 +238,16 @@ class ImpactAPI:
     WALMART_REFERRAL_ID = "1398372"
     WALMART_PROGRAM_ID = "16662"
     WALMART_SOURCE_ID = "imp_000011112222333344"
+    WALMART_DESTINATION_AFFILIATE_PARAMS = {
+        'afsrc',
+        'affiliates_ad_id',
+        'campaign_id',
+        'clickid',
+        'irgwc',
+        'sourceid',
+        'veh',
+        'wmlspartner',
+    }
     
     def __init__(self):
         self.account_sid = os.environ.get('IMPACT_ACCOUNT_SID') or self.WALMART_ACCOUNT_ID
@@ -276,26 +286,87 @@ class ImpactAPI:
         
         return f"{base}?{urlencode(params)}"
 
-    @staticmethod
-    def _normalize_walmart_destination_url(product_url: str) -> str:
-        """Return a raw Walmart destination URL before query encoding.
+    @classmethod
+    def _normalize_walmart_destination_url(cls, product_url: str) -> str:
+        """Return a raw, clean Walmart destination URL before query encoding.
 
         The manual Impact/goto link builder passes this value to ``urlencode``,
-        so this method intentionally does *not* quote the URL.  It only unwraps
-        a once-encoded destination when the scheme itself has been encoded.
+        so this method intentionally does *not* quote the URL.  It accepts raw
+        or already-encoded Walmart destinations, unwraps any existing
+        ``goto.walmart.com`` link via its embedded ``u`` value, and removes
+        affiliate/tracking parameters that must not be nested inside the final
+        Walmart destination.  Non-affiliate parameters, including UTM values,
+        are preserved.
         """
         if not product_url:
             return ''
 
-        normalized = product_url.strip()
-        if normalized.lower().startswith(('http://', 'https://')):
-            return normalized
+        normalized = cls._decode_to_url(product_url.strip())
+        parsed = urlparse(normalized)
+        if parsed.netloc.lower() == 'goto.walmart.com':
+            embedded = cls._embedded_walmart_destination(normalized)
+            if embedded:
+                normalized = cls._decode_to_url(embedded)
 
-        decoded = unquote(normalized)
-        if decoded.lower().startswith(('http://', 'https://')):
-            return decoded
+        return cls._clean_walmart_destination_query(normalized)
 
-        return normalized
+    @staticmethod
+    def _decode_to_url(value: str) -> str:
+        """Decode only as much as needed to expose an encoded URL scheme."""
+        decoded = value or ''
+        for _ in range(3):
+            if decoded.lower().startswith(('http://', 'https://')):
+                return decoded
+            next_decoded = unquote(decoded)
+            if next_decoded == decoded:
+                return decoded
+            decoded = next_decoded
+        return decoded
+
+    @classmethod
+    def _embedded_walmart_destination(cls, goto_url: str) -> str:
+        parsed = urlparse(goto_url)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+            if key.lower() == 'u' and value:
+                return value
+        return ''
+
+    @classmethod
+    def _clean_walmart_destination_query(cls, destination_url: str) -> str:
+        parsed = urlparse(destination_url)
+        if parsed.netloc.lower() not in {'walmart.com', 'www.walmart.com'}:
+            return destination_url
+
+        kept_query = urlencode(
+            [
+                (key, value)
+                for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                if key.lower() not in cls.WALMART_DESTINATION_AFFILIATE_PARAMS
+            ]
+        )
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, kept_query, parsed.fragment))
+
+    @classmethod
+    def walmart_destination_stale_reason(cls, destination_url: str) -> str:
+        """Return why an embedded Walmart ``u`` destination should be rebuilt."""
+        if not destination_url:
+            return 'stored Walmart affiliate URL missing Walmart destination'
+        normalized = cls._decode_to_url(destination_url.strip())
+        parsed = urlparse(normalized)
+        if parsed.netloc.lower() == 'goto.walmart.com':
+            return 'embedded Walmart destination is itself an affiliate goto link'
+        if parsed.netloc.lower() not in {'walmart.com', 'www.walmart.com'}:
+            return 'embedded Walmart destination is not a clean Walmart URL'
+        dirty_params = [
+            key
+            for key, _value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() in cls.WALMART_DESTINATION_AFFILIATE_PARAMS
+        ]
+        if dirty_params:
+            return 'embedded Walmart destination contains prior affiliate params'
+        if normalized != destination_url.strip():
+            return 'embedded Walmart destination is encoded before final goto encoding'
+        return ''
 
 
 def detect_category(query: str) -> str:
