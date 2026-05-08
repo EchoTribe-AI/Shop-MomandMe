@@ -70,7 +70,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
 
         link = service.ensure("sku1", product_url)
 
-        self.assertTrue(link.startswith("https://goto.walmart.com/c/3590891/1398372/16662?"))
+        self.assertTrue(link.startswith("https://goto.walmart.com/c/6365428/1398372/16662?"))
         self.assertIn("u=https%3A%2F%2Fwww.walmart.com%2Fip%2Fsku1", link)
         self.assertNotEqual(link, product_url)
 
@@ -85,7 +85,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
             if original_token is not None:
                 os.environ["IMPACT_AUTH_TOKEN"] = original_token
 
-        self.assertTrue(link.startswith("https://goto.walmart.com/c/3590891/1398372/16662?"))
+        self.assertTrue(link.startswith("https://goto.walmart.com/c/6365428/1398372/16662?"))
         self.assertIn("u=https%3A%2F%2Fwww.walmart.com%2Fip%2Fsku1", link)
         self.assertNotIn("https%253A%252F%252Fwww.walmart.com%252Fip%252Fsku1", link)
 
@@ -97,22 +97,52 @@ class WalmartTrendsTestCase(unittest.TestCase):
 
     def test_double_encoded_walmart_goto_detection(self):
         broken = (
-            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "https://goto.walmart.com/c/6365428/1398372/16662?veh=aff"
             "&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532"
         )
         fixed = (
-            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "https://goto.walmart.com/c/6365428/1398372/16662?veh=aff"
             "&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
         )
 
         self.assertTrue(self.wt.is_malformed_double_encoded_walmart_goto(broken))
         self.assertFalse(self.wt.is_malformed_double_encoded_walmart_goto(fixed))
 
+
+    def test_vanity_goto_affiliate_link_is_not_reused(self):
+        store = self.wt.WalmartTrendStore()
+        product_url = "https://www.walmart.com/ip/5454929532"
+        stale = "https://goto.walmart.com/WONqy3?utm_source=walmart&utm_medium=affiliate"
+        store.save_affiliate_link("5454929532", product_url, stale, status="active")
+        service = self.wt.AffiliateLinkService(store)
+
+        link = service.ensure("5454929532", product_url)
+
+        self.assertNotEqual(link, stale)
+        self.assertTrue(link.startswith("https://goto.walmart.com/c/6365428/1398372/16662?"))
+        self.assertIn("sourceid=imp_000011112222333344", link)
+        self.assertIn("u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532", link)
+
+    def test_old_creator_goto_path_is_stale(self):
+        old_creator = (
+            "https://goto.walmart.com/c/3590891/1398372/16662?"
+            "subId1=walmart-trending&subId2=5454929532&subId3=&sourceid=imp_000011112222333344"
+            "&veh=aff&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
+        )
+        current_creator = (
+            "https://goto.walmart.com/c/6365428/1398372/16662?"
+            "subId1=walmart-trending&subId2=5454929532&subId3=&sourceid=imp_000011112222333344"
+            "&veh=aff&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
+        )
+
+        self.assertEqual(self.wt.stale_walmart_link_reason(old_creator), "stored Walmart affiliate URL uses old creator goto path")
+        self.assertEqual(self.wt.stale_walmart_link_reason(current_creator), "")
+
     def test_stale_double_encoded_affiliate_link_is_not_reused(self):
         store = self.wt.WalmartTrendStore()
         product_url = "https://www.walmart.com/ip/5454929532"
         stale = (
-            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "https://goto.walmart.com/c/6365428/1398372/16662?veh=aff"
             "&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532"
         )
         store.save_affiliate_link("5454929532", product_url, stale, status="fallback")
@@ -132,7 +162,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
     def test_stale_double_encoded_urlgenius_destination_forces_fresh_link(self):
         store = self.wt.WalmartTrendStore()
         stale_destination = (
-            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "https://goto.walmart.com/c/6365428/1398372/16662?veh=aff"
             "&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532"
         )
         store.save_urlgenius_link(stale_destination, "https://urlgeni.us/walmart/dQB0MO")
@@ -154,7 +184,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
 
     def test_stale_urlgenius_first_hop_redirect_forces_fresh_link(self):
         store = self.wt.WalmartTrendStore()
-        destination = "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
+        destination = "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending&subId2=5454929532&subId3=&sourceid=imp_000011112222333344&veh=aff&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
         store.save_urlgenius_link(destination, "https://urlgeni.us/walmart/dQB0MO")
 
         original_key = os.environ.get("URLGENIUS_API_KEY")
@@ -165,7 +195,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
                 service,
                 "_first_hop_redirect",
                 return_value=(
-                    "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+                    "https://goto.walmart.com/c/6365428/1398372/16662?veh=aff"
                     "&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532"
                 ),
             ), patch.object(
@@ -189,11 +219,12 @@ class WalmartTrendsTestCase(unittest.TestCase):
         sku = "5454929532"
         product_url = f"https://www.walmart.com/ip/{sku}"
         stale_impact = (
-            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "https://goto.walmart.com/c/6365428/1398372/16662?veh=aff"
             f"&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F{sku}"
         )
         fresh_impact = (
-            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            f"&subId2={sku}&subId3=&sourceid=imp_000011112222333344&veh=aff"
             f"&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F{sku}"
         )
         store.save_affiliate_link(sku, product_url, stale_impact, status="active")
@@ -238,11 +269,12 @@ class WalmartTrendsTestCase(unittest.TestCase):
         store = self.wt.WalmartTrendStore()
         sku = "5454929532"
         stale_destination = (
-            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "https://goto.walmart.com/c/6365428/1398372/16662?veh=aff"
             f"&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F{sku}"
         )
         fresh_impact = (
-            "https://goto.walmart.com/c/3590891/1398372/16662?veh=aff"
+            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            f"&subId2={sku}&subId3=&sourceid=imp_000011112222333344&veh=aff"
             f"&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F{sku}"
         )
         store.save_urlgenius_link(stale_destination, "https://urlgeni.us/walmart/dQB0MO", status="active")

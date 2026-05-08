@@ -27,11 +27,13 @@ class ImpactManualWalmartLinkTestCase(unittest.TestCase):
             )
 
         post.assert_not_called()
-        self.assertTrue(link.startswith("https://goto.walmart.com/c/3590891/1398372/16662?"))
+        self.assertTrue(link.startswith("https://goto.walmart.com/c/6365428/1398372/16662?"))
         self.assertEqual(parse_qs(urlparse(link).query)["u"], ["https://www.walmart.com/ip/5454929532"])
         self.assertEqual(parse_qs(urlparse(link).query)["subId1"], ["chat-recommendation"])
         self.assertEqual(parse_qs(urlparse(link).query)["subId2"], ["5454929532"])
         self.assertEqual(parse_qs(urlparse(link).query)["subId3"], ["creator-feed"])
+        self.assertEqual(parse_qs(urlparse(link).query)["sourceid"], ["imp_000011112222333344"])
+        self.assertIn("?subId1=chat-recommendation&subId2=5454929532&subId3=creator-feed&sourceid=imp_000011112222333344&veh=aff&u=", link)
         self.assertNotIn("https%253A%252F%252Fwww.walmart.com%252Fip%252F5454929532", link)
 
     def test_generate_walmart_link_does_not_require_impact_auth_token(self):
@@ -42,7 +44,7 @@ class ImpactManualWalmartLinkTestCase(unittest.TestCase):
             )
 
         post.assert_not_called()
-        self.assertTrue(link.startswith("https://goto.walmart.com/c/3590891/1398372/16662?"))
+        self.assertTrue(link.startswith("https://goto.walmart.com/c/6365428/1398372/16662?"))
         self.assertEqual(parse_qs(urlparse(link).query)["u"], ["https://www.walmart.com/ip/5454929532"])
 
     def test_product_destination_is_single_encoded_in_goto_u_parameter(self):

@@ -114,7 +114,23 @@ def stale_walmart_link_reason(url: str) -> str:
     if "https%253A%252F%252Fwww.walmart.com" in url or "http%253A%252F%252Fwww.walmart.com" in url:
         return "stored URL contains a double-encoded Walmart destination"
     parsed = urlparse(url)
-    if parsed.netloc.lower() in {"walmart.com", "www.walmart.com"}:
+    netloc = parsed.netloc.lower()
+    if netloc == "goto.walmart.com":
+        expected_path = (
+            f"/c/{ImpactAPI.WALMART_ACCOUNT_ID}/"
+            f"{ImpactAPI.WALMART_REFERRAL_ID}/{ImpactAPI.WALMART_PROGRAM_ID}"
+        )
+        if parsed.path != expected_path:
+            if not parsed.path.startswith("/c/"):
+                return "stored Walmart affiliate URL is vanity/non-creator goto path"
+            return "stored Walmart affiliate URL uses old creator goto path"
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        expected_source_id = os.environ.get("WALMART_IMPACT_SOURCE_ID") or ImpactAPI.WALMART_SOURCE_ID
+        if query.get("sourceid", [""])[0] != expected_source_id:
+            return "stored Walmart affiliate URL missing required sourceid"
+        if not query.get("u", [""])[0]:
+            return "stored Walmart affiliate URL missing Walmart destination"
+    if netloc in {"walmart.com", "www.walmart.com"}:
         return "stored affiliate URL is raw Walmart destination"
     return ""
 

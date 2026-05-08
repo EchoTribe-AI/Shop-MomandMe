@@ -234,9 +234,10 @@ class ImpactAPI:
     """Impact.com API for Walmart affiliate link generation"""
     
     BASE_URL = "https://api.impact.com/Mediapartners"
-    WALMART_ACCOUNT_ID = "3590891"
+    WALMART_ACCOUNT_ID = "6365428"
     WALMART_REFERRAL_ID = "1398372"
     WALMART_PROGRAM_ID = "16662"
+    WALMART_SOURCE_ID = "imp_000011112222333344"
     
     def __init__(self):
         self.account_sid = os.environ.get('IMPACT_ACCOUNT_SID') or self.WALMART_ACCOUNT_ID
@@ -265,11 +266,12 @@ class ImpactAPI:
         destination_url = self._normalize_walmart_destination_url(product_url)
 
         params = {
-            'veh': 'aff',
-            'u': destination_url,
             'subId1': sub_id1,
             'subId2': sub_id2 or product_id or '',
-            'subId3': sub_id3 or ''
+            'subId3': sub_id3 or '',
+            'sourceid': os.environ.get('WALMART_IMPACT_SOURCE_ID') or self.WALMART_SOURCE_ID,
+            'veh': 'aff',
+            'u': destination_url,
         }
         
         return f"{base}?{urlencode(params)}"
