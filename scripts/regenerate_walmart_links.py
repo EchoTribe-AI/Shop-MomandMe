@@ -5,6 +5,8 @@ Examples:
   uv run python scripts/regenerate_walmart_links.py inspect --sku 5454929532
   uv run python scripts/regenerate_walmart_links.py regenerate --sku 5454929532
   uv run python scripts/regenerate_walmart_links.py regenerate-stale --limit 25
+  uv run python scripts/regenerate_walmart_links.py rebuild-all --dry-run
+  uv run python scripts/regenerate_walmart_links.py rebuild-all --limit 10
 """
 from __future__ import annotations
 
@@ -47,6 +49,10 @@ def main() -> int:
     bulk.add_argument("--limit", type=int)
     bulk.add_argument("--include-redirect", action="store_true", help="Check first-hop redirects while regenerating candidates")
 
+    rebuild = sub.add_parser("rebuild-all", help="Force rebuild every current Walmart SKU affiliate + URLGenius link")
+    rebuild.add_argument("--limit", type=int, help="Only rebuild the first N discovered SKUs")
+    rebuild.add_argument("--dry-run", action="store_true", help="Report what would be rebuilt without writing changes")
+
     args = parser.parse_args()
     if args.db_path:
         os.environ["CACHE_DB_PATH"] = args.db_path
@@ -63,6 +69,8 @@ def main() -> int:
         _print_json(service.regenerate_sku(args.sku, force=args.force, include_redirect=args.include_redirect))
     elif args.command == "regenerate-stale":
         _print_json(service.regenerate_all_stale(limit=args.limit, include_redirect=args.include_redirect))
+    elif args.command == "rebuild-all":
+        _print_json(service.rebuild_all(limit=args.limit, dry_run=args.dry_run))
     return 0
 
 

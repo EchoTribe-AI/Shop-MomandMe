@@ -344,6 +344,78 @@ class WalmartTrendsTestCase(unittest.TestCase):
         self.assertEqual(after["impact_url"], fresh_impact)
         self.assertEqual(after["genius_url"], "https://urlgeni.us/walmart/fresh")
 
+    def test_rebuild_all_forces_fresh_affiliate_and_urlgenius_rows(self):
+        import sqlite3
+        from urllib.parse import parse_qs, urlparse
+
+        store = self.wt.WalmartTrendStore()
+        sku = "5454929532"
+        product_url = f"https://www.walmart.com/ip/{sku}?irgwc=1&clickid=old&utm_source=echo"
+        store.upsert_product_from_record(self.wt.TrendRecord(sku=sku, item_name="Test Product"))
+        store.update_product_enrichment(sku, {"canonical_url": product_url}, "ok")
+        old_impact = (
+            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            f"&subId2={sku}&subId3=&sourceid=imp_000011112222333344&veh=aff"
+            f"&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F{sku}"
+        )
+        store.save_affiliate_link(sku, product_url, old_impact, status="active")
+        store.save_urlgenius_link(old_impact, "https://urlgeni.us/walmart/old", status="active")
+
+        original_urlgenius_key = os.environ.get("URLGENIUS_API_KEY")
+        os.environ["URLGENIUS_API_KEY"] = "urlgenius-key"
+        try:
+            service = self.wt.WalmartLinkRegenerationService(store)
+            calls = []
+
+            def create_link(destination_url, **kwargs):
+                calls.append((destination_url, kwargs))
+                return {"link": {"genius_url": "https://urlgeni.us/walmart/fresh", "id": "fresh-id"}}
+
+            service.urlgenius.client.create_link = create_link
+            dry_run = service.rebuild_all(limit=1, dry_run=True)
+            result = service.rebuild_all(limit=1)
+        finally:
+            if original_urlgenius_key is None:
+                os.environ.pop("URLGENIUS_API_KEY", None)
+            else:
+                os.environ["URLGENIUS_API_KEY"] = original_urlgenius_key
+
+        self.assertTrue(dry_run["dry_run"])
+        self.assertEqual(dry_run["selected_skus"], 1)
+        self.assertEqual(result["rebuilt_count"], 1)
+        self.assertTrue(calls)
+        fresh_impact = result["results"][0]["fresh_impact_url"]
+        self.assertEqual(calls[0][0], fresh_impact)
+        self.assertTrue(calls[0][1]["force_new"])
+        self.assertTrue(fresh_impact.startswith("https://goto.walmart.com/c/6365428/1398372/16662?"))
+        query = parse_qs(urlparse(fresh_impact).query, keep_blank_values=True)
+        self.assertEqual(query["subId1"], ["walmart-trending"])
+        self.assertEqual(query["subId2"], [sku])
+        self.assertEqual(query["subId3"], [""])
+        self.assertEqual(query["sourceid"], ["imp_000011112222333344"])
+        self.assertEqual(query["veh"], ["aff"])
+        self.assertEqual(query["u"], [f"https://www.walmart.com/ip/{sku}?utm_source=echo"])
+
+        after = service.inspect_sku(sku)
+        self.assertEqual(after["impact_url"], fresh_impact)
+        self.assertEqual(after["genius_url"], "https://urlgeni.us/walmart/fresh")
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            stale_affiliates = conn.execute(
+                "SELECT * FROM walmart_affiliate_links WHERE sku = ? AND status = 'stale'", (sku,)
+            ).fetchall()
+            stale_urlgenius = conn.execute(
+                "SELECT * FROM walmart_urlgenius_links WHERE status = 'stale'"
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(len(stale_affiliates), 1)
+        self.assertIn("#stale-affiliate-", stale_affiliates[0]["product_url"])
+        self.assertEqual(len(stale_urlgenius), 1)
+        self.assertIn("#stale-urlgenius-", stale_urlgenius[0]["destination_url"])
+
     def test_refresh_lock_prevents_overlap(self):
         store = self.wt.WalmartTrendStore()
         store.create_run("workbook_bootstrap")

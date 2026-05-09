@@ -510,6 +510,52 @@ class WalmartTrendStore:
         finally:
             conn.close()
 
+    def active_affiliate_links_for_sku(self, sku: str) -> list[dict[str, Any]]:
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, sku, product_url, impact_url, status, error, updated_at
+                FROM walmart_affiliate_links
+                WHERE sku = ? AND status IN ('active', 'fallback')
+                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                """,
+                (sku,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def retire_active_affiliate_links_for_sku(self, sku: str, reason: str) -> int:
+        """Mark active/fallback affiliate rows inactive and free their unique product_url keys."""
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, product_url
+                FROM walmart_affiliate_links
+                WHERE sku = ? AND status IN ('active', 'fallback')
+                """,
+                (sku,),
+            ).fetchall()
+            for row in rows:
+                product_url = row["product_url"] or ""
+                archived_product_url = product_url
+                if f"#stale-affiliate-{row['id']}" not in archived_product_url:
+                    archived_product_url = f"{product_url}#stale-affiliate-{row['id']}"
+                conn.execute(
+                    """
+                    UPDATE walmart_affiliate_links
+                    SET status = 'stale', error = ?, product_url = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (reason, archived_product_url, row["id"]),
+                )
+            conn.commit()
+            return len(rows)
+        finally:
+            conn.close()
+
     def save_affiliate_link(self, sku: str, product_url: str, impact_url: str, status: str = "active", error: str = "") -> None:
         conn = _connect()
         try:
@@ -558,6 +604,61 @@ class WalmartTrendStore:
                 (reason, destination_url),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def active_urlgenius_links_for_sku(self, sku: str) -> list[dict[str, Any]]:
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT ug.id, ug.destination_url, ug.genius_url, ug.link_id, ug.status, ug.error, ug.updated_at, al.sku AS linked_sku
+                FROM walmart_urlgenius_links ug
+                LEFT JOIN walmart_affiliate_links al ON al.impact_url = ug.destination_url
+                WHERE ug.status IN ('active', 'fallback')
+                ORDER BY CASE ug.status WHEN 'active' THEN 0 ELSE 1 END, ug.updated_at DESC, ug.id DESC
+                """
+            ).fetchall()
+            matches = []
+            for row in rows:
+                rd = dict(row)
+                if rd.get("linked_sku") == str(sku) or extract_walmart_sku_from_url(rd.get("destination_url") or "") == str(sku):
+                    matches.append(rd)
+            return matches
+        finally:
+            conn.close()
+
+    def retire_urlgenius_links_for_destinations(self, destination_urls: Iterable[str], reason: str) -> int:
+        destinations = [url for url in dict.fromkeys(destination_urls) if url]
+        if not destinations:
+            return 0
+        conn = _connect()
+        try:
+            rows = []
+            for destination_url in destinations:
+                rows.extend(conn.execute(
+                    """
+                    SELECT id, destination_url
+                    FROM walmart_urlgenius_links
+                    WHERE destination_url = ? AND status IN ('active', 'fallback')
+                    """,
+                    (destination_url,),
+                ).fetchall())
+            for row in rows:
+                destination_url = row["destination_url"] or ""
+                archived_destination_url = destination_url
+                if f"#stale-urlgenius-{row['id']}" not in archived_destination_url:
+                    archived_destination_url = f"{destination_url}#stale-urlgenius-{row['id']}"
+                conn.execute(
+                    """
+                    UPDATE walmart_urlgenius_links
+                    SET status = 'stale', error = ?, destination_url = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (reason, archived_destination_url, row["id"]),
+                )
+            conn.commit()
+            return len(rows)
         finally:
             conn.close()
 
@@ -668,6 +769,46 @@ class WalmartTrendStore:
                 if not stale_walmart_link_reason(row["destination_url"]):
                     continue
                 linked_sku = row["linked_sku"] or extract_walmart_sku_from_url(row["destination_url"])
+                if linked_sku:
+                    skus.add(str(linked_sku))
+            return sorted(skus)
+        finally:
+            conn.close()
+
+    def current_walmart_skus(self) -> list[str]:
+        """Return all SKUs represented in current Walmart product, link, or active collection data."""
+        conn = _connect()
+        try:
+            skus: set[str] = set()
+            for row in conn.execute("SELECT sku FROM walmart_products WHERE sku IS NOT NULL AND sku != ''").fetchall():
+                skus.add(str(row["sku"]))
+            for row in conn.execute(
+                """
+                SELECT DISTINCT ci.sku
+                FROM walmart_collection_items ci
+                JOIN walmart_collections c ON c.slug = ci.collection_slug
+                WHERE c.is_active = 1 AND ci.sku IS NOT NULL AND ci.sku != ''
+                """
+            ).fetchall():
+                skus.add(str(row["sku"]))
+            for row in conn.execute(
+                """
+                SELECT sku
+                FROM walmart_affiliate_links
+                WHERE status IN ('active', 'fallback') AND sku IS NOT NULL AND sku != ''
+                """
+            ).fetchall():
+                skus.add(str(row["sku"]))
+            genius_rows = conn.execute(
+                """
+                SELECT ug.destination_url, al.sku AS linked_sku
+                FROM walmart_urlgenius_links ug
+                LEFT JOIN walmart_affiliate_links al ON al.impact_url = ug.destination_url
+                WHERE ug.status IN ('active', 'fallback')
+                """
+            ).fetchall()
+            for row in genius_rows:
+                linked_sku = row["linked_sku"] or extract_walmart_sku_from_url(row["destination_url"] or "")
                 if linked_sku:
                     skus.add(str(linked_sku))
             return sorted(skus)
@@ -956,8 +1097,8 @@ class URLGeniusLinkService:
         self.store = store
         self.client = URLGeniusAPI()
 
-    def ensure(self, destination_url: str, sku: str) -> str:
-        existing = self.store.urlgenius_for(destination_url)
+    def ensure(self, destination_url: str, sku: str, force_new: bool = False) -> str:
+        existing = None if force_new else self.store.urlgenius_for(destination_url)
         if existing:
             stale_reason = self._stale_reason(existing)
             if stale_reason:
@@ -974,7 +1115,7 @@ class URLGeniusLinkService:
                 utm_medium="affiliate",
                 utm_campaign="whats-trending-now",
                 utm_content=sku,
-                force_new=bool(existing),
+                force_new=force_new or bool(existing),
             )
             link = result.get("link", {}) if isinstance(result, dict) else {}
             genius_url = link.get("genius_url") or link.get("short_url") or destination_url
@@ -1090,6 +1231,69 @@ class WalmartLinkRegenerationService:
             "regenerated_count": sum(1 for row in results if row.get("changed")),
             "results": results,
         }
+
+    def rebuild_all(self, limit: int | None = None, dry_run: bool = False) -> dict[str, Any]:
+        all_skus = self.store.current_walmart_skus()
+        skus = all_skus[: max(0, int(limit))] if limit is not None else all_skus
+        results = [self._rebuild_sku(sku, dry_run=dry_run) for sku in skus]
+        return {
+            "status": "dry_run" if dry_run else "ok",
+            "dry_run": dry_run,
+            "total_target_skus": len(all_skus),
+            "selected_skus": len(skus),
+            "rebuilt_count": 0 if dry_run else sum(1 for row in results if row.get("changed")),
+            "results": results,
+        }
+
+    def _rebuild_sku(self, sku: str, dry_run: bool = False) -> dict[str, Any]:
+        sku = str(sku or "").strip()
+        product_url = self.store.product_url_for_sku(sku)
+        active_affiliates = self.store.active_affiliate_links_for_sku(sku)
+        active_urlgenius = self.store.active_urlgenius_links_for_sku(sku)
+        destinations_to_retire = [row.get("impact_url") for row in active_affiliates] + [
+            row.get("destination_url") for row in active_urlgenius
+        ]
+        result: dict[str, Any] = {
+            "sku": sku,
+            "product_url": product_url,
+            "dry_run": dry_run,
+            "changed": False,
+            "active_affiliate_rows_found": len(active_affiliates),
+            "active_urlgenius_rows_found": len(active_urlgenius),
+            "actions": [],
+        }
+        if dry_run:
+            result["actions"].extend([
+                "would mark active/fallback affiliate rows stale",
+                "would mark active/fallback URLGenius rows stale",
+                "would create fresh Walmart creator-path affiliate link",
+                "would create fresh URLGenius link wrapping fresh affiliate link",
+            ])
+            return result
+
+        reason = "forced full Walmart link rebuild"
+        retired_affiliate_count = self.store.retire_active_affiliate_links_for_sku(sku, reason)
+        retired_urlgenius_count = self.store.retire_urlgenius_links_for_destinations(destinations_to_retire, reason)
+        fresh_impact_url = self.affiliates.client.generate_walmart_creator_goto_link(
+            product_url, sku, sub_id1="walmart-trending", sub_id2=sku
+        )
+        self.store.save_affiliate_link(sku, product_url, fresh_impact_url)
+        fresh_genius_url = self.urlgenius.ensure(fresh_impact_url, sku, force_new=True)
+        result.update({
+            "changed": True,
+            "retired_affiliate_rows": retired_affiliate_count,
+            "retired_urlgenius_rows": retired_urlgenius_count,
+            "fresh_impact_url": fresh_impact_url,
+            "fresh_genius_url": fresh_genius_url,
+            "after": self.inspect_sku(sku, include_redirect=False),
+        })
+        result["actions"].extend([
+            "marked active/fallback affiliate rows stale",
+            "marked active/fallback URLGenius rows stale",
+            "created fresh Walmart creator-path affiliate link",
+            "created fresh URLGenius link wrapping fresh affiliate link",
+        ])
+        return result
 
 
 class CollectionBuilder:
