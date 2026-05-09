@@ -1266,7 +1266,7 @@ class WalmartLinkRegenerationService:
             result["actions"].extend([
                 "would mark active/fallback affiliate rows stale",
                 "would mark active/fallback URLGenius rows stale",
-                "would create fresh Walmart creator-path affiliate link",
+                "would create fresh Impact TrackingLinks affiliate link",
                 "would create fresh URLGenius link wrapping fresh affiliate link",
             ])
             return result
@@ -1274,7 +1274,7 @@ class WalmartLinkRegenerationService:
         reason = "forced full Walmart link rebuild"
         retired_affiliate_count = self.store.retire_active_affiliate_links_for_sku(sku, reason)
         retired_urlgenius_count = self.store.retire_urlgenius_links_for_destinations(destinations_to_retire, reason)
-        fresh_impact_url = self.affiliates.client.generate_walmart_creator_goto_link(
+        fresh_impact_url = self.affiliates.client.generate_walmart_link(
             product_url, sku, sub_id1="walmart-trending", sub_id2=sku
         )
         self.store.save_affiliate_link(sku, product_url, fresh_impact_url)
@@ -1290,7 +1290,7 @@ class WalmartLinkRegenerationService:
         result["actions"].extend([
             "marked active/fallback affiliate rows stale",
             "marked active/fallback URLGenius rows stale",
-            "created fresh Walmart creator-path affiliate link",
+            "created fresh Impact TrackingLinks affiliate link",
             "created fresh URLGenius link wrapping fresh affiliate link",
         ])
         return result

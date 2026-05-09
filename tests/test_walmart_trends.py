@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 class WalmartTrendsTestCase(unittest.TestCase):
@@ -346,8 +346,6 @@ class WalmartTrendsTestCase(unittest.TestCase):
 
     def test_rebuild_all_forces_fresh_affiliate_and_urlgenius_rows(self):
         import sqlite3
-        from urllib.parse import parse_qs, urlparse
-
         store = self.wt.WalmartTrendStore()
         sku = "5454929532"
         product_url = f"https://www.walmart.com/ip/{sku}?irgwc=1&clickid=old&utm_source=echo"
@@ -361,20 +359,37 @@ class WalmartTrendsTestCase(unittest.TestCase):
         store.save_affiliate_link(sku, product_url, old_impact, status="active")
         store.save_urlgenius_link(old_impact, "https://urlgeni.us/walmart/old", status="active")
 
+        original_impact_sid = os.environ.get("IMPACT_ACCOUNT_SID")
+        original_impact_token = os.environ.get("IMPACT_AUTH_TOKEN")
         original_urlgenius_key = os.environ.get("URLGENIUS_API_KEY")
+        os.environ["IMPACT_ACCOUNT_SID"] = "acct-sid"
+        os.environ["IMPACT_AUTH_TOKEN"] = "impact-token"
         os.environ["URLGENIUS_API_KEY"] = "urlgenius-key"
+        impact_response = Mock()
+        impact_response.raise_for_status.return_value = None
+        impact_response.json.return_value = {"TrackingURL": "https://impact.example/tracking/5454929532"}
         try:
-            service = self.wt.WalmartLinkRegenerationService(store)
-            calls = []
+            with patch("product_api.requests.post", return_value=impact_response) as impact_post:
+                service = self.wt.WalmartLinkRegenerationService(store)
+                calls = []
 
-            def create_link(destination_url, **kwargs):
-                calls.append((destination_url, kwargs))
-                return {"link": {"genius_url": "https://urlgeni.us/walmart/fresh", "id": "fresh-id"}}
+                def create_link(destination_url, **kwargs):
+                    calls.append((destination_url, kwargs))
+                    return {"link": {"genius_url": "https://urlgeni.us/walmart/fresh", "id": "fresh-id"}}
 
-            service.urlgenius.client.create_link = create_link
-            dry_run = service.rebuild_all(limit=1, dry_run=True)
-            result = service.rebuild_all(limit=1)
+                service.urlgenius.client.create_link = create_link
+                dry_run = service.rebuild_all(limit=1, dry_run=True)
+                result = service.rebuild_all(limit=1)
+                impact_call = impact_post.call_args
         finally:
+            if original_impact_sid is None:
+                os.environ.pop("IMPACT_ACCOUNT_SID", None)
+            else:
+                os.environ["IMPACT_ACCOUNT_SID"] = original_impact_sid
+            if original_impact_token is None:
+                os.environ.pop("IMPACT_AUTH_TOKEN", None)
+            else:
+                os.environ["IMPACT_AUTH_TOKEN"] = original_impact_token
             if original_urlgenius_key is None:
                 os.environ.pop("URLGENIUS_API_KEY", None)
             else:
@@ -383,18 +398,20 @@ class WalmartTrendsTestCase(unittest.TestCase):
         self.assertTrue(dry_run["dry_run"])
         self.assertEqual(dry_run["selected_skus"], 1)
         self.assertEqual(result["rebuilt_count"], 1)
+        self.assertEqual(impact_call.args[0], "https://api.impact.com/Mediapartners/acct-sid/Programs/16662/TrackingLinks")
+        self.assertEqual(impact_call.kwargs["auth"], ("acct-sid", "impact-token"))
+        self.assertEqual(impact_call.kwargs["data"], {
+            "DeepLink": f"https://www.walmart.com/ip/{sku}?utm_source=echo",
+            "subId1": "walmart-trending",
+            "subId2": sku,
+            "subId3": "",
+        })
+        self.assertNotIn("Type", impact_call.kwargs["data"])
         self.assertTrue(calls)
         fresh_impact = result["results"][0]["fresh_impact_url"]
+        self.assertEqual(fresh_impact, "https://impact.example/tracking/5454929532")
         self.assertEqual(calls[0][0], fresh_impact)
         self.assertTrue(calls[0][1]["force_new"])
-        self.assertTrue(fresh_impact.startswith("https://goto.walmart.com/c/6365428/1398372/16662?"))
-        query = parse_qs(urlparse(fresh_impact).query, keep_blank_values=True)
-        self.assertEqual(query["subId1"], ["walmart-trending"])
-        self.assertEqual(query["subId2"], [sku])
-        self.assertEqual(query["subId3"], [""])
-        self.assertEqual(query["sourceid"], ["imp_000011112222333344"])
-        self.assertEqual(query["veh"], ["aff"])
-        self.assertEqual(query["u"], [f"https://www.walmart.com/ip/{sku}?utm_source=echo"])
 
         after = service.inspect_sku(sku)
         self.assertEqual(after["impact_url"], fresh_impact)
