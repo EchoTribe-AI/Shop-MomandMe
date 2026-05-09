@@ -256,18 +256,76 @@ class ImpactAPI:
     def generate_walmart_link(self, product_url: str, product_id: str = None, 
                              sub_id1: str = "chat", sub_id2: str = None,
                              sub_id3: str = None) -> str:
-        """Build the primary manual goto.walmart affiliate link for Walmart."""
-        return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
+        """Create a Walmart Impact TrackingLinks URL, falling back to manual goto only on API failure."""
+        endpoint, params = self.build_walmart_tracking_link_request(
+            product_url,
+            product_id,
+            sub_id1=sub_id1,
+            sub_id2=sub_id2,
+            sub_id3=sub_id3,
+        )
+        if not self.auth_token:
+            logging.warning("[IMPACT] IMPACT_AUTH_TOKEN missing; using manual Walmart goto fallback")
+            return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
+
+        try:
+            response = requests.post(
+                endpoint,
+                auth=(self.account_sid, self.auth_token),
+                data=params,
+                timeout=15,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            tracking_url = self._tracking_url_from_response(payload)
+            if not tracking_url:
+                raise ValueError("Impact TrackingLinks response missing TrackingURL")
+            return tracking_url
+        except Exception as exc:
+            logging.warning("[IMPACT] Walmart TrackingLinks API failed; using manual goto fallback: %s", exc)
+            return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
+
+    def build_walmart_tracking_link_request(self, product_url: str, product_id: str = None,
+                                            sub_id1: str = "chat", sub_id2: str = None,
+                                            sub_id3: str = None) -> tuple[str, dict]:
+        """Return the documented Impact TrackingLinks endpoint and form params for Walmart."""
+        endpoint = (
+            f"{self.BASE_URL}/{self.account_sid}/Programs/"
+            f"{self.WALMART_PROGRAM_ID}/TrackingLinks"
+        )
+        params = {
+            'DeepLink': self._normalize_walmart_destination_url(product_url),
+            'subId1': sub_id1,
+            'subId2': sub_id2 or product_id or '',
+            'subId3': sub_id3 or '',
+        }
+        return endpoint, {key: value for key, value in params.items() if value is not None}
+
+    @staticmethod
+    def _tracking_url_from_response(payload) -> str:
+        """Extract TrackingURL from Impact TrackingLinks response shapes."""
+        if not isinstance(payload, dict):
+            return ''
+        if payload.get('TrackingURL'):
+            return payload.get('TrackingURL')
+        nested = payload.get('TrackingLink')
+        if isinstance(nested, dict) and nested.get('TrackingURL'):
+            return nested.get('TrackingURL')
+        links = payload.get('TrackingLinks')
+        if isinstance(links, list):
+            for item in links:
+                if isinstance(item, dict) and item.get('TrackingURL'):
+                    return item.get('TrackingURL')
+        return ''
     
     def _build_manual_link(self, product_url: str, product_id: str, 
                           sub_id1: str, sub_id2: str, sub_id3: str = None) -> str:
-        """Build Impact tracking link manually.
+        """Build the clearly separated manual goto.walmart fallback link.
 
-        ``urlencode`` performs the required single encoding for query parameter
-        values.  Some callers/API payloads can provide an already-encoded
-        Walmart destination (for example ``https%3A%2F%2Fwww.walmart.com%2Fip``);
-        normalize it back to the raw destination first so the final ``u``
-        parameter is not double-encoded as ``https%253A%252F%252F...``.
+        This fallback is used only when the documented Impact TrackingLinks API
+        cannot return a TrackingURL. ``urlencode`` performs the required single
+        encoding for query parameter values after the Walmart destination is
+        normalized, unwrapped, and cleaned.
         """
         base = (
             f"https://goto.walmart.com/c/{self.WALMART_ACCOUNT_ID}/"
@@ -290,8 +348,8 @@ class ImpactAPI:
     def _normalize_walmart_destination_url(cls, product_url: str) -> str:
         """Return a raw, clean Walmart destination URL before query encoding.
 
-        The manual Impact/goto link builder passes this value to ``urlencode``,
-        so this method intentionally does *not* quote the URL.  It accepts raw
+        The Impact TrackingLinks API expects this as the raw DeepLink, while
+        the manual fallback applies query encoding later. This method accepts raw
         or already-encoded Walmart destinations, unwraps any existing
         ``goto.walmart.com`` link via its embedded ``u`` value, and removes
         affiliate/tracking parameters that must not be nested inside the final
