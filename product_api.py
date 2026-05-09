@@ -16,7 +16,7 @@ import time
 import base64
 import uuid
 from typing import List, Dict, Optional
-from urllib.parse import urlencode, quote
+from urllib.parse import parse_qsl, urlencode, quote, unquote, urlparse, urlunparse
 
 
 class WalmartAPI:
@@ -234,56 +234,197 @@ class ImpactAPI:
     """Impact.com API for Walmart affiliate link generation"""
     
     BASE_URL = "https://api.impact.com/Mediapartners"
+    WALMART_ACCOUNT_ID = "3590891"
+    WALMART_REFERRAL_ID = "1398372"
+    WALMART_PROGRAM_ID = "16662"
+    WALMART_SOURCE_ID = "imp_000011112222333344"
+    WALMART_DESTINATION_AFFILIATE_PARAMS = {
+        'afsrc',
+        'affiliates_ad_id',
+        'campaign_id',
+        'clickid',
+        'irgwc',
+        'sourceid',
+        'veh',
+        'wmlspartner',
+    }
     
     def __init__(self):
-        self.account_sid = os.environ.get('IMPACT_ACCOUNT_SID')
+        self.account_sid = os.environ.get('IMPACT_ACCOUNT_SID') or self.WALMART_ACCOUNT_ID
         self.auth_token = os.environ.get('IMPACT_AUTH_TOKEN')
     
     def generate_walmart_link(self, product_url: str, product_id: str = None, 
-                             sub_id1: str = "chat", sub_id2: str = None) -> str:
-        """Generate Impact affiliate link for Walmart product"""
-        
-        endpoint = f"{self.BASE_URL}/{self.account_sid}/Conversions/ConversionLink"
-        campaign_id = "16662"
-        
-        params = {
-            'DestinationUrl': product_url,
-            'CampaignId': campaign_id,
-            'SubId1': sub_id1,
-            'SubId2': sub_id2 or product_id or ''
-        }
-        
-        auth = (self.account_sid, self.auth_token)
-        
+                             sub_id1: str = "chat", sub_id2: str = None,
+                             sub_id3: str = None) -> str:
+        """Create a Walmart Impact TrackingLinks URL, falling back to manual goto only on API failure."""
+        endpoint, params = self.build_walmart_tracking_link_request(
+            product_url,
+            product_id,
+            sub_id1=sub_id1,
+            sub_id2=sub_id2,
+            sub_id3=sub_id3,
+        )
+        if not self.auth_token:
+            logging.warning("[IMPACT] IMPACT_AUTH_TOKEN missing; using manual Walmart goto fallback")
+            return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
+
         try:
-            response = requests.get(endpoint, params=params, auth=auth, timeout=10)
+            response = requests.post(
+                endpoint,
+                auth=(self.account_sid, self.auth_token),
+                data=params,
+                timeout=15,
+            )
             response.raise_for_status()
-            data = response.json()
-            tracking_url = data.get('VanityUrl') or data.get('TrackingUrl')
-            
-            if tracking_url:
-                return tracking_url
-            else:
-                return self._build_manual_link(product_url, product_id, sub_id1, sub_id2)
-                
-        except requests.exceptions.RequestException as e:
-            print(f"Impact API error: {e}")
-            return self._build_manual_link(product_url, product_id, sub_id1, sub_id2)
+            payload = response.json()
+            tracking_url = self._tracking_url_from_response(payload)
+            if not tracking_url:
+                raise ValueError("Impact TrackingLinks response missing TrackingURL")
+            return tracking_url
+        except Exception as exc:
+            logging.warning("[IMPACT] Walmart TrackingLinks API failed; using manual goto fallback: %s", exc)
+            return self._build_manual_link(product_url, product_id, sub_id1, sub_id2, sub_id3)
+
+    def build_walmart_tracking_link_request(self, product_url: str, product_id: str = None,
+                                            sub_id1: str = "chat", sub_id2: str = None,
+                                            sub_id3: str = None) -> tuple[str, dict]:
+        """Return the documented Impact TrackingLinks endpoint and form params for Walmart."""
+        endpoint = (
+            f"{self.BASE_URL}/{self.account_sid}/Programs/"
+            f"{self.WALMART_PROGRAM_ID}/TrackingLinks"
+        )
+        params = {
+            'DeepLink': self._normalize_walmart_destination_url(product_url),
+            'subId1': sub_id1,
+            'subId2': sub_id2 or product_id or '',
+            'subId3': sub_id3 or '',
+        }
+        return endpoint, {key: value for key, value in params.items() if value is not None}
+
+    @staticmethod
+    def _tracking_url_from_response(payload) -> str:
+        """Extract TrackingURL from Impact TrackingLinks response shapes."""
+        if not isinstance(payload, dict):
+            return ''
+        if payload.get('TrackingURL'):
+            return payload.get('TrackingURL')
+        nested = payload.get('TrackingLink')
+        if isinstance(nested, dict) and nested.get('TrackingURL'):
+            return nested.get('TrackingURL')
+        links = payload.get('TrackingLinks')
+        if isinstance(links, list):
+            for item in links:
+                if isinstance(item, dict) and item.get('TrackingURL'):
+                    return item.get('TrackingURL')
+        return ''
     
     def _build_manual_link(self, product_url: str, product_id: str, 
-                          sub_id1: str, sub_id2: str) -> str:
-        """Build Impact tracking link manually"""
-        base = "https://goto.walmart.com/c/3590891/1398372/16662"
-        encoded_url = quote(product_url, safe='')
-        
+                          sub_id1: str, sub_id2: str, sub_id3: str = None) -> str:
+        """Build the clearly separated manual goto.walmart fallback link.
+
+        This fallback is used only when the documented Impact TrackingLinks API
+        cannot return a TrackingURL. ``urlencode`` performs the required single
+        encoding for query parameter values after the Walmart destination is
+        normalized, unwrapped, and cleaned.
+        """
+        base = (
+            f"https://goto.walmart.com/c/{self.WALMART_ACCOUNT_ID}/"
+            f"{self.WALMART_REFERRAL_ID}/{self.WALMART_PROGRAM_ID}"
+        )
+        destination_url = self._normalize_walmart_destination_url(product_url)
+
         params = {
-            'veh': 'aff',
-            'u': encoded_url,
             'subId1': sub_id1,
-            'subId2': sub_id2 or product_id or ''
+            'subId2': sub_id2 or product_id or '',
+            'subId3': sub_id3 or '',
+            'sourceid': os.environ.get('WALMART_IMPACT_SOURCE_ID') or self.WALMART_SOURCE_ID,
+            'veh': 'aff',
+            'u': destination_url,
         }
         
         return f"{base}?{urlencode(params)}"
+
+    @classmethod
+    def _normalize_walmart_destination_url(cls, product_url: str) -> str:
+        """Return a raw, clean Walmart destination URL before query encoding.
+
+        The Impact TrackingLinks API expects this as the raw DeepLink, while
+        the manual fallback applies query encoding later. This method accepts raw
+        or already-encoded Walmart destinations, unwraps any existing
+        ``goto.walmart.com`` link via its embedded ``u`` value, and removes
+        affiliate/tracking parameters that must not be nested inside the final
+        Walmart destination.  Non-affiliate parameters, including UTM values,
+        are preserved.
+        """
+        if not product_url:
+            return ''
+
+        normalized = cls._decode_to_url(product_url.strip())
+        parsed = urlparse(normalized)
+        if parsed.netloc.lower() == 'goto.walmart.com':
+            embedded = cls._embedded_walmart_destination(normalized)
+            if embedded:
+                normalized = cls._decode_to_url(embedded)
+
+        return cls._clean_walmart_destination_query(normalized)
+
+    @staticmethod
+    def _decode_to_url(value: str) -> str:
+        """Decode only as much as needed to expose an encoded URL scheme."""
+        decoded = value or ''
+        for _ in range(3):
+            if decoded.lower().startswith(('http://', 'https://')):
+                return decoded
+            next_decoded = unquote(decoded)
+            if next_decoded == decoded:
+                return decoded
+            decoded = next_decoded
+        return decoded
+
+    @classmethod
+    def _embedded_walmart_destination(cls, goto_url: str) -> str:
+        parsed = urlparse(goto_url)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+            if key.lower() == 'u' and value:
+                return value
+        return ''
+
+    @classmethod
+    def _clean_walmart_destination_query(cls, destination_url: str) -> str:
+        parsed = urlparse(destination_url)
+        if parsed.netloc.lower() not in {'walmart.com', 'www.walmart.com'}:
+            return destination_url
+
+        kept_query = urlencode(
+            [
+                (key, value)
+                for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                if key.lower() not in cls.WALMART_DESTINATION_AFFILIATE_PARAMS
+            ]
+        )
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, kept_query, parsed.fragment))
+
+    @classmethod
+    def walmart_destination_stale_reason(cls, destination_url: str) -> str:
+        """Return why an embedded Walmart ``u`` destination should be rebuilt."""
+        if not destination_url:
+            return 'stored Walmart affiliate URL missing Walmart destination'
+        normalized = cls._decode_to_url(destination_url.strip())
+        parsed = urlparse(normalized)
+        if parsed.netloc.lower() == 'goto.walmart.com':
+            return 'embedded Walmart destination is itself an affiliate goto link'
+        if parsed.netloc.lower() not in {'walmart.com', 'www.walmart.com'}:
+            return 'embedded Walmart destination is not a clean Walmart URL'
+        dirty_params = [
+            key
+            for key, _value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key.lower() in cls.WALMART_DESTINATION_AFFILIATE_PARAMS
+        ]
+        if dirty_params:
+            return 'embedded Walmart destination contains prior affiliate params'
+        if normalized != destination_url.strip():
+            return 'embedded Walmart destination is encoded before final goto encoding'
+        return ''
 
 
 def detect_category(query: str) -> str:
