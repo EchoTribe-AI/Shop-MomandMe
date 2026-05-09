@@ -29,6 +29,7 @@ DB_PATH = db_schema.DB_PATH
 DEFAULT_WORKBOOK = Path("attached_assets/Walmart_May6th_Analysis.xlsx")
 SHEET_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 STALE_DOUBLE_ENCODED_WALMART_GOTO_ERROR = "stale double-encoded Walmart goto destination"
+STEPH_WALMART_CREATOR_ID = "3590891"
 
 
 @dataclass
@@ -117,7 +118,7 @@ def stale_walmart_link_reason(url: str) -> str:
     netloc = parsed.netloc.lower()
     if netloc == "goto.walmart.com":
         expected_path = (
-            f"/c/{ImpactAPI.WALMART_ACCOUNT_ID}/"
+            f"/c/{STEPH_WALMART_CREATOR_ID}/"
             f"{ImpactAPI.WALMART_REFERRAL_ID}/{ImpactAPI.WALMART_PROGRAM_ID}"
         )
         if parsed.path != expected_path:

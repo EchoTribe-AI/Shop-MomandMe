@@ -125,12 +125,12 @@ class WalmartTrendsTestCase(unittest.TestCase):
 
     def test_old_creator_goto_path_is_stale(self):
         old_creator = (
-            "https://goto.walmart.com/c/3590891/1398372/16662?"
+            "https://goto.walmart.com/c/6365428/1398372/16662?"
             "subId1=walmart-trending&subId2=5454929532&subId3=&sourceid=imp_000011112222333344"
             "&veh=aff&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
         )
         current_creator = (
-            "https://goto.walmart.com/c/6365428/1398372/16662?"
+            "https://goto.walmart.com/c/3590891/1398372/16662?"
             "subId1=walmart-trending&subId2=5454929532&subId3=&sourceid=imp_000011112222333344"
             "&veh=aff&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
         )
@@ -141,7 +141,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
 
     def test_walmart_goto_with_dirty_embedded_destination_is_stale(self):
         dirty = (
-            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            "https://goto.walmart.com/c/3590891/1398372/16662?subId1=walmart-trending"
             "&subId2=5454929532&subId3=&sourceid=imp_000011112222333344&veh=aff"
             "&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532%3Firgwc%3D1%26clickid%3Dabc%26utm_source%3Decho"
         )
@@ -153,7 +153,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
 
     def test_walmart_goto_missing_sourceid_is_stale(self):
         missing_sourceid = (
-            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            "https://goto.walmart.com/c/3590891/1398372/16662?subId1=walmart-trending"
             "&subId2=5454929532&subId3=&veh=aff"
             "&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
         )
@@ -165,7 +165,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
 
     def test_walmart_goto_with_nested_goto_destination_is_stale(self):
         nested = (
-            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            "https://goto.walmart.com/c/3590891/1398372/16662?subId1=walmart-trending"
             "&subId2=5454929532&subId3=&sourceid=imp_000011112222333344&veh=aff"
             "&u=https%3A%2F%2Fgoto.walmart.com%2FWONqy3%3Fu%3Dhttps%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
         )
@@ -221,7 +221,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
 
     def test_stale_urlgenius_first_hop_redirect_forces_fresh_link(self):
         store = self.wt.WalmartTrendStore()
-        destination = "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending&subId2=5454929532&subId3=&sourceid=imp_000011112222333344&veh=aff&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
+        destination = "https://goto.walmart.com/c/3590891/1398372/16662?subId1=walmart-trending&subId2=5454929532&subId3=&sourceid=imp_000011112222333344&veh=aff&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F5454929532"
         store.save_urlgenius_link(destination, "https://urlgeni.us/walmart/dQB0MO")
 
         original_key = os.environ.get("URLGENIUS_API_KEY")
@@ -260,7 +260,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
             f"&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F{sku}"
         )
         fresh_impact = (
-            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            "https://goto.walmart.com/c/3590891/1398372/16662?subId1=walmart-trending"
             f"&subId2={sku}&subId3=&sourceid=imp_000011112222333344&veh=aff"
             f"&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F{sku}"
         )
@@ -310,7 +310,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
             f"&u=https%253A%252F%252Fwww.walmart.com%252Fip%252F{sku}"
         )
         fresh_impact = (
-            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            "https://goto.walmart.com/c/3590891/1398372/16662?subId1=walmart-trending"
             f"&subId2={sku}&subId3=&sourceid=imp_000011112222333344&veh=aff"
             f"&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F{sku}"
         )
@@ -352,7 +352,7 @@ class WalmartTrendsTestCase(unittest.TestCase):
         store.upsert_product_from_record(self.wt.TrendRecord(sku=sku, item_name="Test Product"))
         store.update_product_enrichment(sku, {"canonical_url": product_url}, "ok")
         old_impact = (
-            "https://goto.walmart.com/c/6365428/1398372/16662?subId1=walmart-trending"
+            "https://goto.walmart.com/c/3590891/1398372/16662?subId1=walmart-trending"
             f"&subId2={sku}&subId3=&sourceid=imp_000011112222333344&veh=aff"
             f"&u=https%3A%2F%2Fwww.walmart.com%2Fip%2F{sku}"
         )
