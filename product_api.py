@@ -234,7 +234,7 @@ class ImpactAPI:
     """Impact.com API for Walmart affiliate link generation"""
     
     BASE_URL = "https://api.impact.com/Mediapartners"
-    WALMART_ACCOUNT_ID = "6365428"
+    WALMART_ACCOUNT_ID = "3590891"
     WALMART_REFERRAL_ID = "1398372"
     WALMART_PROGRAM_ID = "16662"
     WALMART_SOURCE_ID = "imp_000011112222333344"

@@ -51,7 +51,7 @@ class ImpactWalmartTrackingLinksTestCase(unittest.TestCase):
             )
 
         post.assert_not_called()
-        self.assertTrue(link.startswith("https://goto.walmart.com/c/6365428/1398372/16662?"))
+        self.assertTrue(link.startswith("https://goto.walmart.com/c/3590891/1398372/16662?"))
         self.assertEqual(parse_qs(urlparse(link).query)["u"], ["https://www.walmart.com/ip/5454929532"])
 
     def test_build_trackinglinks_request_cleans_existing_goto_destination(self):
