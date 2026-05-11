@@ -610,7 +610,7 @@
     const sel = document.getElementById('collection-pick');
     if (!sel) return;
     try {
-      const res = await fetch('/archer/collages');
+      const res = await fetch('/archer/collages?status=published');
       const data = await res.json();
       const list = Array.isArray(data.collages) ? data.collages : [];
       // Preserve the leading "None" option, then add saved collections

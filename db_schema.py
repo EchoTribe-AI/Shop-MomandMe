@@ -133,6 +133,19 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_attribution_label ON attribution_paid(label)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_attribution_creator ON attribution_paid(creator_id)")
 
+        # ── collages: public collection landing pages ───────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS collages (
+                slug TEXT PRIMARY KEY,
+                products_json TEXT,
+                layout TEXT DEFAULT 'layout-2',
+                theme TEXT DEFAULT 'coral',
+                caption TEXT,
+                direct_to_amazon INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                click_count INTEGER DEFAULT 0
+            )
+        """)
         # ── collages: ADD COLUMN backfills ───────────────────────────────
         _add_column_if_missing(conn, 'collages', "creator_id TEXT DEFAULT 'everydaywithsteph'")
         _add_column_if_missing(conn, 'collages', "status TEXT DEFAULT 'published'")

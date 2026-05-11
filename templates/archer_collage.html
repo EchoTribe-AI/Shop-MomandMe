@@ -37,7 +37,7 @@
   .layout { display: grid; grid-template-columns: 1fr 420px; min-height: 100vh; padding-top: var(--topbar); gap: 0; }
 
   /* LEFT — BUILDER */
-  .builder { padding: 24px; overflow-y: auto; }
+  .builder { padding: 24px 24px 96px; overflow-y: auto; height: calc(100vh - var(--topbar)); }
 
   .section-label { font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text4); margin-bottom: 10px; margin-top: 24px; }
   .section-label:first-child { margin-top: 0; }
@@ -131,14 +131,19 @@
   .slug-input:focus { border-color: var(--blue-mid); }
 
   /* SAVE BAR */
-  .save-bar { position: sticky; bottom: 0; background: var(--surface); border-top: 0.5px solid var(--border); padding: 12px 24px; display: flex; gap: 8px; align-items: center; margin: 0 -24px; }
+  .save-bar { position: sticky; bottom: 0; background: var(--surface); border-top: 0.5px solid var(--border); padding: 12px 24px; display: flex; gap: 8px; align-items: center; margin: 0 -24px; z-index: 20; box-shadow: 0 -8px 18px rgba(0,0,0,0.04); }
   .save-btn { font-family: var(--sans); font-size: 13px; font-weight: 500; padding: 9px 20px; border-radius: var(--r); border: 0.5px solid; cursor: pointer; transition: all 0.15s; }
   .save-btn.primary { background: var(--archer); color: #fff; border-color: var(--archer); }
   .save-btn.primary:hover { background: #d04d1c; }
+  .save-btn.publish { background: var(--green); color: #fff; border-color: var(--green); }
+  .save-btn.publish:hover { background: #1f5930; }
   .save-btn.outline { background: var(--surface); color: var(--text2); border-color: var(--border2); }
   .save-btn.outline:hover { background: var(--bg2); }
   .save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .save-status { font-size: 12px; color: var(--text4); margin-left: auto; }
+  .status-chip { font-family: var(--mono); font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; border: 0.5px solid var(--border2); border-radius: 999px; padding: 4px 8px; color: var(--text3); background: var(--bg); }
+  .status-chip.published { color: var(--green); background: var(--green-light); border-color: rgba(39,105,58,0.22); }
+  .status-chip.draft { color: var(--amber); background: var(--amber-light); border-color: rgba(138,85,16,0.22); }
 
   /* RIGHT — PREVIEW */
   .preview-panel { background: var(--surface2); border-left: 0.5px solid var(--border); position: sticky; top: var(--topbar); height: calc(100vh - var(--topbar)); overflow-y: auto; display: flex; flex-direction: column; }
@@ -178,10 +183,11 @@
   .ci-info { flex: 1; }
   .ci-name { font-size: 12.5px; font-weight: 500; color: var(--text); }
   .ci-meta { font-size: 11px; color: var(--text4); margin-top: 2px; font-family: var(--mono); }
-  .ci-actions { display: flex; gap: 6px; }
+  .ci-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .ci-btn { font-size: 11px; padding: 4px 10px; border-radius: 4px; border: 0.5px solid var(--border2); background: var(--surface); color: var(--text3); cursor: pointer; transition: all 0.15s; }
   .ci-btn:hover { background: var(--bg2); }
   .ci-btn.open { color: var(--blue-mid); border-color: rgba(46,125,212,0.3); background: var(--blue-light); }
+  .ci-btn.publish { color: var(--green); border-color: rgba(39,105,58,0.25); background: var(--green-light); }
 
   /* TOAST */
   .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--text); color: #fff; font-size: 13px; padding: 10px 18px; border-radius: var(--r); opacity: 0; transition: all 0.25s; z-index: 200; white-space: nowrap; pointer-events: none; }
@@ -189,6 +195,9 @@
 
   @media (max-width: 900px) {
     .layout { grid-template-columns: 1fr; }
+    .builder { height: auto; overflow-y: visible; padding-bottom: 24px; }
+    .save-bar { position: static; margin-top: 16px; flex-wrap: wrap; }
+    .save-status { margin-left: 0; width: 100%; }
     .preview-panel { position: static; height: auto; border-left: none; border-top: 0.5px solid var(--border); }
   }
 </style>
@@ -292,12 +301,14 @@
     <!-- SAVE BAR -->
     <div class="save-bar">
       <button class="save-btn outline" onclick="resetBuilder()">New Collage</button>
-      <button class="save-btn primary" id="save-btn" onclick="saveCollage()" disabled>Save & Get Link</button>
-      <div class="save-status" id="save-status"></div>
+      <button class="save-btn primary" id="save-draft-btn" onclick="saveDraftCollage()" disabled>Save Draft</button>
+      <button class="save-btn publish" id="publish-btn" onclick="publishCurrentCollage()" disabled>Publish</button>
+      <span class="status-chip draft" id="collection-status">Draft</span>
+      <div class="save-status" id="save-status">Drafts use preview links. Publish creates the public shop page.</div>
     </div>
 
     <!-- EXISTING COLLAGES -->
-    <div class="section-label" style="margin-top:32px;">Saved Collages</div>
+    <div class="section-label" style="margin-top:32px;">Manage Collections</div>
     <div class="collage-list" id="collage-list">
       <div style="font-size:12px;color:var(--text4);">No collages yet.</div>
     </div>
@@ -349,6 +360,7 @@
     directToAmazon: false,
     slug: '',
     caption: '',
+    status: 'draft',
     searchTimer: null,
     editingId: null     // if editing existing collage
   };
@@ -368,7 +380,7 @@
   window.onload = async () => {
     // Check for pre-selected products passed via URL params
     const params = new URLSearchParams(window.location.search);
-    const collectionSlug = (params.get('collection') || '').trim().toLowerCase();
+    const collectionSlug = (params.get('collection') || params.get('slug') || '').trim().toLowerCase();
     const asins = params.get('asins');
     if (asins) {
       const asinList = asins.split(',').filter(Boolean).slice(0, MAX_SLOTS);
@@ -389,7 +401,8 @@
       showToast(`${asinList.length} product${asinList.length > 1 ? 's' : ''} loaded from Archer`);
     }
     renderSlots();
-    generateSlug();
+    if (!collectionSlug) generateSlug();
+    updateStatusChip();
     await loadCollageList();
   };
 
@@ -405,17 +418,23 @@
       state.caption = c.caption || '';
       state.directToAmazon = !!c.direct_to_amazon;
       state.products = (c.products || []).slice(0, MAX_SLOTS);
+      state.status = c.status || 'published';
 
-      const slugInput = document.getElementById('slug');
+      const slugInput = document.getElementById('slug-input');
       const captionInput = document.getElementById('caption');
-      const layoutSel = document.getElementById('layout');
-      const themeSel = document.getElementById('theme');
-      const d2a = document.getElementById('direct-amazon');
+      const d2a = document.getElementById('direct-toggle');
       if (slugInput) slugInput.value = state.slug;
       if (captionInput) captionInput.value = state.caption;
-      if (layoutSel) layoutSel.value = state.layout;
-      if (themeSel) themeSel.value = state.theme;
       if (d2a) d2a.checked = state.directToAmazon;
+      document.querySelectorAll('.lp-option').forEach(el => {
+        el.classList.toggle('active', el.dataset.layout === state.layout);
+      });
+      document.querySelectorAll('.tp-option').forEach(el => {
+        el.classList.toggle('active', (el.title || '').toLowerCase() === state.theme);
+      });
+      renderSlots();
+      updatePreview();
+      updateStatusChip();
       showToast(`Loaded ${slug} for editing`);
     } catch (e) {
       showToast(`Failed to load ${slug}: ${e.message}`);
@@ -657,25 +676,40 @@
   // ── SAVE / LOAD ───────────────────────────────────────
 
   function updateSaveBtn() {
-    const btn = document.getElementById('save-btn');
-    btn.disabled = state.products.length === 0;
+    const disabled = state.products.length === 0;
+    const draftBtn = document.getElementById('save-draft-btn');
+    const publishBtn = document.getElementById('publish-btn');
+    if (draftBtn) draftBtn.disabled = disabled;
+    if (publishBtn) publishBtn.disabled = disabled;
   }
 
-  async function saveCollage() {
-    if (!state.products.length) return;
-    const btn = document.getElementById('save-btn');
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
+  function updateStatusChip() {
+    const chip = document.getElementById('collection-status');
+    if (!chip) return;
+    const status = state.status || 'draft';
+    chip.textContent = status === 'published' ? 'Published' : 'Draft';
+    chip.className = `status-chip ${status === 'published' ? 'published' : 'draft'}`;
+  }
 
+  function collagePayload(status) {
     const slug = document.getElementById('slug-input').value.trim() || `collage-${Date.now()}`;
-    const payload = {
+    return {
       slug,
       products: state.products,
       layout: state.layout,
       theme: state.theme,
       caption: document.getElementById('caption').value,
-      direct_to_amazon: document.getElementById('direct-toggle').checked
+      direct_to_amazon: document.getElementById('direct-toggle').checked,
+      status
     };
+  }
+
+  async function persistCollage(status, btn, busyText, doneText) {
+    if (!state.products.length) return;
+    const originalText = doneText || btn.textContent;
+    btn.disabled = true;
+    btn.textContent = busyText;
+    const payload = collagePayload(status);
 
     try {
       const res = await fetch('/archer/collage/save', {
@@ -684,39 +718,99 @@
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (data.url) {
-        document.getElementById('save-status').textContent = '✓ Saved';
-        copyToClipboard(window.location.origin + data.url);
-        showToast('Saved & URL copied to clipboard!');
-        await loadCollageList();
-      }
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+      state.slug = data.slug || payload.slug;
+      state.status = data.status || status;
+      document.getElementById('slug-input').value = state.slug;
+      updateStatusChip();
+      await loadCollageList();
+      return data;
     } catch(e) {
-      showToast('Save failed — check connection');
+      showToast(`${originalText} failed: ${e.message}`);
+      return null;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
     }
-    btn.disabled = false;
-    btn.textContent = 'Save & Get Link';
+  }
+
+  async function saveDraftCollage() {
+    const btn = document.getElementById('save-draft-btn');
+    const data = await persistCollage('draft', btn, 'Saving...', 'Save Draft');
+    if (!data) return;
+    document.getElementById('save-status').textContent = 'Draft saved. Preview link copied.';
+    copyToClipboard(`${window.location.origin}/shop/${data.slug}?preview=1`);
+    showToast('Draft saved');
+  }
+
+  async function publishCurrentCollage() {
+    const btn = document.getElementById('publish-btn');
+    const data = await persistCollage('published', btn, 'Publishing...', 'Publish');
+    if (!data) return;
+    document.getElementById('save-status').textContent = 'Published. Public URL copied.';
+    copyToClipboard(data.public_url || `https://shop.echotribe.ai/${data.slug}`);
+    showToast('Collection published');
+  }
+
+  async function publishSavedCollage(slug, btn) {
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Publishing...';
+    try {
+      const res = await fetch('/archer/collage/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+      if (state.slug === data.slug) {
+        state.status = 'published';
+        updateStatusChip();
+      }
+      await loadCollageList();
+      copyToClipboard(data.public_url || `https://shop.echotribe.ai/${slug}`);
+      showToast('Collection published');
+    } catch(e) {
+      showToast(`Publish failed: ${e.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+
+  function editSavedCollage(slug) {
+    loadCollectionForEdit(slug);
+    document.querySelector('.builder')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   async function loadCollageList() {
     try {
-      const res = await fetch('/archer/collages');
+      const res = await fetch('/archer/collages?status=all');
       const data = await res.json();
       const list = document.getElementById('collage-list');
       if (!data.collages?.length) {
         list.innerHTML = '<div style="font-size:12px;color:var(--text4);">No collages yet.</div>';
         return;
       }
-      list.innerHTML = data.collages.map(c => `
+      list.innerHTML = data.collages.map(c => {
+        const isDraft = (c.status || 'published') !== 'published';
+        const viewUrl = isDraft ? `/shop/${c.slug}?preview=1` : `/shop/${c.slug}`;
+        const copyUrl = isDraft ? `${location.origin}/shop/${c.slug}?preview=1` : `https://shop.echotribe.ai/${c.slug}`;
+        return `
         <div class="collage-item">
           <div class="ci-info">
             <div class="ci-name">${escStr(c.slug)}</div>
-            <div class="ci-meta">${c.product_count} products · ${c.theme} · ${c.created_at}</div>
+            <div class="ci-meta">${c.product_count} products · ${c.theme} · ${c.created_at} · ${escStr(c.status || 'published')}</div>
           </div>
           <div class="ci-actions">
-            <button class="ci-btn open" onclick="window.open('/shop/${c.slug}','_blank')">View</button>
-            <button class="ci-btn" onclick="copyToClipboard('https://shop.echotribe.ai/${c.slug}');showToast('URL copied!')">Copy</button>
+            <button class="ci-btn" onclick="editSavedCollage('${escStr(c.slug)}')">Edit</button>
+            <button class="ci-btn open" onclick="window.open('${viewUrl}','_blank')">${isDraft ? 'Preview' : 'View'}</button>
+            <button class="ci-btn" onclick="copyToClipboard('${copyUrl}');showToast('URL copied!')">Copy</button>
+            ${isDraft ? `<button class="ci-btn publish" onclick="publishSavedCollage('${escStr(c.slug)}', this)">Publish</button>` : ''}
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
     } catch(e) {}
   }
 
@@ -725,6 +819,7 @@
     state.caption = '';
     state.theme = 'coral';
     state.layout = 'layout-2';
+    state.status = 'draft';
     document.getElementById('caption').value = '';
     document.getElementById('direct-toggle').checked = false;
     document.querySelectorAll('.tp-option').forEach((t,i) => t.classList.toggle('active', i===0));
@@ -732,6 +827,8 @@
     generateSlug();
     renderSlots();
     updatePreview();
+    updateStatusChip();
+    document.getElementById('save-status').textContent = 'Drafts use preview links. Publish creates the public shop page.';
   }
 
   function copyUrl() {

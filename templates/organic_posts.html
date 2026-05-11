@@ -1474,7 +1474,7 @@ function _renderPublishedPill(data) {
     <div class="lp-pill-actions">
       <button class="ca-btn primary" onclick="copyToClipboard('${esc(publicUrl)}')">Copy URL</button>
       <a class="ca-btn" href="${esc(publicUrl)}" target="_blank" rel="noopener">Open ↗</a>
-      <a class="ca-btn" href="/archer/collage?slug=${esc(slug)}" target="_blank" rel="noopener">✏️ Edit</a>
+      <a class="ca-btn" href="/archer/collage?collection=${esc(slug)}" target="_blank" rel="noopener">✏️ Edit</a>
       <a class="ca-btn" href="/archer/campaigns?collection=${esc(slug)}" style="background:var(--blue-light);color:var(--blue);border-color:rgba(28,95,166,0.3);">🚀 Promote</a>
     </div>
   </div>`;

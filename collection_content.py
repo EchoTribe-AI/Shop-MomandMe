@@ -15,6 +15,7 @@ from typing import Any
 
 import anthropic
 
+import collection_service
 import db_schema
 
 SOURCE_WALMART_TREND = "walmart_trend"
@@ -393,56 +394,32 @@ def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str
     products = draft.get("product_snapshot") or []
     if not products:
         raise CollectionContentError("Draft has no product snapshot")
-    missing = [p.get("asin") for p in products if not p.get("attribution_link")]
-    if missing:
-        raise CollectionContentError(f"Cannot publish Walmart products without attribution_link: {missing}")
     public_slug = slugify(draft.get("public_slug") or f"walmart-{draft['source_collection_slug']}")
     status = "published" if publish else "draft"
     creator_id = draft.get("creator_id") or DEFAULT_CREATOR_ID
-    campaign_types = [SOURCE_WALMART_TREND]
+
+    try:
+        result = collection_service.save_collage(
+            {
+                "slug": public_slug,
+                "products": products,
+                "layout": "layout-2" if len(products) < 6 else "layout-3",
+                "theme": "peach",
+                "caption": draft.get("landing_intro") or "",
+                "direct_to_amazon": False,
+                "creator_id": creator_id,
+                "status": status,
+                "hero_title": draft.get("title") or public_slug.replace("-", " ").title(),
+                "hero_subtitle": _shopper_safe_description(draft.get("description")),
+            },
+            shop_subdomain=os.environ.get("SHOP_SUBDOMAIN", "shop.echotribe.ai").lower(),
+            campaign_types=[SOURCE_WALMART_TREND],
+        )
+    except collection_service.CollectionServiceError as exc:
+        raise CollectionContentError(str(exc)) from exc
+
     conn = _connect()
     try:
-        existing = conn.execute("SELECT click_count, campaign_types FROM collages WHERE slug = ?", (public_slug,)).fetchone()
-        if existing:
-            try:
-                prior = json.loads(existing["campaign_types"] or "[]")
-                if not isinstance(prior, list):
-                    prior = []
-            except (json.JSONDecodeError, TypeError):
-                prior = []
-            campaign_types = sorted({*prior, SOURCE_WALMART_TREND})
-        conn.execute(
-            """
-            INSERT INTO collages
-            (slug, products_json, layout, theme, caption, direct_to_amazon, created_at,
-             click_count, creator_id, status, campaign_types, hero_title, hero_subtitle)
-            VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(slug) DO UPDATE SET
-                products_json = excluded.products_json,
-                layout = excluded.layout,
-                theme = excluded.theme,
-                caption = excluded.caption,
-                direct_to_amazon = 0,
-                creator_id = excluded.creator_id,
-                status = excluded.status,
-                campaign_types = excluded.campaign_types,
-                hero_title = excluded.hero_title,
-                hero_subtitle = excluded.hero_subtitle
-            """,
-            (
-                public_slug,
-                json.dumps(products),
-                "layout-2" if len(products) < 6 else "layout-3",
-                "peach",
-                draft.get("landing_intro") or "",
-                int(existing["click_count"] or 0) if existing else 0,
-                creator_id,
-                status,
-                json.dumps(campaign_types),
-                draft.get("title") or public_slug.replace("-", " ").title(),
-                _shopper_safe_description(draft.get("description")),
-            ),
-        )
         now = _now()
         conn.execute(
             """
@@ -459,10 +436,11 @@ def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str
         conn.close()
     return {
         "public_slug": public_slug,
-        "public_url": f"/shop/{public_slug}",
-        "preview_url": f"/shop/{public_slug}?preview=1",
+        "public_url": result["public_url"],
+        "preview_url": result["preview_url"],
         "insights_url": f"/insights?creator_id={creator_id}",
         "status": status,
+        "warnings": result.get("warnings", []),
     }
 
 
