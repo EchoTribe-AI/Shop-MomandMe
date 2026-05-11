@@ -1,0 +1,9 @@
+{% set _nav_items = public_nav_items if public_nav_items is defined else [] %}
+{% set _active_nav = nav_active if nav_active is defined else '' %}
+{% if _nav_items %}
+<nav class="public-shop-nav" aria-label="Shop navigation">
+  {% for item in _nav_items %}
+  <a class="public-shop-link {% if item.key == _active_nav %}active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+  {% endfor %}
+</nav>
+{% endif %}

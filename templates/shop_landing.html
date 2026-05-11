@@ -69,6 +69,9 @@
   .brand { font-size: 15px; font-weight: 600; color: var(--text); }
   .handle { font-size: 12px; color: rgba(0,0,0,0.4); margin-top: 1px; }
   .header-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .public-shop-nav { max-width: 480px; margin: 12px auto 0; display: flex; gap: 8px; align-items: center; }
+  .public-shop-link { color: rgba(0,0,0,0.62); background: rgba(255,255,255,0.76); border: 1px solid rgba(0,0,0,0.08); border-radius: 999px; padding: 6px 9px; font-size: 11px; font-weight: 700; text-decoration: none; }
+  .public-shop-link.active { color: #fff; background: var(--accent); border-color: var(--accent); }
 
   .hero { max-width: 480px; margin: 0 auto; padding: 20px 20px 0; }
   .caption { font-size: 14px; line-height: 1.7; color: var(--text); margin-bottom: 20px; white-space: pre-wrap; }
@@ -96,6 +99,8 @@
   .pc-was { font-size: 11px; color: rgba(0,0,0,0.38); text-decoration: line-through; }
   .pc-now-label { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: rgba(0,0,0,0.42); margin-right: 4px; }
   .pc-deal { font-size: 10px; background: #fff3e0; color: #e65100; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+  .pc-detail-row { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px; }
+  .pc-detail { font-size:10px; border:1px solid rgba(0,0,0,0.08); border-radius:999px; padding:3px 6px; color:rgba(0,0,0,0.56); background:#fff; }
 
   .shop-btn { display: block; width: 100%; padding: 10px; background: var(--btn); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; text-align: center; cursor: pointer; text-decoration: none; transition: opacity 0.15s; }
   .shop-btn:hover { opacity: 0.9; }
@@ -167,6 +172,7 @@ fbq('track', 'PageView');
     </div>
     <div class="header-avatar">🛍️</div>
   </div>
+  {% include 'partials/public_shop_nav.html' %}
 </div>
 
 <div class="hero">
@@ -219,6 +225,13 @@ fbq('track', 'PageView');
           <span class="pc-deal">{{ product.deal['final_discount_%'] }} off</span>
           {% endif %}
         </div>
+        {% if product.availability or product.rating or product.review_count %}
+        <div class="pc-detail-row">
+          {% if product.availability %}<span class="pc-detail">{{ product.availability }}</span>{% endif %}
+          {% if product.rating %}<span class="pc-detail">★ {{ product.rating }}</span>{% endif %}
+          {% if product.review_count %}<span class="pc-detail">{{ product.review_count }} reviews</span>{% endif %}
+        </div>
+        {% endif %}
         {% if collage.direct_to_amazon %}
         <a class="shop-btn"
            href="https://www.amazon.com/dp/{{ product.asin }}?tag=mommymedeals-20"

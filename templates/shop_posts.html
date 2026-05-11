@@ -27,6 +27,9 @@
   .brand { font-size: 18px; font-weight: 700; }
   .sub { font-size: 12px; color: var(--text3); }
   .nav a { font-size: 12px; color: var(--blue); text-decoration: none; font-weight: 600; }
+  .public-shop-nav { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .public-shop-link { font-size:12px; color:var(--blue); text-decoration:none; font-weight:700; border:0.5px solid #b9d0ea; border-radius:999px; padding:6px 9px; background:#fff; }
+  .public-shop-link.active { background:var(--blue); color:#fff; border-color:var(--blue); }
 
   .hero { max-width: 1100px; margin: 0 auto; padding: 26px 20px 14px; }
   .h1 { font-size: 25px; font-weight: 700; }
@@ -67,7 +70,7 @@
       <div class="brand">EchoTribe Shop 🛍️</div>
       <div class="sub">Social posts feed</div>
     </div>
-    <div class="nav"><a href="https://{{ shop_subdomain }}/">← Collections</a></div>
+    {% include 'partials/public_shop_nav.html' %}
   </div>
 </div>
 
@@ -100,6 +103,9 @@
       <div class="row">
         {% if it.product_brand %}<span class="pill">{{ it.product_brand }}</span>{% endif %}
         {% if it.product_price %}<span class="pill">{{ it.product_price }}</span>{% endif %}
+        {% if it.product_availability %}<span class="pill">{{ it.product_availability }}</span>{% endif %}
+        {% if it.product_rating %}<span class="pill">★ {{ it.product_rating }}</span>{% endif %}
+        {% if it.product_review_count %}<span class="pill">{{ it.product_review_count }} reviews</span>{% endif %}
         {% if it.angle %}<span class="pill">{{ it.angle }}</span>{% endif %}
       </div>
       {% if it.copy_excerpt %}<div class="copy">{{ it.copy_excerpt }}</div>{% endif %}

@@ -53,6 +53,14 @@ PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
 SHOP_SUBDOMAIN = os.environ.get('SHOP_SUBDOMAIN', 'shop.echotribe.ai').lower()
 
 
+def _public_shop_nav(active: str = '') -> list[dict]:
+    base = f'https://{SHOP_SUBDOMAIN}'
+    return [
+        {'key': 'trends', 'label': 'Trends', 'href': f'{base}/trends'},
+        {'key': 'posts', 'label': 'Social Posts', 'href': f'{base}/posts'},
+    ]
+
+
 @app.before_request
 def _route_shop_subdomain():
     """If host == shop.echotribe.ai, rewrite GET requests to public-only routes.
@@ -84,6 +92,8 @@ def _route_shop_subdomain():
     if request.method == 'GET':
         if path == '/' or path == '':
             return shop_directory()
+        if path == '/trends':
+            return shop_trends()
         if path == '/posts':
             return shop_posts()
         if path == '/sitemap.xml':
@@ -827,6 +837,14 @@ def archer_generate_posts():
             for raw_post in parsed.get('posts', []):
                 asin = (raw_post.get('asin') or '').strip()
                 product = asin_to_product.get(asin, {})
+                product_network = str(
+                    product.get('network')
+                    or product.get('retailer')
+                    or product.get('retailer_name')
+                    or 'amazon'
+                ).strip().lower()
+                if product_network == 'walmart':
+                    product_network = 'walmart'
                 angle = raw_post.get('angle', '')
                 utm = _organic_static_utm(product, asin, angle, utm_defaults)
                 smart = {
@@ -835,7 +853,28 @@ def archer_generate_posts():
                     'final_url': '',
                     'link_id': '',
                 }
-                if asin and not collection_slug:
+                enriched_post_fields = {}
+                if product_network == 'walmart':
+                    try:
+                        import walmart_storefront_enrichment as _walmart_enrichment
+                        enriched_post_fields = _walmart_enrichment.post_update_fields({
+                            'asin': asin,
+                            'network': 'walmart',
+                            'product_name': product.get('product_name') or product.get('name') or '',
+                            'product_brand': product.get('brand') or product.get('company_name') or '',
+                            'product_price': product.get('price_display') or product.get('price') or '',
+                            'product_image': product.get('image_encoded_string') or product.get('image_url') or '',
+                        })
+                    except Exception as _e:
+                        logging.warning(f"[GENERATE_POSTS] Walmart enrichment failed for {asin}: {_e}")
+                    smart['genius_url'] = (
+                        product.get('smart_link')
+                        or product.get('attribution_link')
+                        or product.get('shop_url')
+                        or product.get('url')
+                        or ''
+                    )
+                elif asin and not collection_slug:
                     try:
                         smart = _amazon_urlgenius_link(asin, utm)
                     except Exception as _e:
@@ -849,6 +888,7 @@ def archer_generate_posts():
                         angle=angle,
                         copy=raw_post.get('copy', ''),
                         image_note=raw_post.get('image_note', ''),
+                        network=product_network,
                         collection_slug=collection_slug,
                         status='draft',
                         utm=utm,
@@ -856,10 +896,13 @@ def archer_generate_posts():
                         smart_link_id=smart.get('link_id') or '',
                         smart_link_affiliate_url=smart.get('affiliate_url') or '',
                         smart_link_final_url=smart.get('final_url') or '',
-                        product_name=product.get('product_name') or product.get('name') or '',
-                        product_brand=product.get('brand') or product.get('company_name') or '',
-                        product_price=product.get('price') or '',
-                        product_image=product.get('image_encoded_string') or '',
+                        product_name=enriched_post_fields.get('product_name') or product.get('product_name') or product.get('name') or '',
+                        product_brand=enriched_post_fields.get('product_brand') or product.get('brand') or product.get('company_name') or '',
+                        product_price=enriched_post_fields.get('product_price') or product.get('price_display') or product.get('price') or '',
+                        product_image=enriched_post_fields.get('product_image') or product.get('image_encoded_string') or product.get('image_url') or '',
+                        product_availability=enriched_post_fields.get('product_availability') or '',
+                        product_rating=enriched_post_fields.get('product_rating'),
+                        product_review_count=enriched_post_fields.get('product_review_count'),
                     )
                     persisted.append(saved)
                 except Exception as _e:
@@ -1203,7 +1246,7 @@ def shop_landing(slug):
 
     products = collage.get('products') or []
     for p in products:
-        p['price_display'] = _format_display_price(p.get('price') or '')
+        p['price_display'] = _format_display_price(p.get('price_display') or p.get('price') or p.get('current_price') or '')
     collage['direct_to_amazon'] = bool(collage.get('direct_to_amazon'))
 
     # Resolve creator for branding + creator-specific FB pixel
@@ -1235,6 +1278,9 @@ def shop_landing(slug):
         themes=THEMES,
         pixel_id=pixel_id,
         creator=creator,
+        shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('collections'),
+        nav_active='collections',
         seo={
             'title':         page_title,
             'description':   page_description,
@@ -1300,6 +1346,8 @@ def shop_directory():
         themes=THEMES,
         canonical_url=f'https://{SHOP_SUBDOMAIN}/',
         shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('collections'),
+        nav_active='collections',
     )
 
 
@@ -1314,6 +1362,7 @@ def shop_posts():
         """
         SELECT id, slug, asin, network, angle, copy, collection_slug, status, smart_link,
                product_name, product_brand, product_price, product_image,
+               product_availability, product_rating, product_review_count,
                creator_id, created_at, posted_at
         FROM posts
         WHERE status IN ('approved', 'posted')
@@ -1343,6 +1392,9 @@ def shop_posts():
             'product_brand': r['product_brand'] or '',
             'product_price': _format_display_price(r['product_price'] or ''),
             'product_image': r['product_image'] or '',
+            'product_availability': r['product_availability'] or '',
+            'product_rating': r['product_rating'],
+            'product_review_count': r['product_review_count'],
             'creator_id': r['creator_id'] or 'everydaywithsteph',
             'creator_handle': creator.get('handle') or '@creator',
             'created_at': (r['created_at'] or '')[:10],
@@ -1372,6 +1424,8 @@ def shop_posts():
         items=items,
         canonical_url=f'https://{SHOP_SUBDOMAIN}/posts',
         shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('posts'),
+        nav_active='posts',
     )
 
 
@@ -1448,7 +1502,31 @@ def walmart_trending_now_page():
     data = get_trending_page_data()
     admin_mode = request.args.get('admin') == '1'
     admin_token = (request.args.get('admin_token') or '').strip()
-    return render_template('walmart_trending_now.html', data=data, admin_mode=admin_mode, admin_token=admin_token)
+    return render_template(
+        'walmart_trending_now.html',
+        data=data,
+        admin_mode=admin_mode,
+        admin_token=admin_token,
+        shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('trends'),
+        nav_active='trends',
+    )
+
+
+@app.route('/trends')
+def shop_trends():
+    """Public Walmart trends home for the shop subdomain/menu."""
+    from walmart_trends import get_trending_page_data
+
+    return render_template(
+        'walmart_trending_now.html',
+        data=get_trending_page_data(),
+        admin_mode=False,
+        admin_token='',
+        shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('trends'),
+        nav_active='trends',
+    )
 
 
 @app.route('/api/walmart/trending-now')
@@ -1475,6 +1553,7 @@ def walmart_collection_create_post(collection_slug):
         'walmart_collection_create_post.html',
         collection=collection,
         products=products,
+        product_count=len(collection.get('items', []) or []),
         creator_id=creator_id,
         default_public_slug=default_public_slug,
         admin_token=admin_token,
@@ -1707,6 +1786,136 @@ def admin_walmart_trends_links_regenerate_stale():
     limit = int(raw_limit) if raw_limit not in (None, '') else None
     include_redirect = request.args.get('include_redirect') == '1' or bool(payload.get('include_redirect'))
     return jsonify(WalmartLinkRegenerationService().regenerate_all_stale(limit=limit, include_redirect=include_redirect))
+
+
+@app.route('/admin/walmart-trends/storefront/enrich', methods=['POST'])
+def admin_walmart_storefront_enrich():
+    """Refresh Walmart metadata embedded in public storefront records.
+
+    This only updates display metadata in collages, collection-content drafts,
+    and posts. Existing Walmart affiliate links are preserved exactly.
+    """
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+
+    import walmart_storefront_enrichment as enrichment
+
+    payload = request.get_json(silent=True) or {}
+    dry_run = bool(payload.get('dry_run'))
+    slug = (payload.get('slug') or request.args.get('slug') or '').strip()
+    post_id = payload.get('post_id') or request.args.get('post_id')
+    include_collages = payload.get('include_collages')
+    include_posts = payload.get('include_posts')
+    include_collages = True if include_collages is None else bool(include_collages)
+    include_posts = True if include_posts is None else bool(include_posts)
+    raw_limit = payload.get('limit') or request.args.get('limit')
+    limit = max(1, min(int(raw_limit), 500)) if raw_limit not in (None, '') else 500
+
+    result = {
+        'dry_run': dry_run,
+        'collages_checked': 0,
+        'collages_changed': 0,
+        'drafts_checked': 0,
+        'drafts_changed': 0,
+        'posts_checked': 0,
+        'posts_changed': 0,
+        'items_enriched': 0,
+        'samples': [],
+    }
+
+    conn = sqlite3.connect(db_schema.DB_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    try:
+        if include_collages:
+            collage_where = ["COALESCE(status, 'published') IN ('published', 'draft')"]
+            collage_params = []
+            if slug:
+                collage_where.append("slug = ?")
+                collage_params.append(slug)
+            collage_rows = conn.execute(
+                "SELECT slug, products_json FROM collages "
+                f"WHERE {' AND '.join(collage_where)} "
+                "ORDER BY created_at DESC LIMIT ?",
+                [*collage_params, limit],
+            ).fetchall()
+            for row in collage_rows:
+                products = json.loads(row['products_json'] or '[]')
+                enriched, stats = enrichment.enrich_product_list(products, fetch_live=True)
+                if stats['walmart'] == 0:
+                    continue
+                result['collages_checked'] += 1
+                result['items_enriched'] += stats['changed']
+                if json.dumps(enriched, sort_keys=True, default=str) != json.dumps(products, sort_keys=True, default=str):
+                    result['collages_changed'] += 1
+                    result['samples'].append({'type': 'collage', 'slug': row['slug'], 'changed': stats['changed']})
+                    if not dry_run:
+                        conn.execute(
+                            "UPDATE collages SET products_json = ? WHERE slug = ?",
+                            (json.dumps(enriched), row['slug']),
+                        )
+
+            draft_where = ["source_type = ?"]
+            draft_params = ['walmart_trend']
+            if slug:
+                draft_where.append("(public_slug = ? OR source_collection_slug = ? OR published_collage_slug = ?)")
+                draft_params.extend([slug, slug, slug])
+            draft_rows = conn.execute(
+                "SELECT id, public_slug, source_collection_slug, product_snapshot_json "
+                "FROM collection_content_drafts "
+                f"WHERE {' AND '.join(draft_where)} "
+                "ORDER BY id DESC LIMIT ?",
+                [*draft_params, limit],
+            ).fetchall()
+            for row in draft_rows:
+                products = json.loads(row['product_snapshot_json'] or '[]')
+                enriched, stats = enrichment.enrich_product_list(products, fetch_live=True)
+                if stats['walmart'] == 0:
+                    continue
+                result['drafts_checked'] += 1
+                result['items_enriched'] += stats['changed']
+                if json.dumps(enriched, sort_keys=True, default=str) != json.dumps(products, sort_keys=True, default=str):
+                    result['drafts_changed'] += 1
+                    result['samples'].append({'type': 'draft', 'id': row['id'], 'public_slug': row['public_slug'], 'changed': stats['changed']})
+                    if not dry_run:
+                        conn.execute(
+                            "UPDATE collection_content_drafts SET product_snapshot_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (json.dumps(enriched), row['id']),
+                        )
+
+        if include_posts:
+            post_where = ["LOWER(COALESCE(network, '')) = 'walmart'"]
+            post_params = []
+            if post_id:
+                post_where.append("id = ?")
+                post_params.append(int(post_id))
+            rows = conn.execute(
+                "SELECT * FROM posts "
+                f"WHERE {' AND '.join(post_where)} "
+                "ORDER BY created_at DESC LIMIT ?",
+                [*post_params, limit],
+            ).fetchall()
+            for row in rows:
+                post = dict(row)
+                updates = enrichment.post_update_fields(post, fetch_live=True)
+                result['posts_checked'] += 1
+                if updates:
+                    result['posts_changed'] += 1
+                    result['items_enriched'] += 1
+                    result['samples'].append({'type': 'post', 'id': post['id'], 'asin': post.get('asin'), 'fields': sorted(updates)})
+                    if not dry_run:
+                        assignments = ', '.join(f"{field} = ?" for field in updates)
+                        conn.execute(
+                            f"UPDATE posts SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            [*updates.values(), int(post['id'])],
+                        )
+
+        if not dry_run:
+            conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify(result)
 
 @app.route('/sitemap.xml')
 def shop_sitemap():

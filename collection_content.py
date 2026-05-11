@@ -17,6 +17,7 @@ import anthropic
 
 import collection_service
 import db_schema
+import walmart_storefront_enrichment as walmart_enrichment
 
 SOURCE_WALMART_TREND = "walmart_trend"
 DEFAULT_CREATOR_ID = "everydaywithsteph"
@@ -130,14 +131,17 @@ def walmart_product_context(collection: dict[str, Any], limit: int = 10) -> list
     return products
 
 
-def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int = 10) -> list[dict[str, Any]]:
+def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int | None = None) -> list[dict[str, Any]]:
     """Adapt Walmart products to existing /shop/<slug> product shape.
 
     Raises if any product lacks the existing shop_url, so Walmart pages never fall
     back to the Amazon URL in the shared landing page template.
     """
     adapted = []
-    for product in (collection.get("items") or [])[:limit]:
+    source_items = collection.get("items") or []
+    if limit is not None:
+        source_items = source_items[:limit]
+    for product in source_items:
         sku = str(product.get("sku") or "").strip()
         shop_url = str(product.get("shop_url") or "").strip()
         if not sku or not shop_url:
@@ -184,7 +188,7 @@ def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int = 
         ):
             if product.get(optional_field) not in (None, ""):
                 adapted_product[optional_field] = product.get(optional_field)
-        adapted.append(adapted_product)
+        adapted.append(walmart_enrichment.enrich_product_payload(adapted_product))
     if not adapted:
         raise CollectionContentError("Collection has no products to publish")
     return adapted

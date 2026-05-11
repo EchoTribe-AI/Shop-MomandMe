@@ -136,6 +136,9 @@ def _candidate_base(product: dict[str, Any], source: str, *search_extras: Any) -
             or product.get("product_price")
         ),
         "image": _clean_text(product.get("image_encoded_string") or product.get("product_image") or product.get("image_url") or product.get("image")),
+        "availability": _clean_text(product.get("availability") or product.get("product_availability")),
+        "rating": product.get("rating") or product.get("product_rating"),
+        "review_count": product.get("review_count") or product.get("product_review_count"),
         "link": link,
         "sources": {source},
         "collection_slugs": set(),
@@ -333,7 +336,8 @@ def retrieve_candidates(
             """
             SELECT slug, asin, network, angle, copy, collection_slug, smart_link,
                    smart_link_affiliate_url, smart_link_final_url,
-                   product_name, product_brand, product_price, product_image, created_at
+                   product_name, product_brand, product_price, product_image,
+                   product_availability, product_rating, product_review_count, created_at
             FROM posts
             WHERE COALESCE(creator_id, ?) = ?
               AND status IN ('approved', 'posted')
@@ -351,6 +355,9 @@ def retrieve_candidates(
                 "brand": row["product_brand"],
                 "price": row["product_price"],
                 "image": row["product_image"],
+                "product_availability": row["product_availability"],
+                "product_rating": row["product_rating"],
+                "product_review_count": row["product_review_count"],
                 "smart_link": row["smart_link"] or row["smart_link_final_url"] or row["smart_link_affiliate_url"],
             }
             candidate = _candidate_base(product, "post", row["angle"] or "", row["copy"] or "", row["collection_slug"] or "")
@@ -479,6 +486,9 @@ def response_product(
         "brand": candidate.get("brand") or "",
         "price": candidate.get("price") or "",
         "image": candidate.get("image") or "",
+        "availability": candidate.get("availability") or "",
+        "rating": candidate.get("rating") or "",
+        "review_count": candidate.get("review_count") or "",
         "link": link,
         "sources": candidate.get("sources") or [],
     }

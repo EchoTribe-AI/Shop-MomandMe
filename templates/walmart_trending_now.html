@@ -18,6 +18,9 @@
     .admin-bar { margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-top:1px solid var(--line); padding-top:10px; }
     .admin-note { color:rgba(26,26,23,.58); font-size:11px; line-height:1.35; font-weight:750; }
     .admin-link { flex:0 0 auto; text-decoration:none; color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; }
+    .public-shop-nav { margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .public-shop-link { color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; text-decoration:none; }
+    .public-shop-link.active { background:var(--accent); color:#fff; border-color:var(--accent); }
     .empty { margin: 22px 18px; padding: 18px; border:1px dashed var(--line); border-radius:20px; background:#fff; color:var(--muted); line-height:1.45; }
     .section { padding: 18px 0 4px; }
     .section-head { padding: 0 18px 10px; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; }
@@ -53,6 +56,7 @@
       <h1>What’s Trending Now</h1>
       <p class="subhead">Fresh Walmart finds people are grabbing right now — from backyard upgrades to home refreshes, kids’ favorites, and everyday deals worth checking before they’re gone.</p>
       <div class="refreshed">Updated: {{ data['last_refreshed'] or 'Today' }}</div>
+      {% include 'partials/public_shop_nav.html' %}
       {% if admin_mode %}
         <div class="admin-bar">
           <div class="admin-note">Admin workflow: choose a section, create a collection draft, preview it, then publish to the public shop.</div>
