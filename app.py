@@ -6,7 +6,7 @@ import sqlite3
 import time
 import tempfile
 import requests as req
-from flask import Flask, send_from_directory, request, jsonify, render_template, Response
+from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for
 from dotenv import load_dotenv
 import anthropic
 
@@ -784,52 +784,16 @@ def archer_collage():
 @app.route('/archer/product/<asin>')
 def archer_get_product(asin):
     from product_api import ArcherAPI
-    from utils.asin import extract_asin
-    resolved = extract_asin(asin)
-    if resolved:
-        asin = resolved
+    from product_lookup_service import resolve_amazon_product
     a = ArcherAPI()
-    product = a.get_by_asins([asin])
-
-    # If found in cache but no image, force a live lookup to backfill
-    if product and not product[0].get('image_encoded_string'):
-        product = []
-
-    if not product:
-        try:
-            data = a.get_product(asin)
-            if data:
-                img = data.get("image_encoded_string", "")
-                if img:
-                    conn = a._db_connect()
-                    conn.execute("UPDATE products SET image_encoded_string=? WHERE asin=?", (img, asin))
-                    conn.commit()
-                    conn.close()
-                p = {
-                    "asin": data.get("ASIN") or asin,
-                    "product_name": data.get("product_name"),
-                    "company_name": data.get("company_name"),
-                    "price": data.get("price"),
-                    "commission_payout": data.get("commission_payout_aff"),
-                    "image_encoded_string": img,
-                    "product_category": data.get("product_category"),
-                }
-                if data.get("live_price") is not None:
-                    p["live_price"] = data["live_price"]
-                return jsonify({"product": p})
-        except Exception as e:
-            logging.error(f"[ARCHER] Product lookup failed for {asin}: {e}")
+    try:
+        product = resolve_amazon_product(asin, archer=a)
+        if product:
+            return jsonify({"product": product})
+    except Exception as e:
+        logging.error(f"[ARCHER] Product lookup failed for {asin}: {e}")
         return jsonify({"error": "Product not found"}), 404
-    p = product[0]
-    if not p.get("price"):
-        try:
-            from utils.crawlbase import get_live_price
-            live = get_live_price(asin)
-            if live is not None:
-                p["live_price"] = live
-        except Exception:
-            pass
-    return jsonify({"product": p})
+    return jsonify({"error": "Product not found"}), 404
 
 @app.route('/archer/generate_caption', methods=['POST'])
 def archer_generate_caption():
@@ -1525,11 +1489,11 @@ def shop_posts():
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """
-        SELECT id, slug, asin, angle, copy, collection_slug, status, smart_link,
+        SELECT id, slug, asin, network, angle, copy, collection_slug, status, smart_link,
                product_name, product_brand, product_price, product_image,
                creator_id, created_at, posted_at
         FROM posts
-        WHERE status != 'archived'
+        WHERE status IN ('approved', 'posted')
         ORDER BY COALESCE(posted_at, created_at) DESC
         LIMIT 400
         """
@@ -1545,6 +1509,7 @@ def shop_posts():
             'id': r['id'],
             'slug': r['slug'] or '',
             'asin': r['asin'] or '',
+            'network': r['network'] or 'amazon',
             'angle': r['angle'] or '',
             'copy': copy,
             'copy_excerpt': (copy[:180] + '…') if len(copy) > 180 else copy,
@@ -1560,6 +1525,23 @@ def shop_posts():
             'created_at': (r['created_at'] or '')[:10],
             'posted_at': (r['posted_at'] or '')[:10] if r['posted_at'] else '',
             'shop_url': f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}" if r['collection_slug'] else '',
+            'cta_url': (
+                f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}"
+                if r['collection_slug']
+                else (
+                    r['smart_link']
+                    or (
+                        f"https://www.walmart.com/ip/{r['asin']}"
+                        if (r['network'] or '').lower() == 'walmart'
+                        else f"https://www.amazon.com/dp/{r['asin']}?tag={os.environ.get('AMAZON_ASSOC_TAG', 'mommymedeals-20')}"
+                    )
+                )
+            ),
+            'cta_label': (
+                'Shop collection'
+                if r['collection_slug']
+                else ('Shop Walmart' if (r['network'] or '').lower() == 'walmart' else 'Shop Amazon')
+            ),
         })
 
     return render_template(
@@ -2032,6 +2014,32 @@ def archer_posts_export_csv():
     )
 
 
+@app.route('/archer/posts/manage', methods=['GET'])
+def archer_posts_manage_page():
+    """Dedicated operations page for saved organic posts and collections."""
+    import collection_service
+    import posts as _posts
+    creator_id = request.args.get('creator_id', 'everydaywithsteph')
+    rows = _posts.list_posts(creator_id=creator_id, limit=300)
+    collages = collection_service.list_collages(status='all', limit=100)
+    return render_template(
+        'organic_posts_manage.html',
+        posts=rows,
+        collages=collages,
+        creator_id=creator_id,
+    )
+
+
+@app.route('/archer/posts/<int:post_id>/edit', methods=['GET'])
+def archer_post_edit_page(post_id):
+    """Edit a single saved organic post without loading the build queue."""
+    import posts as _posts
+    post = _posts.get_post(post_id)
+    if not post:
+        return "Post not found", 404
+    return render_template('organic_post_edit.html', post=post)
+
+
 # ── CAMPAIGN BUILDER v3 (Branch 3) ───────────────────────────────────────────
 @app.route('/archer/campaigns')
 def archer_campaigns_page():
@@ -2429,7 +2437,7 @@ def archer_fetch_product():
     Returns: product object with name, price, imageUrl, status
     """
     from product_api import WalmartAPI
-    from utils.crawlbase import get_amazon_product
+    from product_lookup_service import resolve_amazon_product
 
     body = request.get_json() or {}
     raw_id  = (body.get('rawId') or '').strip()
@@ -2443,11 +2451,11 @@ def archer_fetch_product():
 
     try:
         if platform == 'amazon':
-            data = get_amazon_product(raw_id)
-            if data and (data.get('name') or data.get('price')):
-                return jsonify({**base, 'name': data.get('name', ''),
+            data = resolve_amazon_product(raw_id)
+            if data and (data.get('product_name') or data.get('price')):
+                return jsonify({**base, 'name': data.get('product_name', ''),
                                 'price': (data.get('price') or '').replace('$', '').strip(),
-                                'imageUrl': data.get('imageUrl', ''),
+                                'imageUrl': data.get('image_encoded_string', ''),
                                 'description': '', 'status': 'fetched'})
             return jsonify({**base, 'status': 'manual'})
 
@@ -2495,6 +2503,9 @@ def archer_ads():
 
 @app.route('/archer/organic')
 def archer_organic():
+    post_id = request.args.get('post_id')
+    if post_id and post_id.isdigit():
+        return redirect(url_for('archer_post_edit_page', post_id=int(post_id)))
     return render_template('organic_posts.html')
 
 

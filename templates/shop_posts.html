@@ -104,10 +104,8 @@
       </div>
       {% if it.copy_excerpt %}<div class="copy">{{ it.copy_excerpt }}</div>{% endif %}
       <div class="actions">
-        {% if it.shop_url %}
-        <a class="btn primary" href="{{ it.shop_url }}" target="_blank" rel="noopener">View landing →</a>
-        {% elif it.smart_link %}
-        <a class="btn primary" href="{{ it.smart_link }}" target="_blank" rel="noopener">View link →</a>
+        {% if it.cta_url %}
+        <a class="btn primary" href="{{ it.cta_url }}" target="_blank" rel="noopener">{{ it.cta_label }} →</a>
         {% endif %}
       </div>
     </div>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Edit Post · EchoTribe</title>
+<style>
+  *, *::before, *::after { box-sizing:border-box; }
+  :root { --bg:#f7f7f5; --surface:#fff; --surface2:#f2f2ef; --border:rgba(0,0,0,.12); --text:#1a1a17; --text3:#606058; --text4:#999890; --archer:#e85d26; --green:#27693a; --green-light:#e6f4eb; --blue:#1c5fa6; --blue-light:#e8f2fc; --red:#a02828; --r:8px; --mono:'SF Mono','Fira Mono',monospace; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
+  .topbar { height:56px; background:var(--surface); border-bottom:.5px solid var(--border); display:flex; align-items:center; gap:14px; padding:0 20px; position:sticky; top:0; z-index:10; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--archer); }
+  .tb-right { margin-left:auto; display:flex; gap:8px; }
+  .tb-link, .btn { font-size:12px; color:var(--text3); text-decoration:none; padding:7px 11px; border:.5px solid var(--border); border-radius:var(--r); background:var(--surface); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:5px; }
+  .btn.primary { color:#fff; background:var(--archer); border-color:var(--archer); }
+  .btn.green { color:var(--green); background:var(--green-light); border-color:rgba(39,105,58,.25); }
+  .btn.blue { color:var(--blue); background:var(--blue-light); border-color:rgba(28,95,166,.25); }
+  .page { max-width:920px; margin:0 auto; padding:24px; }
+  .card { background:var(--surface); border:.5px solid var(--border); border-radius:12px; overflow:hidden; }
+  .head { display:flex; gap:14px; padding:16px; background:var(--surface2); border-bottom:.5px solid var(--border); }
+  .img { width:86px; height:86px; object-fit:contain; background:#fff; border:.5px solid var(--border); border-radius:var(--r); flex-shrink:0; }
+  .name { font-size:18px; font-weight:700; line-height:1.25; }
+  .meta { color:var(--text4); font-family:var(--mono); font-size:11px; margin-top:5px; }
+  .body { padding:16px; display:grid; gap:14px; }
+  .field { display:grid; gap:5px; }
+  label { font-family:var(--mono); color:var(--text4); text-transform:uppercase; letter-spacing:1px; font-size:10px; }
+  input, select, textarea { width:100%; border:.5px solid var(--border); border-radius:var(--r); background:var(--bg); padding:9px 10px; font:inherit; color:var(--text); }
+  textarea { min-height:180px; resize:vertical; line-height:1.55; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; padding-top:8px; border-top:.5px solid var(--border); }
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(60px); background:var(--text); color:#fff; border-radius:var(--r); padding:10px 16px; opacity:0; transition:.2s; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  @media (max-width:720px) { .grid { grid-template-columns:1fr; } .tb-right { display:none; } }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="dot"></div><strong>EchoTribe</strong><span style="color:var(--text3);">Edit Organic Post</span>
+  <div class="tb-right">
+    <a href="/archer/organic" class="tb-link">Organic</a>
+    <a href="/archer/posts/manage" class="tb-link">Manage</a>
+    <a href="/insights" class="tb-link">Insights</a>
+    <a href="/admin/creators" class="tb-link">Creators</a>
+  </div>
+</div>
+<main class="page">
+  <div class="card">
+    <div class="head">
+      {% if post.product_image %}
+      <img class="img" src="{{ post.product_image }}" alt="">
+      {% else %}
+      <img class="img" src="https://ws-na.amazon-adsystem.com/widgets/q?_encoding=UTF8&ASIN={{ post.asin }}&Format=_SL250_&ID=AsinImage&MarketPlace=US&ServiceVersion=20070822&WS=1" alt="">
+      {% endif %}
+      <div>
+        <div class="name">{{ post.product_name or post.asin }}</div>
+        <div class="meta">{{ post.product_brand or post.network or 'Amazon' }} · {{ post.asin }} · #{{ post.id }}</div>
+        <div class="meta">Created {{ post.created_at[:10] if post.created_at else '' }}</div>
+      </div>
+    </div>
+    <div class="body">
+      <div class="grid">
+        <div class="field">
+          <label for="angle">Angle</label>
+          <input id="angle" value="{{ post.angle or '' }}">
+        </div>
+        <div class="field">
+          <label for="status">Status</label>
+          <select id="status">
+            {% for s in ['draft','approved','posted','archived'] %}
+            <option value="{{ s }}" {% if (post.status or 'draft') == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="copy">Post Copy</label>
+        <textarea id="copy">{{ post.copy or '' }}</textarea>
+      </div>
+      <div class="grid">
+        <div class="field">
+          <label for="smart_link">Shopping Link</label>
+          <input id="smart_link" value="{{ post.smart_link or '' }}" placeholder="URLGenius, Amazon, Walmart, or collection URL">
+        </div>
+        <div class="field">
+          <label for="collection_slug">Collection Slug</label>
+          <input id="collection_slug" value="{{ post.collection_slug or '' }}" placeholder="optional">
+        </div>
+      </div>
+      <div class="grid">
+        <div class="field"><label for="utm_source">utm_source</label><input id="utm_source" value="{{ post.utm_source or 'facebook' }}"></div>
+        <div class="field"><label for="utm_medium">utm_medium</label><input id="utm_medium" value="{{ post.utm_medium or 'organic_social' }}"></div>
+        <div class="field"><label for="utm_campaign">utm_campaign</label><input id="utm_campaign" value="{{ post.utm_campaign or '' }}"></div>
+        <div class="field"><label for="utm_content">utm_content</label><input id="utm_content" value="{{ post.utm_content or '' }}"></div>
+        <div class="field"><label for="utm_term">utm_term</label><input id="utm_term" value="{{ post.utm_term or '' }}"></div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" onclick="save()">Save Post</button>
+        <button class="btn green" onclick="setStatus('approved')">Approve</button>
+        <button class="btn blue" onclick="copyPost()">Copy Post + Link</button>
+        <a class="btn" href="https://www.amazon.com/dp/{{ post.asin }}" target="_blank">Amazon</a>
+        <a class="btn" href="/shop/posts" target="_blank">Public Feed</a>
+      </div>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const postId = {{ post.id }};
+function val(id) { return document.getElementById(id).value.trim(); }
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+async function save(extra = {}) {
+  const body = {
+    angle: val('angle'),
+    status: val('status'),
+    copy: val('copy'),
+    smart_link: val('smart_link'),
+    collection_slug: val('collection_slug'),
+    utm_source: val('utm_source'),
+    utm_medium: val('utm_medium'),
+    utm_campaign: val('utm_campaign'),
+    utm_content: val('utm_content'),
+    utm_term: val('utm_term'),
+    ...extra,
+  };
+  const res = await fetch(`/archer/posts/${postId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) { toast('Save failed'); return null; }
+  toast('Saved');
+  return (await res.json()).post;
+}
+async function setStatus(status) {
+  document.getElementById('status').value = status;
+  await save({ status });
+}
+function copyPost() {
+  const link = val('smart_link') || `https://www.amazon.com/dp/{{ post.asin }}?tag=mommymedeals-20`;
+  navigator.clipboard?.writeText(`${val('copy')}\n\n${link}`);
+  toast('Copied');
+}
+</script>
+</body>
+</html>
