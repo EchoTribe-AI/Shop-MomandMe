@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Organic Operations · EchoTribe</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root { --bg:#f7f7f5; --surface:#fff; --surface2:#f2f2ef; --border:rgba(0,0,0,.12); --text:#1a1a17; --text3:#606058; --text4:#999890; --archer:#e85d26; --green:#27693a; --green-light:#e6f4eb; --amber:#8a5510; --amber-light:#fbeedd; --red:#a02828; --blue:#1c5fa6; --blue-light:#e8f2fc; --r:8px; --mono:'SF Mono','Fira Mono',monospace; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
+  .topbar { height:56px; background:var(--surface); border-bottom:.5px solid var(--border); display:flex; align-items:center; gap:14px; padding:0 20px; position:sticky; top:0; z-index:10; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--archer); }
+  .page { max-width:1160px; margin:0 auto; padding:24px; }
+  .tb-right { margin-left:auto; display:flex; gap:8px; }
+  .tb-link, .btn { font-size:12px; color:var(--text3); text-decoration:none; padding:6px 10px; border:.5px solid var(--border); border-radius:var(--r); background:var(--surface); cursor:pointer; }
+  .tb-link.active, .btn.primary { color:#fff; background:var(--archer); border-color:var(--archer); }
+  .btn.green { color:var(--green); background:var(--green-light); border-color:rgba(39,105,58,.25); }
+  .btn.blue { color:var(--blue); background:var(--blue-light); border-color:rgba(28,95,166,.25); }
+  .btn.red { color:var(--red); }
+  .h1 { font-size:24px; font-weight:700; }
+  .sub { color:var(--text3); margin-top:4px; }
+  .section { margin-top:24px; }
+  .section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; }
+  .label { font-family:var(--mono); color:var(--text4); letter-spacing:1px; text-transform:uppercase; font-size:10px; }
+  .table { background:var(--surface); border:.5px solid var(--border); border-radius:10px; overflow:hidden; }
+  .row { display:grid; grid-template-columns: 80px 1.2fr 1fr 110px 260px; gap:12px; padding:10px 12px; border-top:.5px solid var(--border); align-items:center; }
+  .row:first-child { border-top:none; background:var(--surface2); font-family:var(--mono); color:var(--text4); font-size:10px; text-transform:uppercase; letter-spacing:.8px; }
+  .name { font-weight:600; line-height:1.3; }
+  .meta { color:var(--text4); font-family:var(--mono); font-size:10px; margin-top:2px; }
+  .pill { display:inline-flex; font-family:var(--mono); font-size:10px; padding:3px 7px; border-radius:999px; background:var(--surface2); color:var(--text3); }
+  .pill.approved, .pill.published { color:var(--green); background:var(--green-light); }
+  .pill.draft { color:var(--amber); background:var(--amber-light); }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  .empty { padding:28px; color:var(--text4); text-align:center; }
+  @media (max-width:900px) { .row { grid-template-columns:1fr; } .actions { justify-content:flex-start; } .tb-right { display:none; } }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="dot"></div><strong>EchoTribe</strong><span style="color:var(--text3);">Organic Operations</span>
+  <div class="tb-right">
+    <a href="/archer/organic" class="tb-link">Organic</a>
+    <a href="/archer/posts/manage" class="tb-link active">Manage</a>
+    <a href="/archer/campaigns" class="tb-link">Campaigns</a>
+    <a href="/archer/collage" class="tb-link">Collage</a>
+    <a href="/insights" class="tb-link">Insights</a>
+    <a href="/admin/creators" class="tb-link">Creators</a>
+  </div>
+</div>
+<main class="page">
+  <div class="h1">Saved Posts & Collections</div>
+  <div class="sub">Edit posts without touching the build queue. Manage collection drafts and published pages from the same Organic operations surface.</div>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="label">Saved Organic Posts</div>
+      <a class="btn" href="/archer/posts/export.csv?creator_id={{ creator_id }}">Export CSV</a>
+    </div>
+    <div class="table">
+      <div class="row"><div>ID</div><div>Product</div><div>Post</div><div>Status</div><div>Actions</div></div>
+      {% for p in posts %}
+      <div class="row" id="post-row-{{ p['id'] }}">
+        <div><strong>#{{ p['id'] }}</strong><div class="meta">{{ p['created_at'][:10] if p['created_at'] else '' }}</div></div>
+        <div><div class="name">{{ p['product_name'] or p['asin'] }}</div><div class="meta">{{ p['product_brand'] or 'Amazon' }} · {{ p['asin'] }}</div></div>
+        <div><div>{{ (p['copy'] or '')[:110] }}{% if (p['copy'] or '')|length > 110 %}...{% endif %}</div><div class="meta">{{ p['angle'] or 'organic' }}</div></div>
+        <div><span class="pill {{ p['status'] or 'draft' }}" id="status-{{ p['id'] }}">{{ p['status'] or 'draft' }}</span></div>
+        <div class="actions">
+          <a class="btn primary" href="/archer/posts/{{ p['id'] }}/edit">Edit</a>
+          <button class="btn green" onclick="setPostStatus({{ p['id'] }}, 'approved')">Approve</button>
+          <button class="btn blue" onclick="setPostStatus({{ p['id'] }}, 'posted')">Posted</button>
+          <button class="btn red" onclick="setPostStatus({{ p['id'] }}, 'archived')">Archive</button>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty">No saved posts yet.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="label">Collections</div>
+      <a class="btn" href="/archer/collage">Open Collage Builder</a>
+    </div>
+    <div class="table">
+      <div class="row"><div>Status</div><div>Collection</div><div>Products</div><div>Created</div><div>Actions</div></div>
+      {% for c in collages %}
+      {% set is_draft = (c.status or 'published') != 'published' %}
+      <div class="row">
+        <div><span class="pill {{ c.status or 'published' }}">{{ c.status or 'published' }}</span></div>
+        <div><div class="name">{{ c.slug }}</div><div class="meta">{{ c.theme }} · {{ (c.campaign_types or [])|join(', ') }}</div></div>
+        <div>{{ c.product_count }} products</div>
+        <div>{{ c.created_at }}</div>
+        <div class="actions">
+          <a class="btn primary" href="/archer/collage?collection={{ c.slug }}">Edit</a>
+          <a class="btn" href="/shop/{{ c.slug }}{% if is_draft %}?preview=1{% endif %}" target="_blank">{% if is_draft %}Preview{% else %}View{% endif %}</a>
+          {% if is_draft %}<button class="btn green" onclick="publishCollection('{{ c.slug }}', this)">Publish</button>{% endif %}
+        </div>
+      </div>
+      {% else %}
+      <div class="empty">No collections yet.</div>
+      {% endfor %}
+    </div>
+  </section>
+</main>
+<script>
+async function setPostStatus(id, status) {
+  const res = await fetch(`/archer/posts/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) { alert('Status update failed'); return; }
+  const pill = document.getElementById(`status-${id}`);
+  if (pill) { pill.textContent = status; pill.className = `pill ${status}`; }
+  if (status === 'archived') document.getElementById(`post-row-${id}`)?.remove();
+}
+async function publishCollection(slug, btn) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Publishing...';
+  const res = await fetch('/archer/collage/publish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug }),
+  });
+  if (!res.ok) alert('Publish failed');
+  else location.reload();
+  btn.disabled = false; btn.textContent = old;
+}
+</script>
+</body>
+</html>

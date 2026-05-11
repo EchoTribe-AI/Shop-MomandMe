@@ -175,6 +175,9 @@ def init_schema() -> None:
                 utm_content     TEXT,
                 utm_term        TEXT,
                 smart_link      TEXT,
+                smart_link_id   TEXT,
+                smart_link_affiliate_url TEXT,
+                smart_link_final_url TEXT,
                 product_name    TEXT,
                 product_brand   TEXT,
                 product_price   TEXT,
@@ -185,6 +188,9 @@ def init_schema() -> None:
                 posted_at       TIMESTAMP
             )
         """)
+        _add_column_if_missing(conn, 'posts', "smart_link_id TEXT")
+        _add_column_if_missing(conn, 'posts', "smart_link_affiliate_url TEXT")
+        _add_column_if_missing(conn, 'posts', "smart_link_final_url TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_creator ON posts(creator_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_collection ON posts(collection_slug)")

@@ -51,6 +51,9 @@ def create_post(
     status: str = 'draft',
     utm: Optional[dict] = None,
     smart_link: str = '',
+    smart_link_id: str = '',
+    smart_link_affiliate_url: str = '',
+    smart_link_final_url: str = '',
     product_name: str = '',
     product_brand: str = '',
     product_price: str = '',
@@ -65,16 +68,18 @@ def create_post(
                (creator_id, asin, network, angle, copy, image_note,
                 collection_slug, status,
                 utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                smart_link,
+                smart_link, smart_link_id, smart_link_affiliate_url,
+                smart_link_final_url,
                 product_name, product_brand, product_price, product_image)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 creator_id, asin, network, angle, copy, image_note,
                 collection_slug, status,
                 utm.get('source', ''), utm.get('medium', ''),
                 utm.get('campaign', ''), utm.get('content', ''),
                 utm.get('term', ''),
-                smart_link,
+                smart_link, smart_link_id, smart_link_affiliate_url,
+                smart_link_final_url,
                 product_name, product_brand, product_price, product_image,
             ),
         )
@@ -140,12 +145,14 @@ def update_post(post_id: int, fields: dict) -> Optional[dict]:
     """Update specific fields. Bumps updated_at automatically.
 
     Allowed fields: copy, image_note, angle, status, smart_link,
+    smart_link_id, smart_link_affiliate_url, smart_link_final_url,
     utm_source, utm_medium, utm_campaign, utm_content, utm_term,
     collection_slug, product_image, posted_at, product_name,
     product_brand, product_price.
     """
     allowed = {
         'copy', 'image_note', 'angle', 'status', 'smart_link',
+        'smart_link_id', 'smart_link_affiliate_url', 'smart_link_final_url',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
         'collection_slug', 'product_image', 'posted_at',
         'product_name', 'product_brand', 'product_price',

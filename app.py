@@ -6,7 +6,7 @@ import sqlite3
 import time
 import tempfile
 import requests as req
-from flask import Flask, send_from_directory, request, jsonify, render_template, Response
+from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for
 from dotenv import load_dotenv
 import anthropic
 
@@ -784,52 +784,16 @@ def archer_collage():
 @app.route('/archer/product/<asin>')
 def archer_get_product(asin):
     from product_api import ArcherAPI
-    from utils.asin import extract_asin
-    resolved = extract_asin(asin)
-    if resolved:
-        asin = resolved
+    from product_lookup_service import resolve_amazon_product
     a = ArcherAPI()
-    product = a.get_by_asins([asin])
-
-    # If found in cache but no image, force a live lookup to backfill
-    if product and not product[0].get('image_encoded_string'):
-        product = []
-
-    if not product:
-        try:
-            data = a.get_product(asin)
-            if data:
-                img = data.get("image_encoded_string", "")
-                if img:
-                    conn = a._db_connect()
-                    conn.execute("UPDATE products SET image_encoded_string=? WHERE asin=?", (img, asin))
-                    conn.commit()
-                    conn.close()
-                p = {
-                    "asin": data.get("ASIN") or asin,
-                    "product_name": data.get("product_name"),
-                    "company_name": data.get("company_name"),
-                    "price": data.get("price"),
-                    "commission_payout": data.get("commission_payout_aff"),
-                    "image_encoded_string": img,
-                    "product_category": data.get("product_category"),
-                }
-                if data.get("live_price") is not None:
-                    p["live_price"] = data["live_price"]
-                return jsonify({"product": p})
-        except Exception as e:
-            logging.error(f"[ARCHER] Product lookup failed for {asin}: {e}")
+    try:
+        product = resolve_amazon_product(asin, archer=a)
+        if product:
+            return jsonify({"product": product})
+    except Exception as e:
+        logging.error(f"[ARCHER] Product lookup failed for {asin}: {e}")
         return jsonify({"error": "Product not found"}), 404
-    p = product[0]
-    if not p.get("price"):
-        try:
-            from utils.crawlbase import get_live_price
-            live = get_live_price(asin)
-            if live is not None:
-                p["live_price"] = live
-        except Exception:
-            pass
-    return jsonify({"product": p})
+    return jsonify({"error": "Product not found"}), 404
 
 @app.route('/archer/generate_caption', methods=['POST'])
 def archer_generate_caption():
@@ -1055,20 +1019,41 @@ def archer_generate_posts():
             import posts as _posts
             creator_id = (data.get('creator_id') or 'everydaywithsteph').strip()
             collection_slug = (data.get('collection_slug') or '').strip().lower() or None
+            utm_defaults = data.get('utm_defaults') or {}
             persisted = []
             asin_to_product = {(p.get('asin') or '').strip(): p for p in product_list}
             for raw_post in parsed.get('posts', []):
                 asin = (raw_post.get('asin') or '').strip()
                 product = asin_to_product.get(asin, {})
+                angle = raw_post.get('angle', '')
+                utm = _organic_static_utm(product, asin, angle, utm_defaults)
+                smart = {
+                    'genius_url': '',
+                    'affiliate_url': '',
+                    'final_url': '',
+                    'link_id': '',
+                }
+                if asin and not collection_slug:
+                    try:
+                        smart = _amazon_urlgenius_link(asin, utm)
+                    except Exception as _e:
+                        logging.warning(f"[GENERATE_POSTS] URLGenius link failed for {asin}: {_e}")
+                        smart['genius_url'] = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
+                        smart['affiliate_url'] = smart['genius_url']
                 try:
                     saved = _posts.create_post(
                         creator_id=creator_id,
                         asin=asin,
-                        angle=raw_post.get('angle', ''),
+                        angle=angle,
                         copy=raw_post.get('copy', ''),
                         image_note=raw_post.get('image_note', ''),
                         collection_slug=collection_slug,
                         status='draft',
+                        utm=utm,
+                        smart_link=smart.get('genius_url') or '',
+                        smart_link_id=smart.get('link_id') or '',
+                        smart_link_affiliate_url=smart.get('affiliate_url') or '',
+                        smart_link_final_url=smart.get('final_url') or '',
                         product_name=product.get('product_name') or product.get('name') or '',
                         product_brand=product.get('brand') or product.get('company_name') or '',
                         product_price=product.get('price') or '',
@@ -1525,11 +1510,11 @@ def shop_posts():
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """
-        SELECT id, slug, asin, angle, copy, collection_slug, status, smart_link,
+        SELECT id, slug, asin, network, angle, copy, collection_slug, status, smart_link,
                product_name, product_brand, product_price, product_image,
                creator_id, created_at, posted_at
         FROM posts
-        WHERE status != 'archived'
+        WHERE status IN ('approved', 'posted')
         ORDER BY COALESCE(posted_at, created_at) DESC
         LIMIT 400
         """
@@ -1545,6 +1530,7 @@ def shop_posts():
             'id': r['id'],
             'slug': r['slug'] or '',
             'asin': r['asin'] or '',
+            'network': r['network'] or 'amazon',
             'angle': r['angle'] or '',
             'copy': copy,
             'copy_excerpt': (copy[:180] + '…') if len(copy) > 180 else copy,
@@ -1560,6 +1546,23 @@ def shop_posts():
             'created_at': (r['created_at'] or '')[:10],
             'posted_at': (r['posted_at'] or '')[:10] if r['posted_at'] else '',
             'shop_url': f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}" if r['collection_slug'] else '',
+            'cta_url': (
+                f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}"
+                if r['collection_slug']
+                else (
+                    r['smart_link']
+                    or (
+                        f"https://www.walmart.com/ip/{r['asin']}"
+                        if (r['network'] or '').lower() == 'walmart'
+                        else f"https://www.amazon.com/dp/{r['asin']}?tag={os.environ.get('AMAZON_ASSOC_TAG', 'mommymedeals-20')}"
+                    )
+                )
+            ),
+            'cta_label': (
+                'Shop collection'
+                if r['collection_slug']
+                else ('Shop Walmart' if (r['network'] or '').lower() == 'walmart' else 'Shop Amazon')
+            ),
         })
 
     return render_template(
@@ -2032,6 +2035,32 @@ def archer_posts_export_csv():
     )
 
 
+@app.route('/archer/posts/manage', methods=['GET'])
+def archer_posts_manage_page():
+    """Dedicated operations page for saved organic posts and collections."""
+    import collection_service
+    import posts as _posts
+    creator_id = request.args.get('creator_id', 'everydaywithsteph')
+    rows = _posts.list_posts(creator_id=creator_id, limit=300)
+    collages = collection_service.list_collages(status='all', limit=100)
+    return render_template(
+        'organic_posts_manage.html',
+        posts=rows,
+        collages=collages,
+        creator_id=creator_id,
+    )
+
+
+@app.route('/archer/posts/<int:post_id>/edit', methods=['GET'])
+def archer_post_edit_page(post_id):
+    """Edit a single saved organic post without loading the build queue."""
+    import posts as _posts
+    post = _posts.get_post(post_id)
+    if not post:
+        return "Post not found", 404
+    return render_template('organic_post_edit.html', post=post, amazon_tag=AMAZON_TAG)
+
+
 # ── CAMPAIGN BUILDER v3 (Branch 3) ───────────────────────────────────────────
 @app.route('/archer/campaigns')
 def archer_campaigns_page():
@@ -2429,7 +2458,7 @@ def archer_fetch_product():
     Returns: product object with name, price, imageUrl, status
     """
     from product_api import WalmartAPI
-    from utils.crawlbase import get_amazon_product
+    from product_lookup_service import resolve_amazon_product
 
     body = request.get_json() or {}
     raw_id  = (body.get('rawId') or '').strip()
@@ -2443,11 +2472,11 @@ def archer_fetch_product():
 
     try:
         if platform == 'amazon':
-            data = get_amazon_product(raw_id)
-            if data and (data.get('name') or data.get('price')):
-                return jsonify({**base, 'name': data.get('name', ''),
+            data = resolve_amazon_product(raw_id)
+            if data and (data.get('product_name') or data.get('price')):
+                return jsonify({**base, 'name': data.get('product_name', ''),
                                 'price': (data.get('price') or '').replace('$', '').strip(),
-                                'imageUrl': data.get('imageUrl', ''),
+                                'imageUrl': data.get('image_encoded_string', ''),
                                 'description': '', 'status': 'fetched'})
             return jsonify({**base, 'status': 'manual'})
 
@@ -2495,6 +2524,9 @@ def archer_ads():
 
 @app.route('/archer/organic')
 def archer_organic():
+    post_id = request.args.get('post_id')
+    if post_id and post_id.isdigit():
+        return redirect(url_for('archer_post_edit_page', post_id=int(post_id)))
     return render_template('organic_posts.html')
 
 
@@ -2723,6 +2755,115 @@ NETWORK_CONTENT = {
 # Intentionally no startup seed to keep boot path fast and deterministic.
 
 
+def _slug_part(value: str, max_len: int = 15) -> str:
+    slug = re.sub(r'[^a-z0-9]+', '', (value or '').lower())
+    return slug[:max_len]
+
+
+def _organic_campaign_for_product(product: dict, asin: str) -> str:
+    brand_raw = product.get('company_name') or product.get('brand') or ''
+    brand = _slug_part((brand_raw.split() or ['brand'])[0], 10) or 'brand'
+    name_raw = product.get('product_name') or product.get('name') or asin
+    brand_l = brand_raw.lower()
+    name_words = [
+        w for w in re.split(r'\s+', name_raw.lower())
+        if w and w not in brand_l
+    ]
+    prod = _slug_part(' '.join(name_words), 12) or _slug_part(asin, 12) or 'product'
+    return f"{brand}_{prod}_organic"
+
+
+def _organic_static_utm(product: dict, asin: str, angle: str, defaults: dict | None = None) -> dict:
+    defaults = defaults or {}
+    angle_slug = re.sub(r'[^a-z0-9-]+', '-', (angle or 'organic').lower()).strip('-') or 'organic'
+    return {
+        'source': defaults.get('source') or 'facebook',
+        'medium': defaults.get('medium') or 'organic_social',
+        'campaign': defaults.get('campaign') or _organic_campaign_for_product(product, asin),
+        'content': defaults.get('content') or f"organic_{angle_slug}_static",
+        'term': defaults.get('term') or '',
+    }
+
+
+def _extract_urlgenius_link_id(link_obj: dict) -> str:
+    if not isinstance(link_obj, dict):
+        return ''
+    return link_obj.get('id') or link_obj.get('link_id') or ''
+
+
+def _amazon_urlgenius_link(asin: str, utm: dict, force_new: bool = False) -> dict:
+    """Build an Amazon affiliate URL and wrap/store it in URLGenius when configured."""
+    from product_api import URLGeniusAPI
+
+    affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
+    utm_source = (utm.get('source') or '').strip().lower()
+    utm_medium = (utm.get('medium') or '').strip().lower()
+    utm_campaign = (utm.get('campaign') or '').strip()
+    utm_content = (utm.get('content') or '').strip() or NETWORK_CONTENT['amazon']
+    utm_term = (utm.get('term') or '').strip()
+    link_label = f"{utm_source}_{utm_medium}_{utm_campaign}_{__import__('datetime').datetime.now().strftime('%m%d')}"
+    final_url = URLGeniusAPI._append_utms(
+        affiliate_url,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        utm_content=utm_content,
+        utm_term=utm_term or None,
+    )
+
+    ug = URLGeniusAPI()
+    if not ug.api_key:
+        return {
+            'genius_url': affiliate_url,
+            'affiliate_url': affiliate_url,
+            'final_url': final_url,
+            'network': 'amazon',
+            'label': link_label,
+            'utm': {
+                'utm_source': utm_source,
+                'utm_medium': utm_medium,
+                'utm_campaign': utm_campaign,
+                'utm_content': utm_content,
+                'utm_term': utm_term,
+            },
+            'urlgenius': False,
+            'link_id': '',
+        }
+
+    ug_result = ug.create_link(
+        destination_url=affiliate_url,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        utm_content=utm_content,
+        utm_term=utm_term or None,
+        force_new=force_new,
+    )
+    link_obj = ug_result.get('link', {}) if isinstance(ug_result, dict) else {}
+    genius_url = (
+        link_obj.get('genius_url')
+        if isinstance(link_obj, dict)
+        else None
+    ) or affiliate_url
+    return {
+        'genius_url': genius_url,
+        'affiliate_url': affiliate_url,
+        'final_url': (link_obj.get('final_url') if isinstance(link_obj, dict) else '') or final_url,
+        'network': 'amazon',
+        'label': link_label,
+        'utm': {
+            'utm_source': utm_source,
+            'utm_medium': utm_medium,
+            'utm_campaign': utm_campaign,
+            'utm_content': utm_content,
+            'utm_term': utm_term,
+        },
+        'urlgenius': True,
+        'from_registry': ug_result.get('_from_registry', False) if isinstance(ug_result, dict) else False,
+        'link_id': _extract_urlgenius_link_id(link_obj),
+    }
+
+
 def _make_smart_link(asin: str, network: str = 'amazon', utm_source: str = 'fb-group',
                      utm_medium: str = 'organic', utm_campaign: str = '',
                      utm_term: str = '', creator_id: str = 'everydaywithsteph') -> dict:
@@ -2804,7 +2945,22 @@ def urlgenius_smart_link():
     affiliate_url = None
 
     if network == 'amazon':
-        affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
+        try:
+            result = _amazon_urlgenius_link(
+                asin,
+                {
+                    'source': utm_source,
+                    'medium': utm_medium,
+                    'campaign': utm_campaign,
+                    'content': utm_content,
+                    'term': utm_term,
+                },
+                force_new=force_new,
+            )
+            return jsonify(result)
+        except Exception as e:
+            logging.error(f"[URLGENIUS] smart_link amazon failed: {e}")
+            affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
 
     elif network == 'archer':
         a = ArcherAPI()
@@ -2848,6 +3004,7 @@ def urlgenius_smart_link():
         return jsonify({
             'genius_url': affiliate_url,
             'affiliate_url': affiliate_url,
+            'final_url': affiliate_url,
             'network': network,
             'label': link_label,
             'utm': utm_meta,
@@ -2872,18 +3029,20 @@ def urlgenius_smart_link():
         return jsonify({
             'genius_url': genius_url,
             'affiliate_url': affiliate_url,
+            'final_url': (link_obj.get('final_url') if isinstance(link_obj, dict) else '') or None,
             'network': network,
             'label': link_label,
             'utm': utm_meta,
             'urlgenius': True,
             'from_registry': ug_result.get('_from_registry', False),
-            'link_id': link_obj.get('id') if isinstance(link_obj, dict) else None,
+            'link_id': _extract_urlgenius_link_id(link_obj),
         })
     except Exception as e:
         logging.error(f"[URLGENIUS] smart_link failed: {e}")
         return jsonify({
             'genius_url': affiliate_url,
             'affiliate_url': affiliate_url,
+            'final_url': affiliate_url,
             'network': network,
             'label': link_label,
             'utm': utm_meta,

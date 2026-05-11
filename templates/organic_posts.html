@@ -255,10 +255,13 @@
   <div class="tb-page">Content Builder</div>
   <div class="tb-right">
     <a href="/archer/organic" class="tb-link active">Organic</a>
+    <a href="/archer/posts/manage" class="tb-link">Manage</a>
     <a href="/archer/campaigns" class="tb-link">Campaigns</a>
     <a href="/archer/collage" class="tb-link">Collage</a>
     <a href="/archer/products" class="tb-link">Products</a>
     <a href="/urlgenius" class="tb-link">URLGenius</a>
+    <a href="/insights" class="tb-link">Insights</a>
+    <a href="/admin/creators" class="tb-link">Creators</a>
     <a href="/" class="tb-link">Chat</a>
   </div>
 </div>
@@ -497,6 +500,7 @@
           <span class="spin" id="c-spin" style="display:none;"></span>
           ✨ Build Collection
         </button>
+        <a class="ca-btn" href="/archer/posts/manage">Manage Collections</a>
         <span class="gen-note" id="c-note">1 social post for the collection + affiliate link per product</span>
       </div>
       <div class="errbar" id="c-err"></div>
@@ -585,6 +589,9 @@ function setLoading(btnId, spinId, on) {
 }
 function skels(n) {
   return `<div class="out-grid">${Array(n).fill('<div class="skel"></div>').join('')}</div>`;
+}
+function cardByKey(key) {
+  return Array.from(document.querySelectorAll('.ocard[data-card-key]')).find(card => card.dataset.cardKey === key);
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -858,71 +865,71 @@ async function bulkAdd() {
 /* ════════════════════════════════════════════════════════════════
    UTM CARD (shared)
 ════════════════════════════════════════════════════════════════ */
-function utmCardHtml(asin, utm) {
+function utmCardHtml(asin, utm, key = asin, postId = '') {
   const previewUrl = buildUtmUrl(asin, utm);
   return `<div class="utm-builder">
     <div class="utm-blabel">UTM Tags — edit before creating smart link</div>
     <div class="utm-fields">
       <div class="utm-field">
         <span class="utm-fl">utm_source</span>
-        <input class="utm-val" id="us-${asin}" value="${esc(utm.source||'')}" oninput="refreshUtmPreview('${asin}')">
+        <input class="utm-val" id="us-${key}" value="${esc(utm.source||'')}" oninput="refreshUtmPreview('${asin}', '${key}')">
       </div>
       <div class="utm-field">
         <span class="utm-fl">utm_medium</span>
-        <input class="utm-val" id="um-${asin}" value="${esc(utm.medium||'')}" oninput="refreshUtmPreview('${asin}')">
+        <input class="utm-val" id="um-${key}" value="${esc(utm.medium||'')}" oninput="refreshUtmPreview('${asin}', '${key}')">
       </div>
       <div class="utm-field">
         <span class="utm-fl">utm_campaign</span>
-        <input class="utm-val" id="uc-${asin}" value="${esc(utm.campaign||'')}" oninput="refreshUtmPreview('${asin}')">
+        <input class="utm-val" id="uc-${key}" value="${esc(utm.campaign||'')}" oninput="refreshUtmPreview('${asin}', '${key}')">
       </div>
       <div class="utm-field">
         <span class="utm-fl">utm_content</span>
-        <input class="utm-val" id="ut-${asin}" value="${esc(utm.content||'')}" oninput="refreshUtmPreview('${asin}')">
+        <input class="utm-val" id="ut-${key}" value="${esc(utm.content||'')}" oninput="refreshUtmPreview('${asin}', '${key}')">
       </div>
       <div class="utm-field full">
         <span class="utm-fl">utm_term (optional)</span>
-        <input class="utm-val" id="ux-${asin}" value="${esc(utm.term||'')}" oninput="refreshUtmPreview('${asin}')">
+        <input class="utm-val" id="ux-${key}" value="${esc(utm.term||'')}" oninput="refreshUtmPreview('${asin}', '${key}')">
       </div>
     </div>
-    <div class="utm-preview" id="uprev-${asin}"><b>Preview:</b> ${esc(previewUrl)}</div>
+    <div class="utm-preview" id="uprev-${key}"><b>Preview:</b> ${esc(previewUrl)}</div>
     <div class="smart-row">
-      <button class="smart-btn" id="sb-${asin}" onclick="fireSmartLink('${asin}')">
-        <span class="spin" id="sg-${asin}" style="display:none;"></span>
+      <button class="smart-btn" id="sb-${key}" onclick="fireSmartLink('${asin}', '${postId}', '${key}')">
+        <span class="spin" id="sg-${key}" style="display:none;"></span>
         ⚡ Create Smart Link
       </button>
-      <button class="copy-utm-btn" onclick="copyUtmUrl('${asin}')">Copy UTM URL</button>
-      <div class="genius-pill" id="gp-${asin}"></div>
+      <button class="copy-utm-btn" onclick="copyUtmUrl('${asin}', '${key}')">Copy UTM URL</button>
+      <div class="genius-pill" id="gp-${key}"></div>
     </div>
   </div>`;
 }
 
-function getUtm(asin) {
+function getUtm(key) {
   return {
-    source:   document.getElementById(`us-${asin}`)?.value || '',
-    medium:   document.getElementById(`um-${asin}`)?.value || '',
-    campaign: document.getElementById(`uc-${asin}`)?.value || '',
-    content:  document.getElementById(`ut-${asin}`)?.value || '',
-    term:     document.getElementById(`ux-${asin}`)?.value || '',
+    source:   document.getElementById(`us-${key}`)?.value || '',
+    medium:   document.getElementById(`um-${key}`)?.value || '',
+    campaign: document.getElementById(`uc-${key}`)?.value || '',
+    content:  document.getElementById(`ut-${key}`)?.value || '',
+    term:     document.getElementById(`ux-${key}`)?.value || '',
   };
 }
 
-function refreshUtmPreview(asin) {
-  const prev = document.getElementById(`uprev-${asin}`);
-  if (prev) prev.innerHTML = `<b>Preview:</b> ${esc(buildUtmUrl(asin, getUtm(asin)))}`;
+function refreshUtmPreview(asin, key = asin) {
+  const prev = document.getElementById(`uprev-${key}`);
+  if (prev) prev.innerHTML = `<b>Preview:</b> ${esc(buildUtmUrl(asin, getUtm(key)))}`;
 }
 
-function copyUtmUrl(asin) {
-  const url = buildUtmUrl(asin, getUtm(asin));
+function copyUtmUrl(asin, key = asin) {
+  const url = buildUtmUrl(asin, getUtm(key));
   navigator.clipboard?.writeText(url) || fallbackCopy(url);
   const btn = event.target; btn.textContent = 'Copied!';
   setTimeout(() => btn.textContent = 'Copy UTM URL', 1800);
 }
 
-async function fireSmartLink(asin) {
-  const utm = getUtm(asin);
-  const btn  = document.getElementById(`sb-${asin}`);
-  const spin = document.getElementById(`sg-${asin}`);
-  const pill = document.getElementById(`gp-${asin}`);
+async function fireSmartLink(asin, postId = '', key = asin) {
+  const utm = getUtm(key);
+  const btn  = document.getElementById(`sb-${key}`);
+  const spin = document.getElementById(`sg-${key}`);
+  const pill = document.getElementById(`gp-${key}`);
   btn.disabled = true; spin.style.display = 'inline-block';
   pill.className = 'genius-pill'; pill.innerHTML = '';
 
@@ -949,6 +956,25 @@ async function fireSmartLink(asin) {
     pill.innerHTML = `<a href="${esc(gUrl)}" target="_blank">${esc(gUrl)}</a><span class="cp-icon" onclick="navigator.clipboard?.writeText('${esc(gUrl)}')" title="Copy">📋</span>`;
     pill.classList.add('show');
     btn.classList.add('done'); btn.innerHTML = '✓ Created';
+    const card = cardByKey(key);
+    if (card) card.dataset.smartLink = gUrl;
+    if (postId) {
+      await fetch(`/archer/posts/${postId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          smart_link: gUrl,
+          smart_link_id: data.link_id || '',
+          smart_link_affiliate_url: data.affiliate_url || '',
+          smart_link_final_url: data.final_url || '',
+          utm_source: utm.source,
+          utm_medium: utm.medium,
+          utm_campaign: utm.campaign,
+          utm_content: utm.content,
+          utm_term: utm.term,
+        }),
+      });
+    }
   } catch (err) {
     const fallback = buildUtmUrl(asin, utm);
     pill.innerHTML = `<span>⚠ ${esc(err.message)} · <a href="${esc(fallback)}" target="_blank">use UTM URL</a></span>`;
@@ -1025,7 +1051,11 @@ async function genModeB() {
     const res = await fetch('/archer/generate_posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'b', product_list }),
+      body: JSON.stringify({
+        mode: 'b',
+        product_list,
+        utm_defaults: { source, medium, term },
+      }),
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
@@ -1033,7 +1063,7 @@ async function genModeB() {
     const persisted = data.persisted_posts || [];
     const posts = persisted.length ? persisted : (data.posts || []);
     renderModeB(posts, source, medium, term);
-    showToast(`${posts.length} posts generated · ${data.persisted_count||0} saved as draft`);
+    showToast(`${posts.length} posts generated · smart links saved with drafts`);
   } catch (err) {
     showErr('b-err', err.message);
     document.getElementById('b-res').innerHTML = '<div class="empty">Generation failed — see error above.</div>';
@@ -1063,7 +1093,7 @@ function renderModeB(posts, source, medium, term) {
         <span id="q-count" style="font-family:var(--mono);font-size:11px;color:var(--text4);">${posts.length} post${posts.length===1?'':'s'} · 1 per product</span>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button class="ca-btn" onclick="loadSavedQueue()">📂 View Saved Queue</button>
+        <a class="ca-btn" href="/archer/posts/manage">View Saved Posts</a>
         <button class="ca-btn" onclick="exportQueueCSV()">⬇️ Export CSV</button>
         <button class="ca-btn" onclick="bulkSetQueueStatus('approved')">✓ Approve selected</button>
         <button class="ca-btn" onclick="bulkSetQueueStatus('archived')" style="color:var(--red);">🗑 Archive selected</button>
@@ -1086,20 +1116,22 @@ function _renderPostCard(post, source, medium, term) {
   const imgSrc = prod.image_encoded_string || (asin ? asinImg(asin) : '');
   const angle  = (post.angle || 'organic').toLowerCase().replace(/[^a-z0-9-]/g, '-');
   const utm = {
-    source, medium,
-    campaign: autoUtmCampaign(prod),
-    content:  `organic_${slugify(angle)}_static`,
-    term,
+    source: post.utm_source || source,
+    medium: post.utm_medium || medium,
+    campaign: post.utm_campaign || autoUtmCampaign(prod),
+    content: post.utm_content || `organic_${slugify(angle)}_static`,
+    term: post.utm_term || term,
   };
   const postId = post.id || '';
   const status = post.status || 'draft';
   const stMeta = QUEUE_STATUSES[status] || QUEUE_STATUSES.draft;
+  const key = postId ? `post-${postId}` : asin;
   const cardId = postId ? `post-card-${postId}` : `post-${asin}`;
   const checkbox = postId
     ? `<input type="checkbox" class="q-checkbox" data-post-id="${postId}" style="margin-right:6px;">`
     : '';
 
-  return `<div class="ocard" id="${cardId}" data-post-id="${esc(String(postId))}" data-asin="${esc(asin)}">
+  return `<div class="ocard" id="${cardId}" data-post-id="${esc(String(postId))}" data-asin="${esc(asin)}" data-card-key="${esc(key)}" data-smart-link="${esc(post.smart_link || '')}">
     <div class="ocard-head" style="position:relative;">
       ${checkbox}
       ${imgSrc ? `<img class="ocard-img" src="${esc(imgSrc)}" onerror="this.style.display='none'" alt="">` : ''}
@@ -1116,11 +1148,13 @@ function _renderPostCard(post, source, medium, term) {
     <div class="ocard-body">
       <div><span class="angle-badge">📐 ${esc(post.angle||'')}</span></div>
       ${post.image_note ? `<div class="image-note">🖼 ${esc(post.image_note)}</div>` : ''}
-      <div class="post-copy" contenteditable="true" id="copy-${esc(asin)}" oninput="markPostDirty(${postId||0})">${esc(post.copy||'')}</div>
-      ${utmCardHtml(asin, utm)}
+      <div class="post-copy" contenteditable="true" id="copy-${esc(key)}" oninput="markPostDirty(${postId||0})">${esc(post.copy||'')}</div>
+      ${utmCardHtml(asin, utm, key, postId)}
+      ${post.smart_link ? `<div class="genius-pill show"><a href="${esc(post.smart_link)}" target="_blank">${esc(post.smart_link)}</a></div>` : ''}
       <div class="card-actions">
-        <button class="ca-btn primary" onclick="copyPost('${esc(asin)}')">Copy Post + Link</button>
-        ${postId ? `<button class="ca-btn" onclick="savePostEdit(${postId}, '${esc(asin)}')">💾 Save Edit</button>` : ''}
+        <button class="ca-btn primary" onclick="copyPost('${esc(asin)}', '${esc(key)}')">Copy Post + Link</button>
+        ${postId ? `<a class="ca-btn" href="/archer/posts/${postId}/edit">Edit Page</a>` : ''}
+        ${postId ? `<button class="ca-btn" onclick="savePostEdit(${postId}, '${esc(key)}')">💾 Save Edit</button>` : ''}
         ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'approved')" style="background:var(--green-light);color:var(--green);">✓ Approve</button>` : ''}
         ${postId && status === 'posted' ? `<button class="ca-btn" onclick="boostThisPost(${postId})" style="background:var(--blue-light);color:var(--blue);">🚀 Boost as Ad</button>` : ''}
         ${postId ? `<button class="ca-btn" onclick="setPostStatus(${postId}, 'archived')" style="color:var(--red);">🗑 Archive</button>` : ''}
@@ -1206,17 +1240,27 @@ function markPostDirty(postId) {
   if (card) card.dataset.dirty = '1';
 }
 
-async function savePostEdit(postId, asin) {
-  const el = document.getElementById(`copy-${asin}`);
+async function savePostEdit(postId, key) {
+  const el = document.getElementById(`copy-${key}`);
   const newCopy = (el?.innerText || el?.textContent || '').trim();
+  const utm = getUtm(key);
+  const card = document.getElementById(`post-card-${postId}`);
+  const smartLink = card?.dataset.smartLink || '';
   try {
     const res = await fetch(`/archer/posts/${postId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ copy: newCopy }),
+      body: JSON.stringify({
+        copy: newCopy,
+        smart_link: smartLink,
+        utm_source: utm.source,
+        utm_medium: utm.medium,
+        utm_campaign: utm.campaign,
+        utm_content: utm.content,
+        utm_term: utm.term,
+      }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const card = document.getElementById(`post-card-${postId}`);
     if (card) delete card.dataset.dirty;
     showToast('Saved');
   } catch (e) {
@@ -1483,14 +1527,15 @@ function _renderPublishedPill(data) {
 /* ════════════════════════════════════════════════════════════════
    COPY HELPERS
 ════════════════════════════════════════════════════════════════ */
-function copyPost(asin) {
-  const el = document.getElementById(`copy-${asin}`);
+function copyPost(asin, key = asin) {
+  const el = document.getElementById(`copy-${key}`);
   if (!el) return;
   const text = el.innerText || el.textContent;
-  const pill = document.getElementById(`gp-${asin}`);
+  const pill = document.getElementById(`gp-${key}`);
+  const card = cardByKey(key);
   const link = (pill?.classList.contains('show') && !pill.classList.contains('warn'))
     ? (pill.querySelector('a')?.href || '')
-    : buildUtmUrl(asin, getUtm(asin));
+    : (card?.dataset.smartLink || buildUtmUrl(asin, getUtm(key)));
   copyToClipboard(`${text}\n\n${link}`);
   const btn = event.target;
   btn.textContent = 'Copied!'; btn.classList.add('ok');
@@ -1505,16 +1550,17 @@ function copyEl(id, btn) {
 }
 
 function copyAllPosts() {
-  const cards = document.querySelectorAll('[id^="post-"]');
+  const cards = document.querySelectorAll('.ocard[data-card-key]');
   const lines = [];
   cards.forEach((card, i) => {
     const copyEl = card.querySelector('.post-copy');
-    const asin   = card.id.replace('post-', '');
+    const asin   = card.dataset.asin || '';
+    const key    = card.dataset.cardKey || asin;
     const text   = copyEl?.innerText || '';
-    const pill   = document.getElementById(`gp-${asin}`);
+    const pill   = document.getElementById(`gp-${key}`);
     const link   = (pill?.classList.contains('show') && !pill.classList.contains('warn'))
       ? (pill.querySelector('a')?.href || '')
-      : buildUtmUrl(asin, getUtm(asin));
+      : (card.dataset.smartLink || buildUtmUrl(asin, getUtm(key)));
     lines.push(`─── Post ${i+1} · ${asin} ───\n${text}\n\n${link}`);
   });
   copyToClipboard(lines.join('\n\n' + '─'.repeat(36) + '\n\n'));
