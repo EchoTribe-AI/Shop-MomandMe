@@ -44,6 +44,9 @@
   .brand-sub { font-size: 12px; color: var(--text3); margin-top: 1px; }
   .top-nav { display:flex; gap:10px; align-items:center; }
   .top-link { font-size:12px; color:var(--blue); text-decoration:none; font-weight:600; }
+  .public-shop-nav { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .public-shop-link { font-size:12px; color:var(--blue); text-decoration:none; font-weight:700; border:0.5px solid #b9d0ea; border-radius:999px; padding:6px 9px; background:#fff; }
+  .public-shop-link.active { background:var(--blue); color:#fff; border-color:var(--blue); }
 
   .hero { max-width: 1100px; margin: 0 auto; padding: 32px 20px 20px; }
   .h1 { font-size: 26px; font-weight: 700; line-height: 1.2; margin-bottom: 6px; }
@@ -108,9 +111,7 @@
       <div class="brand">EchoTribe Shop 🛍️</div>
       <div class="brand-sub">Curated picks from real creators</div>
     </div>
-    <div class="top-nav">
-      <a class="top-link" href="https://{{ shop_subdomain }}/posts">Social posts</a>
-    </div>
+    {% include 'partials/public_shop_nav.html' %}
   </div>
 </div>
 
@@ -228,6 +229,9 @@ async function sendLandingChat() {
   if (!msg) return;
   input.value = '';
   _appendLandingBubble(msg, 'user');
+  const chatSessionKey = 'storefront_chat_session_everydaywithsteph';
+  let chatSessionId = '';
+  try { chatSessionId = localStorage.getItem(chatSessionKey) || ''; } catch (e) {}
 
   try {
     const res = await fetch('/api/shop/chat', {
@@ -237,9 +241,13 @@ async function sendLandingChat() {
         message: msg,
         creator_id: 'everydaywithsteph',
         slug: 'shop-home',
+        session_id: chatSessionId,
       }),
     });
     const data = await res.json();
+    if (data.session_id) {
+      try { localStorage.setItem(chatSessionKey, data.session_id); } catch (e) {}
+    }
     if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
     _appendLandingBubble(data.reply || "Here are a few good picks for that.");
     _appendLandingProducts(data.products || []);

@@ -21,6 +21,7 @@ try:
 except Exception as _e:
     logging.warning(f"[BOOT] db_schema.bootstrap failed: {_e}")
 
+import storefront_chat
 from product_api import ProductResolver, detect_category
 from prompts import (
     build_chat_prompt, build_chat_products,
@@ -52,6 +53,14 @@ PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
 SHOP_SUBDOMAIN = os.environ.get('SHOP_SUBDOMAIN', 'shop.echotribe.ai').lower()
 
 
+def _public_shop_nav(active: str = '') -> list[dict]:
+    base = f'https://{SHOP_SUBDOMAIN}'
+    return [
+        {'key': 'trends', 'label': 'Trends', 'href': f'{base}/trends'},
+        {'key': 'posts', 'label': 'Social Posts', 'href': f'{base}/posts'},
+    ]
+
+
 @app.before_request
 def _route_shop_subdomain():
     """If host == shop.echotribe.ai, rewrite GET requests to public-only routes.
@@ -61,6 +70,7 @@ def _route_shop_subdomain():
       GET  /sitemap.xml           → shop_sitemap()
       GET  /robots.txt            → shop_robots()
       GET  /<slug>                → shop_landing(slug)
+      POST /api/shop/chat         → storefront chat endpoint (passthrough)
       POST /archer/track_click    → tracking endpoint (passthrough)
       *    /static/*              → passthrough for assets
     Anything else 404s on the public subdomain.
@@ -72,6 +82,8 @@ def _route_shop_subdomain():
     path = request.path or '/'
 
     # Passthroughs the public surface itself needs
+    if path == '/api/shop/chat':
+        return
     if path == '/archer/track_click':
         return
     if path.startswith('/static/'):
@@ -80,6 +92,8 @@ def _route_shop_subdomain():
     if request.method == 'GET':
         if path == '/' or path == '':
             return shop_directory()
+        if path == '/trends':
+            return shop_trends()
         if path == '/posts':
             return shop_posts()
         if path == '/sitemap.xml':
@@ -199,15 +213,6 @@ def chat():
         return jsonify({'error': str(e)}), 500
 
 
-# ── Shop landing chat (creator-specific KB) ──────────────────────────────────
-_SHOP_CHAT_CACHE: dict = {}
-
-
-def _tok(s: str) -> list:
-    s = (s or '').lower()
-    return [t for t in re.split(r'[^a-z0-9]+', s) if len(t) > 1]
-
-
 def _format_display_price(raw) -> str:
     """Normalize storefront price display to include '$' for plain USD numerics."""
     if raw is None:
@@ -227,284 +232,91 @@ def _format_display_price(raw) -> str:
     return s
 
 
-def _build_shop_chat_kb(creator_id: str) -> list:
-    """Build a creator-scoped product KB from published collages + posts."""
-    from product_api import ArcherAPI
-    a = ArcherAPI()
-    conn = a._db_connect()
-    conn.row_factory = sqlite3.Row
-    try:
-        # Aggregate click_log by ASIN for this creator from both landing-page
-        # slugs and post slugs to support ranking by real engagement.
-        clicks_by_asin = {}
-        click_rows = conn.execute(
-            """
-            SELECT cl.asin, COUNT(*) AS c
-            FROM click_log cl
-            JOIN collages c ON c.slug = cl.slug
-            WHERE COALESCE(c.creator_id, 'everydaywithsteph') = ?
-            GROUP BY cl.asin
-            """,
-            (creator_id,),
-        ).fetchall()
-        for r in click_rows:
-            asin = (r['asin'] or '').strip()
-            if asin:
-                clicks_by_asin[asin] = clicks_by_asin.get(asin, 0) + int(r['c'] or 0)
-
-        post_click_rows = conn.execute(
-            """
-            SELECT cl.asin, COUNT(*) AS c
-            FROM click_log cl
-            JOIN posts p ON p.slug = cl.slug
-            WHERE COALESCE(p.creator_id, 'everydaywithsteph') = ?
-            GROUP BY cl.asin
-            """,
-            (creator_id,),
-        ).fetchall()
-        for r in post_click_rows:
-            asin = (r['asin'] or '').strip()
-            if asin:
-                clicks_by_asin[asin] = clicks_by_asin.get(asin, 0) + int(r['c'] or 0)
-
-        kb_by_asin = {}
-
-        collage_rows = conn.execute(
-            """
-            SELECT slug, products_json
-            FROM collages
-            WHERE COALESCE(creator_id, 'everydaywithsteph') = ?
-              AND COALESCE(status, 'published') = 'published'
-            ORDER BY created_at DESC
-            """,
-            (creator_id,),
-        ).fetchall()
-        for row in collage_rows:
-            slug = (row['slug'] or '').strip()
-            try:
-                products = json.loads(row['products_json'] or '[]')
-            except (json.JSONDecodeError, TypeError):
-                products = []
-            for p in products:
-                asin = (p.get('asin') or '').strip()
-                if not asin:
-                    continue
-                item = kb_by_asin.setdefault(asin, {
-                    'asin': asin,
-                    'name': '',
-                    'brand': '',
-                    'price': '',
-                    'image': '',
-                    'link': '',
-                    'sources': set(),
-                    'collage_slugs': set(),
-                    'clicks': 0,
-                })
-                item['name'] = item['name'] or (p.get('product_name') or p.get('name') or '')
-                item['brand'] = item['brand'] or (p.get('company_name') or p.get('brand') or '')
-                item['price'] = item['price'] or _format_display_price(p.get('price') or '')
-                item['image'] = item['image'] or (p.get('image_encoded_string') or '')
-                item['link'] = item['link'] or (p.get('attribution_link') or '')
-                item['sources'].add('collage')
-                if slug:
-                    item['collage_slugs'].add(slug)
-                item['clicks'] = clicks_by_asin.get(asin, 0)
-
-        post_rows = conn.execute(
-            """
-            SELECT asin, product_name, product_brand, product_price, product_image, smart_link, collection_slug
-            FROM posts
-            WHERE COALESCE(creator_id, 'everydaywithsteph') = ?
-              AND status != 'archived'
-            ORDER BY created_at DESC
-            LIMIT 2000
-            """,
-            (creator_id,),
-        ).fetchall()
-        for r in post_rows:
-            asin = (r['asin'] or '').strip()
-            if not asin:
-                continue
-            item = kb_by_asin.setdefault(asin, {
-                'asin': asin,
-                'name': '',
-                'brand': '',
-                'price': '',
-                'image': '',
-                'link': '',
-                'sources': set(),
-                'collage_slugs': set(),
-                'clicks': 0,
-            })
-            # Prefer post metadata if the current value is missing
-            item['name'] = item['name'] or (r['product_name'] or '')
-            item['brand'] = item['brand'] or (r['product_brand'] or '')
-            item['price'] = item['price'] or _format_display_price(r['product_price'] or '')
-            item['image'] = item['image'] or (r['product_image'] or '')
-            item['link'] = item['link'] or (r['smart_link'] or '')
-            item['sources'].add('post')
-            if r['collection_slug']:
-                item['collage_slugs'].add(r['collection_slug'])
-            item['clicks'] = clicks_by_asin.get(asin, 0)
-
-        out = []
-        for item in kb_by_asin.values():
-            sources = sorted(list(item.pop('sources')))
-            collage_slugs = sorted(list(item.pop('collage_slugs')))
-            item['sources'] = sources
-            item['collage_slugs'] = collage_slugs
-            out.append(item)
-        return out
-    finally:
-        conn.close()
-
-
-def _get_shop_chat_kb(creator_id: str) -> list:
-    key = (creator_id or 'everydaywithsteph').strip() or 'everydaywithsteph'
-    now = time.time()
-    cached = _SHOP_CHAT_CACHE.get(key)
-    if cached and now < cached['expires']:
-        return cached['items']
-    items = _build_shop_chat_kb(key)
-    _SHOP_CHAT_CACHE[key] = {
-        'items': items,
-        'expires': now + 1800,  # 30 minutes
-    }
-    return items
-
-
-def _rank_shop_kb(query: str, items: list, current_slug: str = '') -> list:
-    """Relevancy first, then click count, then current-page product bias."""
-    q_tokens = set(_tok(query))
-    current_slug = (current_slug or '').strip().lower()
-
-    def _score(it: dict) -> tuple:
-        text = ' '.join([
-            it.get('name', ''),
-            it.get('brand', ''),
-            it.get('price', ''),
-            ' '.join(it.get('sources', [])),
-        ]).lower()
-        # Relevancy score
-        overlap = sum(1 for t in q_tokens if t in text)
-        title_phrase = 1 if query.lower().strip() and query.lower().strip() in (it.get('name', '').lower()) else 0
-        relevancy = overlap + (2 * title_phrase)
-
-        # Tie-breakers
-        clicks = int(it.get('clicks') or 0)
-        on_current_page = 1 if current_slug and current_slug in set(it.get('collage_slugs', [])) else 0
-        return (relevancy, clicks, on_current_page)
-
-    ranked = sorted(items, key=_score, reverse=True)
-    return ranked
-
-
 @app.route('/api/shop/chat', methods=['POST'])
 def shop_chat():
     data = request.get_json(silent=True) or {}
     user_message = (data.get('message') or '').strip()
     creator_id = (data.get('creator_id') or 'everydaywithsteph').strip() or 'everydaywithsteph'
     slug = (data.get('slug') or '').strip().lower()
+    session_id = storefront_chat.ensure_session_id(data.get('session_id'))
     if not user_message:
         return jsonify({'error': 'message is required'}), 400
 
     try:
-        kb = _get_shop_chat_kb(creator_id)
-        if not kb:
+        history = storefront_chat.load_chat_history(creator_id, session_id)
+        candidates = storefront_chat.retrieve_candidates(
+            creator_id,
+            user_message,
+            current_slug=slug,
+            history=history,
+            limit=20,
+        )
+        if not candidates:
             return jsonify({
                 'reply': "I don’t have product data loaded yet. Please check back in a bit 💕",
                 'products': [],
+                'session_id': session_id,
             })
 
-        ranked = _rank_shop_kb(user_message, kb, current_slug=slug)
-        # Keep prompt compact: send top 20 candidates
-        candidates = ranked[:20]
-        lines = []
-        for i, p in enumerate(candidates):
-            lines.append(
-                f"[{i}] ASIN:{p.get('asin','')} | {p.get('name','')[:100]} | "
-                f"Brand:{p.get('brand','')} | Price:{p.get('price','')} | "
-                f"Clicks:{p.get('clicks',0)} | Sources:{','.join(p.get('sources', []))}"
+        creator = db_schema.get_creator(creator_id)
+        catalog = storefront_chat.format_candidates_for_prompt(candidates)
+        history_text = storefront_chat.format_history_for_prompt(history)
+        raw = ''
+        if os.environ.get('ANTHROPIC_API_KEY'):
+            client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+            msg = client.messages.create(
+                model='claude-sonnet-4-20250514',
+                max_tokens=320,
+                system=(
+                    "You are a public shopping assistant for a creator storefront. "
+                    "Use the creator context and short conversation history to keep follow-up questions connected. "
+                    "Recommend only from the provided candidate products. "
+                    "Prioritize query relevancy, then exact title/brand/category overlap, then popularity/click signals. "
+                    "Use current page only as context, not as a product filter. "
+                    "Keep tone concise, friendly, and shopper-facing. "
+                    "Return exactly two lines:\n"
+                    "REPLY: <short shopper-facing text>\n"
+                    "PRODUCTS: <comma-separated candidate indexes (max 3)>"
+                ),
+                messages=[{
+                    'role': 'user',
+                    'content': (
+                        f"Creator: {creator.get('display_name') or creator_id} {creator.get('handle') or ''}\n"
+                        f"Creator voice/context: {creator.get('voice_prompt') or ''}\n"
+                        f"Conversation history:\n{history_text}\n\n"
+                        f"Current shopper query: {user_message}\n"
+                        f"Current landing slug: {slug or '(none)'}\n"
+                        f"Candidates:\n{catalog}"
+                    )
+                }],
             )
-        catalog = '\n'.join(lines)
+            raw = (msg.content[0].text or '').strip()
+        else:
+            raw = "REPLY: Here are the best matches I found from this creator's shop.\nPRODUCTS: 0,1,2"
 
-        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
-        msg = client.messages.create(
-            model='claude-sonnet-4-20250514',
-            max_tokens=280,
-            system=(
-                "You are a shopping assistant for a creator storefront. "
-                "Recommend only from the provided candidate products. "
-                "Prioritize query relevancy. If multiple relevant options exist, "
-                "prefer higher-click products. Keep tone concise, friendly, and helpful. "
-                "Return exactly two lines:\n"
-                "REPLY: <short shopper-facing text>\n"
-                "PRODUCTS: <comma-separated candidate indexes (max 3)>"
-            ),
-            messages=[{
-                'role': 'user',
-                'content': (
-                    f"User query: {user_message}\n"
-                    f"Current landing slug: {slug or '(none)'}\n"
-                    f"Candidates:\n{catalog}"
-                )
-            }],
-        )
-        raw = (msg.content[0].text or '').strip()
         text_reply = "Here are a few picks you might love."
-        picked = []
-        for ln in raw.splitlines():
-            if ln.strip().upper().startswith('REPLY:'):
-                text_reply = ln.split(':', 1)[1].strip() or text_reply
-            if ln.strip().upper().startswith('PRODUCTS:'):
-                idx_part = ln.split(':', 1)[1].strip()
-                for bit in idx_part.split(','):
-                    bit = bit.strip()
-                    if bit.isdigit():
-                        idx = int(bit)
-                        if 0 <= idx < len(candidates):
-                            picked.append(candidates[idx])
-        if not picked:
-            picked = candidates[:3]
+        parsed_reply, indexes = storefront_chat.parse_product_indexes(raw, len(candidates), max_items=3)
+        text_reply = parsed_reply or text_reply
+        picked = [candidates[idx] for idx in indexes] or candidates[:3]
 
         out_products = []
-        creator = db_schema.get_creator(creator_id)
-        tag = creator.get('amazon_tag') or 'mommymedeals-20'
         for p in picked[:3]:
-            asin = (p.get('asin') or '').strip()
-            link = (p.get('link') or '').strip()
-            if not link and asin:
-                try:
-                    smart = _make_smart_link(
-                        asin=asin,
-                        network='amazon',
-                        utm_source='shop-chat',
-                        utm_medium='chat',
-                        utm_campaign=slug or 'shop',
-                        utm_content='shop-chat-reco',
-                        utm_term=asin.lower(),
-                    )
-                    link = (smart or {}).get('genius_url') or (smart or {}).get('affiliate_url') or ''
-                except Exception:
-                    link = ''
-            if not link and asin:
-                link = f"https://www.amazon.com/dp/{asin}?tag={tag}"
+            out_products.append(storefront_chat.response_product(
+                p,
+                creator,
+                current_slug=slug,
+                make_smart_link=_make_smart_link,
+            ))
 
-            out_products.append({
-                'asin': asin,
-                'name': p.get('name') or f'Amazon Product {asin}',
-                'price': p.get('price') or '',
-                'image': p.get('image') or '',
-                'retailer': 'Amazon',
-                'link': link,
-            })
+        storefront_chat.append_chat_turn(creator_id, session_id, user_message, text_reply, out_products)
 
-        return jsonify({'reply': text_reply, 'products': out_products})
+        return jsonify({'reply': text_reply, 'products': out_products, 'session_id': session_id})
     except Exception as e:
         logging.error(f"[SHOP_CHAT] failed: {e}")
         return jsonify({
             'reply': "I hit a snag, but here are top picks from this creator.",
             'products': [],
+            'session_id': session_id,
             'error': str(e),
         }), 500
 
@@ -1025,6 +837,14 @@ def archer_generate_posts():
             for raw_post in parsed.get('posts', []):
                 asin = (raw_post.get('asin') or '').strip()
                 product = asin_to_product.get(asin, {})
+                product_network = str(
+                    product.get('network')
+                    or product.get('retailer')
+                    or product.get('retailer_name')
+                    or 'amazon'
+                ).strip().lower()
+                if product_network == 'walmart':
+                    product_network = 'walmart'
                 angle = raw_post.get('angle', '')
                 utm = _organic_static_utm(product, asin, angle, utm_defaults)
                 smart = {
@@ -1033,7 +853,28 @@ def archer_generate_posts():
                     'final_url': '',
                     'link_id': '',
                 }
-                if asin and not collection_slug:
+                enriched_post_fields = {}
+                if product_network == 'walmart':
+                    try:
+                        import walmart_storefront_enrichment as _walmart_enrichment
+                        enriched_post_fields = _walmart_enrichment.post_update_fields({
+                            'asin': asin,
+                            'network': 'walmart',
+                            'product_name': product.get('product_name') or product.get('name') or '',
+                            'product_brand': product.get('brand') or product.get('company_name') or '',
+                            'product_price': product.get('price_display') or product.get('price') or '',
+                            'product_image': product.get('image_encoded_string') or product.get('image_url') or '',
+                        })
+                    except Exception as _e:
+                        logging.warning(f"[GENERATE_POSTS] Walmart enrichment failed for {asin}: {_e}")
+                    smart['genius_url'] = (
+                        product.get('smart_link')
+                        or product.get('attribution_link')
+                        or product.get('shop_url')
+                        or product.get('url')
+                        or ''
+                    )
+                elif asin and not collection_slug:
                     try:
                         smart = _amazon_urlgenius_link(asin, utm)
                     except Exception as _e:
@@ -1047,6 +888,7 @@ def archer_generate_posts():
                         angle=angle,
                         copy=raw_post.get('copy', ''),
                         image_note=raw_post.get('image_note', ''),
+                        network=product_network,
                         collection_slug=collection_slug,
                         status='draft',
                         utm=utm,
@@ -1054,10 +896,13 @@ def archer_generate_posts():
                         smart_link_id=smart.get('link_id') or '',
                         smart_link_affiliate_url=smart.get('affiliate_url') or '',
                         smart_link_final_url=smart.get('final_url') or '',
-                        product_name=product.get('product_name') or product.get('name') or '',
-                        product_brand=product.get('brand') or product.get('company_name') or '',
-                        product_price=product.get('price') or '',
-                        product_image=product.get('image_encoded_string') or '',
+                        product_name=enriched_post_fields.get('product_name') or product.get('product_name') or product.get('name') or '',
+                        product_brand=enriched_post_fields.get('product_brand') or product.get('brand') or product.get('company_name') or '',
+                        product_price=enriched_post_fields.get('product_price') or product.get('price_display') or product.get('price') or '',
+                        product_image=enriched_post_fields.get('product_image') or product.get('image_encoded_string') or product.get('image_url') or '',
+                        product_availability=enriched_post_fields.get('product_availability') or '',
+                        product_rating=enriched_post_fields.get('product_rating'),
+                        product_review_count=enriched_post_fields.get('product_review_count'),
                     )
                     persisted.append(saved)
                 except Exception as _e:
@@ -1401,7 +1246,7 @@ def shop_landing(slug):
 
     products = collage.get('products') or []
     for p in products:
-        p['price_display'] = _format_display_price(p.get('price') or '')
+        p['price_display'] = _format_display_price(p.get('price_display') or p.get('price') or p.get('current_price') or '')
     collage['direct_to_amazon'] = bool(collage.get('direct_to_amazon'))
 
     # Resolve creator for branding + creator-specific FB pixel
@@ -1433,6 +1278,9 @@ def shop_landing(slug):
         themes=THEMES,
         pixel_id=pixel_id,
         creator=creator,
+        shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('collections'),
+        nav_active='collections',
         seo={
             'title':         page_title,
             'description':   page_description,
@@ -1498,6 +1346,8 @@ def shop_directory():
         themes=THEMES,
         canonical_url=f'https://{SHOP_SUBDOMAIN}/',
         shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('collections'),
+        nav_active='collections',
     )
 
 
@@ -1512,6 +1362,7 @@ def shop_posts():
         """
         SELECT id, slug, asin, network, angle, copy, collection_slug, status, smart_link,
                product_name, product_brand, product_price, product_image,
+               product_availability, product_rating, product_review_count,
                creator_id, created_at, posted_at
         FROM posts
         WHERE status IN ('approved', 'posted')
@@ -1541,6 +1392,9 @@ def shop_posts():
             'product_brand': r['product_brand'] or '',
             'product_price': _format_display_price(r['product_price'] or ''),
             'product_image': r['product_image'] or '',
+            'product_availability': r['product_availability'] or '',
+            'product_rating': r['product_rating'],
+            'product_review_count': r['product_review_count'],
             'creator_id': r['creator_id'] or 'everydaywithsteph',
             'creator_handle': creator.get('handle') or '@creator',
             'created_at': (r['created_at'] or '')[:10],
@@ -1570,6 +1424,8 @@ def shop_posts():
         items=items,
         canonical_url=f'https://{SHOP_SUBDOMAIN}/posts',
         shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('posts'),
+        nav_active='posts',
     )
 
 
@@ -1646,7 +1502,31 @@ def walmart_trending_now_page():
     data = get_trending_page_data()
     admin_mode = request.args.get('admin') == '1'
     admin_token = (request.args.get('admin_token') or '').strip()
-    return render_template('walmart_trending_now.html', data=data, admin_mode=admin_mode, admin_token=admin_token)
+    return render_template(
+        'walmart_trending_now.html',
+        data=data,
+        admin_mode=admin_mode,
+        admin_token=admin_token,
+        shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('trends'),
+        nav_active='trends',
+    )
+
+
+@app.route('/trends')
+def shop_trends():
+    """Public Walmart trends home for the shop subdomain/menu."""
+    from walmart_trends import get_trending_page_data
+
+    return render_template(
+        'walmart_trending_now.html',
+        data=get_trending_page_data(),
+        admin_mode=False,
+        admin_token='',
+        shop_subdomain=SHOP_SUBDOMAIN,
+        public_nav_items=_public_shop_nav('trends'),
+        nav_active='trends',
+    )
 
 
 @app.route('/api/walmart/trending-now')
@@ -1673,6 +1553,7 @@ def walmart_collection_create_post(collection_slug):
         'walmart_collection_create_post.html',
         collection=collection,
         products=products,
+        product_count=len(collection.get('items', []) or []),
         creator_id=creator_id,
         default_public_slug=default_public_slug,
         admin_token=admin_token,
@@ -1905,6 +1786,136 @@ def admin_walmart_trends_links_regenerate_stale():
     limit = int(raw_limit) if raw_limit not in (None, '') else None
     include_redirect = request.args.get('include_redirect') == '1' or bool(payload.get('include_redirect'))
     return jsonify(WalmartLinkRegenerationService().regenerate_all_stale(limit=limit, include_redirect=include_redirect))
+
+
+@app.route('/admin/walmart-trends/storefront/enrich', methods=['POST'])
+def admin_walmart_storefront_enrich():
+    """Refresh Walmart metadata embedded in public storefront records.
+
+    This only updates display metadata in collages, collection-content drafts,
+    and posts. Existing Walmart affiliate links are preserved exactly.
+    """
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+
+    import walmart_storefront_enrichment as enrichment
+
+    payload = request.get_json(silent=True) or {}
+    dry_run = bool(payload.get('dry_run'))
+    slug = (payload.get('slug') or request.args.get('slug') or '').strip()
+    post_id = payload.get('post_id') or request.args.get('post_id')
+    include_collages = payload.get('include_collages')
+    include_posts = payload.get('include_posts')
+    include_collages = True if include_collages is None else bool(include_collages)
+    include_posts = True if include_posts is None else bool(include_posts)
+    raw_limit = payload.get('limit') or request.args.get('limit')
+    limit = max(1, min(int(raw_limit), 500)) if raw_limit not in (None, '') else 500
+
+    result = {
+        'dry_run': dry_run,
+        'collages_checked': 0,
+        'collages_changed': 0,
+        'drafts_checked': 0,
+        'drafts_changed': 0,
+        'posts_checked': 0,
+        'posts_changed': 0,
+        'items_enriched': 0,
+        'samples': [],
+    }
+
+    conn = sqlite3.connect(db_schema.DB_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    try:
+        if include_collages:
+            collage_where = ["COALESCE(status, 'published') IN ('published', 'draft')"]
+            collage_params = []
+            if slug:
+                collage_where.append("slug = ?")
+                collage_params.append(slug)
+            collage_rows = conn.execute(
+                "SELECT slug, products_json FROM collages "
+                f"WHERE {' AND '.join(collage_where)} "
+                "ORDER BY created_at DESC LIMIT ?",
+                [*collage_params, limit],
+            ).fetchall()
+            for row in collage_rows:
+                products = json.loads(row['products_json'] or '[]')
+                enriched, stats = enrichment.enrich_product_list(products, fetch_live=True)
+                if stats['walmart'] == 0:
+                    continue
+                result['collages_checked'] += 1
+                result['items_enriched'] += stats['changed']
+                if json.dumps(enriched, sort_keys=True, default=str) != json.dumps(products, sort_keys=True, default=str):
+                    result['collages_changed'] += 1
+                    result['samples'].append({'type': 'collage', 'slug': row['slug'], 'changed': stats['changed']})
+                    if not dry_run:
+                        conn.execute(
+                            "UPDATE collages SET products_json = ? WHERE slug = ?",
+                            (json.dumps(enriched), row['slug']),
+                        )
+
+            draft_where = ["source_type = ?"]
+            draft_params = ['walmart_trend']
+            if slug:
+                draft_where.append("(public_slug = ? OR source_collection_slug = ? OR published_collage_slug = ?)")
+                draft_params.extend([slug, slug, slug])
+            draft_rows = conn.execute(
+                "SELECT id, public_slug, source_collection_slug, product_snapshot_json "
+                "FROM collection_content_drafts "
+                f"WHERE {' AND '.join(draft_where)} "
+                "ORDER BY id DESC LIMIT ?",
+                [*draft_params, limit],
+            ).fetchall()
+            for row in draft_rows:
+                products = json.loads(row['product_snapshot_json'] or '[]')
+                enriched, stats = enrichment.enrich_product_list(products, fetch_live=True)
+                if stats['walmart'] == 0:
+                    continue
+                result['drafts_checked'] += 1
+                result['items_enriched'] += stats['changed']
+                if json.dumps(enriched, sort_keys=True, default=str) != json.dumps(products, sort_keys=True, default=str):
+                    result['drafts_changed'] += 1
+                    result['samples'].append({'type': 'draft', 'id': row['id'], 'public_slug': row['public_slug'], 'changed': stats['changed']})
+                    if not dry_run:
+                        conn.execute(
+                            "UPDATE collection_content_drafts SET product_snapshot_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (json.dumps(enriched), row['id']),
+                        )
+
+        if include_posts:
+            post_where = ["LOWER(COALESCE(network, '')) = 'walmart'"]
+            post_params = []
+            if post_id:
+                post_where.append("id = ?")
+                post_params.append(int(post_id))
+            rows = conn.execute(
+                "SELECT * FROM posts "
+                f"WHERE {' AND '.join(post_where)} "
+                "ORDER BY created_at DESC LIMIT ?",
+                [*post_params, limit],
+            ).fetchall()
+            for row in rows:
+                post = dict(row)
+                updates = enrichment.post_update_fields(post, fetch_live=True)
+                result['posts_checked'] += 1
+                if updates:
+                    result['posts_changed'] += 1
+                    result['items_enriched'] += 1
+                    result['samples'].append({'type': 'post', 'id': post['id'], 'asin': post.get('asin'), 'fields': sorted(updates)})
+                    if not dry_run:
+                        assignments = ', '.join(f"{field} = ?" for field in updates)
+                        conn.execute(
+                            f"UPDATE posts SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            [*updates.values(), int(post['id'])],
+                        )
+
+        if not dry_run:
+            conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify(result)
 
 @app.route('/sitemap.xml')
 def shop_sitemap():

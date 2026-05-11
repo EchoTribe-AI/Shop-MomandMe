@@ -58,6 +58,9 @@ def create_post(
     product_brand: str = '',
     product_price: str = '',
     product_image: str = '',
+    product_availability: str = '',
+    product_rating=None,
+    product_review_count=None,
 ) -> dict:
     """Insert a new post and return the saved row with its assigned id + slug."""
     utm = utm or {}
@@ -70,8 +73,9 @@ def create_post(
                 utm_source, utm_medium, utm_campaign, utm_content, utm_term,
                 smart_link, smart_link_id, smart_link_affiliate_url,
                 smart_link_final_url,
-                product_name, product_brand, product_price, product_image)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                product_name, product_brand, product_price, product_image,
+                product_availability, product_rating, product_review_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 creator_id, asin, network, angle, copy, image_note,
                 collection_slug, status,
@@ -81,6 +85,7 @@ def create_post(
                 smart_link, smart_link_id, smart_link_affiliate_url,
                 smart_link_final_url,
                 product_name, product_brand, product_price, product_image,
+                product_availability, product_rating, product_review_count,
             ),
         )
         post_id = cur.lastrowid
@@ -148,7 +153,8 @@ def update_post(post_id: int, fields: dict) -> Optional[dict]:
     smart_link_id, smart_link_affiliate_url, smart_link_final_url,
     utm_source, utm_medium, utm_campaign, utm_content, utm_term,
     collection_slug, product_image, posted_at, product_name,
-    product_brand, product_price.
+    product_brand, product_price, product_availability, product_rating,
+    product_review_count.
     """
     allowed = {
         'copy', 'image_note', 'angle', 'status', 'smart_link',
@@ -156,6 +162,7 @@ def update_post(post_id: int, fields: dict) -> Optional[dict]:
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
         'collection_slug', 'product_image', 'posted_at',
         'product_name', 'product_brand', 'product_price',
+        'product_availability', 'product_rating', 'product_review_count',
     }
     sets = []
     vals: list = []

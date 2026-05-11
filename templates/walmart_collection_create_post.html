@@ -65,6 +65,9 @@
     <div class="grid">
       <aside class="panel">
         <h2>Collection products</h2>
+        {% if product_count and product_count > products|length %}
+        <p class="fine">Showing {{ products|length }} of {{ product_count }} products here. The saved preview and published page preserve the full collection.</p>
+        {% endif %}
         <div class="products">
           {% for product in products %}
           <div class="product">

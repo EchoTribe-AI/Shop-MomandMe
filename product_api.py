@@ -85,13 +85,20 @@ class WalmartAPI:
             item = response.json()
             price_val = item.get('salePrice') or item.get('msrp') or 0
             price_str = f"{float(price_val):.2f}" if price_val else ''
+            category = item.get('categoryPath', '')
             return {
                 'name': item.get('name', ''),
                 'price': price_str,
+                'price_display': f"${float(price_val):.2f}" if price_val else '',
                 'imageUrl': item.get('largeImage', '') or item.get('mediumImage', ''),
                 'description': '',
                 'sku': str(item.get('itemId', sku)),
                 'url': item.get('productUrl', f'https://www.walmart.com/ip/{sku}'),
+                'brand': item.get('brandName') or item.get('brand') or '',
+                'category': category.split('/')[0] if category else '',
+                'availability': item.get('stock') or item.get('availableOnline') or item.get('availability') or '',
+                'rating': item.get('customerRating') or item.get('rating'),
+                'review_count': item.get('numReviews') or item.get('customerRatingCount') or item.get('reviewCount'),
             }
         except Exception:
             return None
