@@ -411,7 +411,7 @@ async function loadAsinQueue() {
 
 async function loadCollections() {
   try {
-    const res = await fetch('/archer/collages');
+    const res = await fetch('/archer/collages?status=published');
     const data = await res.json();
     state.targets.collection = (data.collages || []).filter(c => c.status !== 'archived');
   } catch(e) { state.targets.collection = []; }

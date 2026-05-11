@@ -368,7 +368,7 @@
   window.onload = async () => {
     // Check for pre-selected products passed via URL params
     const params = new URLSearchParams(window.location.search);
-    const collectionSlug = (params.get('collection') || '').trim().toLowerCase();
+    const collectionSlug = (params.get('collection') || params.get('slug') || '').trim().toLowerCase();
     const asins = params.get('asins');
     if (asins) {
       const asinList = asins.split(',').filter(Boolean).slice(0, MAX_SLOTS);
@@ -389,7 +389,7 @@
       showToast(`${asinList.length} product${asinList.length > 1 ? 's' : ''} loaded from Archer`);
     }
     renderSlots();
-    generateSlug();
+    if (!collectionSlug) generateSlug();
     await loadCollageList();
   };
 
@@ -406,16 +406,20 @@
       state.directToAmazon = !!c.direct_to_amazon;
       state.products = (c.products || []).slice(0, MAX_SLOTS);
 
-      const slugInput = document.getElementById('slug');
+      const slugInput = document.getElementById('slug-input');
       const captionInput = document.getElementById('caption');
-      const layoutSel = document.getElementById('layout');
-      const themeSel = document.getElementById('theme');
-      const d2a = document.getElementById('direct-amazon');
+      const d2a = document.getElementById('direct-toggle');
       if (slugInput) slugInput.value = state.slug;
       if (captionInput) captionInput.value = state.caption;
-      if (layoutSel) layoutSel.value = state.layout;
-      if (themeSel) themeSel.value = state.theme;
       if (d2a) d2a.checked = state.directToAmazon;
+      document.querySelectorAll('.lp-option').forEach(el => {
+        el.classList.toggle('active', el.dataset.layout === state.layout);
+      });
+      document.querySelectorAll('.tp-option').forEach(el => {
+        el.classList.toggle('active', (el.title || '').toLowerCase() === state.theme);
+      });
+      renderSlots();
+      updatePreview();
       showToast(`Loaded ${slug} for editing`);
     } catch (e) {
       showToast(`Failed to load ${slug}: ${e.message}`);
@@ -699,24 +703,29 @@
 
   async function loadCollageList() {
     try {
-      const res = await fetch('/archer/collages');
+      const res = await fetch('/archer/collages?status=all');
       const data = await res.json();
       const list = document.getElementById('collage-list');
       if (!data.collages?.length) {
         list.innerHTML = '<div style="font-size:12px;color:var(--text4);">No collages yet.</div>';
         return;
       }
-      list.innerHTML = data.collages.map(c => `
+      list.innerHTML = data.collages.map(c => {
+        const isDraft = (c.status || 'published') !== 'published';
+        const viewUrl = isDraft ? `/shop/${c.slug}?preview=1` : `/shop/${c.slug}`;
+        const copyUrl = isDraft ? `${location.origin}/shop/${c.slug}?preview=1` : `https://shop.echotribe.ai/${c.slug}`;
+        return `
         <div class="collage-item">
           <div class="ci-info">
             <div class="ci-name">${escStr(c.slug)}</div>
-            <div class="ci-meta">${c.product_count} products · ${c.theme} · ${c.created_at}</div>
+            <div class="ci-meta">${c.product_count} products · ${c.theme} · ${c.created_at} · ${escStr(c.status || 'published')}</div>
           </div>
           <div class="ci-actions">
-            <button class="ci-btn open" onclick="window.open('/shop/${c.slug}','_blank')">View</button>
-            <button class="ci-btn" onclick="copyToClipboard('https://shop.echotribe.ai/${c.slug}');showToast('URL copied!')">Copy</button>
+            <button class="ci-btn open" onclick="window.open('${viewUrl}','_blank')">${isDraft ? 'Preview' : 'View'}</button>
+            <button class="ci-btn" onclick="copyToClipboard('${copyUrl}');showToast('URL copied!')">Copy</button>
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
     } catch(e) {}
   }
 

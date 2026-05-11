@@ -1330,75 +1330,27 @@ def archer_save_collage():
                             (existing default behavior)
     Drafts are 404 publicly and viewable only via /shop/<slug>?preview=1.
     """
+    import collection_service
     from product_api import ArcherAPI
     data = request.get_json() or {}
-    slug = data.get('slug', '').strip().lower().replace(' ', '-')
-    if not slug or not data.get('products'):
-        return jsonify({'error': 'slug and products required'}), 400
-
-    creator_id = (data.get('creator_id') or 'everydaywithsteph').strip()
-    status = (data.get('status') or 'published').strip()
-
-    a = ArcherAPI()
-    products = data.get('products', [])
-    if status == 'published':
-        for p in products:
-            asin = p.get('asin', '')
-            if asin and not p.get('attribution_link'):
-                link = a.generate_link(asin, label=f"{slug}-{asin.lower()}")
-                if link:
-                    p['attribution_link'] = link.get('attribution_link') or link.get('url') or ''
-
-    # Preserve campaign_types if the collage already exists (e.g. previously
-    # tagged 'paid' from Ad Builder use; we don't want to clobber that on re-save).
-    conn = a._db_connect()
-    existing = conn.execute(
-        "SELECT campaign_types FROM collages WHERE slug = ?", (slug,)
-    ).fetchone()
     try:
-        prior_types = json.loads(existing[0]) if existing and existing[0] else []
-        if not isinstance(prior_types, list):
-            prior_types = []
-    except (json.JSONDecodeError, TypeError):
-        prior_types = []
-    # Mode C save always implies organic usage
-    merged_types = list({*prior_types, 'organic'})
+        archer = None
 
-    conn.execute("""
-        INSERT OR REPLACE INTO collages
-        (slug, products_json, layout, theme, caption, direct_to_amazon,
-         creator_id, status, campaign_types, hero_title, hero_subtitle, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    """, (
-        slug,
-        json.dumps(products),
-        data.get('layout', 'layout-2'),
-        data.get('theme', 'coral'),
-        data.get('caption', ''),
-        1 if data.get('direct_to_amazon') else 0,
-        creator_id,
-        status,
-        json.dumps(merged_types),
-        data.get('hero_title', ''),
-        data.get('hero_subtitle', ''),
-    ))
-    conn.commit()
-    conn.close()
+        def generate_link(asin, label):
+            nonlocal archer
+            if archer is None:
+                archer = ArcherAPI()
+            return archer.generate_link(asin, label=label)
 
-    is_draft = status != 'published'
-    return jsonify({
-        'url': f'/shop/{slug}' + ('?preview=1' if is_draft else ''),
-        'public_url': (
-            f'https://{SHOP_SUBDOMAIN}/{slug}'
-            if not is_draft
-            else f'/shop/{slug}?preview=1'
-        ),
-        'slug': slug,
-        'creator_id': creator_id,
-        'status': status,
-        'is_draft': is_draft,
-        'campaign_types': merged_types,
-    })
+        result = collection_service.save_collage(
+            data,
+            shop_subdomain=SHOP_SUBDOMAIN,
+            link_generator=generate_link,
+            campaign_types=['organic'],
+        )
+        return jsonify(result)
+    except collection_service.CollectionServiceError as exc:
+        return jsonify({'error': str(exc)}), 400
 
 
 @app.route('/archer/collage/publish', methods=['POST'])
@@ -1408,127 +1360,61 @@ def archer_collage_publish():
 
     Body: { "slug": "..." }
     """
+    import collection_service
     from product_api import ArcherAPI
     data = request.get_json() or {}
-    slug = (data.get('slug') or '').strip().lower()
-    if not slug:
-        return jsonify({'error': 'slug is required'}), 400
+    slug = data.get('slug')
+    archer = None
 
-    a = ArcherAPI()
-    conn = a._db_connect()
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM collages WHERE slug = ?", (slug,)).fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'error': 'collection not found'}), 404
+    def generate_link(asin, label):
+        nonlocal archer
+        if archer is None:
+            archer = ArcherAPI()
+        return archer.generate_link(asin, label=label)
 
     try:
-        products = json.loads(row['products_json'] or '[]')
-    except (json.JSONDecodeError, TypeError):
-        products = []
-
-    # Backfill Archer attribution links on products that lack them
-    for p in products:
-        asin = p.get('asin', '')
-        if asin and not p.get('attribution_link'):
-            try:
-                link = a.generate_link(asin, label=f"{slug}-{asin.lower()}")
-                if link:
-                    p['attribution_link'] = (
-                        link.get('attribution_link') or link.get('url') or ''
-                    )
-            except Exception as _e:
-                logging.warning(f"[PUBLISH] Archer link gen failed for {asin}: {_e}")
-
-    conn.execute(
-        "UPDATE collages SET products_json = ?, status = 'published' WHERE slug = ?",
-        (json.dumps(products), slug),
-    )
-    conn.commit()
-    conn.close()
-    return jsonify({
-        'slug': slug,
-        'status': 'published',
-        'public_url': f'https://{SHOP_SUBDOMAIN}/{slug}',
-    })
+        result = collection_service.publish_collage(
+            slug,
+            shop_subdomain=SHOP_SUBDOMAIN,
+            link_generator=generate_link,
+        )
+        return jsonify(result)
+    except collection_service.CollectionServiceError as exc:
+        status_code = 404 if str(exc) == 'collection not found' else 400
+        return jsonify({'error': str(exc)}), status_code
 
 @app.route('/archer/collage/<slug>', methods=['GET'])
 def archer_collage_get(slug):
     """Return one collection's full record (used by Ad Builder auto-load
     when ?collection=<slug> deep-link is hit, and by the Mode C edit flow)."""
-    from product_api import ArcherAPI
-    conn = ArcherAPI()._db_connect()
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM collages WHERE slug = ?", (slug,)).fetchone()
-    conn.close()
-    if not row:
+    import collection_service
+    out = collection_service.get_collage(slug)
+    if not out:
         return jsonify({'error': 'not found'}), 404
-    out = dict(row)
-    try:
-        out['products'] = json.loads(out.pop('products_json') or '[]')
-    except (json.JSONDecodeError, TypeError):
-        out['products'] = []
-    try:
-        out['campaign_types'] = (
-            json.loads(out['campaign_types']) if out.get('campaign_types') else []
-        )
-    except (json.JSONDecodeError, TypeError):
-        out['campaign_types'] = []
     return jsonify({'collage': out})
 
 
 @app.route('/archer/collages')
 def archer_list_collages():
-    from product_api import ArcherAPI
-    a = ArcherAPI()
-    conn = a._db_connect()
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT slug, theme, layout, created_at, click_count, products_json, "
-        "creator_id, status, campaign_types "
-        "FROM collages "
-        "WHERE COALESCE(status,'published') != 'archived' "
-        "ORDER BY created_at DESC LIMIT 50"
-    ).fetchall()
-    conn.close()
-    collages = []
-    for r in rows:
-        products = json.loads(r['products_json'] or '[]')
-        try:
-            ctypes = json.loads(r['campaign_types']) if r['campaign_types'] else ['organic']
-            if not isinstance(ctypes, list):
-                ctypes = ['organic']
-        except (json.JSONDecodeError, TypeError):
-            ctypes = ['organic']
-        collages.append({
-            'slug':           r['slug'],
-            'theme':          r['theme'],
-            'layout':         r['layout'],
-            'created_at':     r['created_at'][:10] if r['created_at'] else '',
-            'click_count':    r['click_count'] or 0,
-            'product_count':  len(products),
-            'creator_id':     r['creator_id'] or 'everydaywithsteph',
-            'status':         r['status'] or 'published',
-            'campaign_types': ctypes,
-        })
+    import collection_service
+    status = request.args.get('status') or 'published'
+    try:
+        collages = collection_service.list_collages(status=status, limit=50)
+    except collection_service.CollectionServiceError as exc:
+        return jsonify({'error': str(exc)}), 400
     return jsonify({'collages': collages})
 
 @app.route('/shop/<slug>')
 def shop_landing(slug):
-    from product_api import ArcherAPI
-    a = ArcherAPI()
-    conn = a._db_connect()
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM collages WHERE slug=?", (slug,)).fetchone()
-    conn.close()
-    if not row:
+    import collection_service
+    collage = collection_service.get_collage(slug)
+    if not collage:
         return "Page not found", 404
-    collage = dict(row)
     # Drafts only viewable via ?preview=1
     if (collage.get('status') or 'published') != 'published' and request.args.get('preview') != '1':
         return "Page not found", 404
 
-    products = json.loads(collage.get('products_json') or '[]')
+    products = collage.get('products') or []
     for p in products:
         p['price_display'] = _format_display_price(p.get('price') or '')
     collage['direct_to_amazon'] = bool(collage.get('direct_to_amazon'))

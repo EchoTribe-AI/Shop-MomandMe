@@ -673,18 +673,6 @@ class ArcherAPI:
             )
         """)
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS collages (
-                slug TEXT PRIMARY KEY,
-                products_json TEXT,
-                layout TEXT DEFAULT 'layout-2',
-                theme TEXT DEFAULT 'coral',
-                caption TEXT,
-                direct_to_amazon INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                click_count INTEGER DEFAULT 0
-            )
-        """)
-        conn.execute("""
             CREATE TABLE IF NOT EXISTS click_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 asin TEXT,
