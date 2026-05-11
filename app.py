@@ -1019,20 +1019,41 @@ def archer_generate_posts():
             import posts as _posts
             creator_id = (data.get('creator_id') or 'everydaywithsteph').strip()
             collection_slug = (data.get('collection_slug') or '').strip().lower() or None
+            utm_defaults = data.get('utm_defaults') or {}
             persisted = []
             asin_to_product = {(p.get('asin') or '').strip(): p for p in product_list}
             for raw_post in parsed.get('posts', []):
                 asin = (raw_post.get('asin') or '').strip()
                 product = asin_to_product.get(asin, {})
+                angle = raw_post.get('angle', '')
+                utm = _organic_static_utm(product, asin, angle, utm_defaults)
+                smart = {
+                    'genius_url': '',
+                    'affiliate_url': '',
+                    'final_url': '',
+                    'link_id': '',
+                }
+                if asin and not collection_slug:
+                    try:
+                        smart = _amazon_urlgenius_link(asin, utm)
+                    except Exception as _e:
+                        logging.warning(f"[GENERATE_POSTS] URLGenius link failed for {asin}: {_e}")
+                        smart['genius_url'] = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
+                        smart['affiliate_url'] = smart['genius_url']
                 try:
                     saved = _posts.create_post(
                         creator_id=creator_id,
                         asin=asin,
-                        angle=raw_post.get('angle', ''),
+                        angle=angle,
                         copy=raw_post.get('copy', ''),
                         image_note=raw_post.get('image_note', ''),
                         collection_slug=collection_slug,
                         status='draft',
+                        utm=utm,
+                        smart_link=smart.get('genius_url') or '',
+                        smart_link_id=smart.get('link_id') or '',
+                        smart_link_affiliate_url=smart.get('affiliate_url') or '',
+                        smart_link_final_url=smart.get('final_url') or '',
                         product_name=product.get('product_name') or product.get('name') or '',
                         product_brand=product.get('brand') or product.get('company_name') or '',
                         product_price=product.get('price') or '',
@@ -2037,7 +2058,7 @@ def archer_post_edit_page(post_id):
     post = _posts.get_post(post_id)
     if not post:
         return "Post not found", 404
-    return render_template('organic_post_edit.html', post=post)
+    return render_template('organic_post_edit.html', post=post, amazon_tag=AMAZON_TAG)
 
 
 # ── CAMPAIGN BUILDER v3 (Branch 3) ───────────────────────────────────────────
@@ -2734,6 +2755,115 @@ NETWORK_CONTENT = {
 # Intentionally no startup seed to keep boot path fast and deterministic.
 
 
+def _slug_part(value: str, max_len: int = 15) -> str:
+    slug = re.sub(r'[^a-z0-9]+', '', (value or '').lower())
+    return slug[:max_len]
+
+
+def _organic_campaign_for_product(product: dict, asin: str) -> str:
+    brand_raw = product.get('company_name') or product.get('brand') or ''
+    brand = _slug_part((brand_raw.split() or ['brand'])[0], 10) or 'brand'
+    name_raw = product.get('product_name') or product.get('name') or asin
+    brand_l = brand_raw.lower()
+    name_words = [
+        w for w in re.split(r'\s+', name_raw.lower())
+        if w and w not in brand_l
+    ]
+    prod = _slug_part(' '.join(name_words), 12) or _slug_part(asin, 12) or 'product'
+    return f"{brand}_{prod}_organic"
+
+
+def _organic_static_utm(product: dict, asin: str, angle: str, defaults: dict | None = None) -> dict:
+    defaults = defaults or {}
+    angle_slug = re.sub(r'[^a-z0-9-]+', '-', (angle or 'organic').lower()).strip('-') or 'organic'
+    return {
+        'source': defaults.get('source') or 'facebook',
+        'medium': defaults.get('medium') or 'organic_social',
+        'campaign': defaults.get('campaign') or _organic_campaign_for_product(product, asin),
+        'content': defaults.get('content') or f"organic_{angle_slug}_static",
+        'term': defaults.get('term') or '',
+    }
+
+
+def _extract_urlgenius_link_id(link_obj: dict) -> str:
+    if not isinstance(link_obj, dict):
+        return ''
+    return link_obj.get('id') or link_obj.get('link_id') or ''
+
+
+def _amazon_urlgenius_link(asin: str, utm: dict, force_new: bool = False) -> dict:
+    """Build an Amazon affiliate URL and wrap/store it in URLGenius when configured."""
+    from product_api import URLGeniusAPI
+
+    affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
+    utm_source = (utm.get('source') or '').strip().lower()
+    utm_medium = (utm.get('medium') or '').strip().lower()
+    utm_campaign = (utm.get('campaign') or '').strip()
+    utm_content = (utm.get('content') or '').strip() or NETWORK_CONTENT['amazon']
+    utm_term = (utm.get('term') or '').strip()
+    link_label = f"{utm_source}_{utm_medium}_{utm_campaign}_{__import__('datetime').datetime.now().strftime('%m%d')}"
+    final_url = URLGeniusAPI._append_utms(
+        affiliate_url,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        utm_content=utm_content,
+        utm_term=utm_term or None,
+    )
+
+    ug = URLGeniusAPI()
+    if not ug.api_key:
+        return {
+            'genius_url': affiliate_url,
+            'affiliate_url': affiliate_url,
+            'final_url': final_url,
+            'network': 'amazon',
+            'label': link_label,
+            'utm': {
+                'utm_source': utm_source,
+                'utm_medium': utm_medium,
+                'utm_campaign': utm_campaign,
+                'utm_content': utm_content,
+                'utm_term': utm_term,
+            },
+            'urlgenius': False,
+            'link_id': '',
+        }
+
+    ug_result = ug.create_link(
+        destination_url=affiliate_url,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        utm_content=utm_content,
+        utm_term=utm_term or None,
+        force_new=force_new,
+    )
+    link_obj = ug_result.get('link', {}) if isinstance(ug_result, dict) else {}
+    genius_url = (
+        link_obj.get('genius_url')
+        if isinstance(link_obj, dict)
+        else None
+    ) or affiliate_url
+    return {
+        'genius_url': genius_url,
+        'affiliate_url': affiliate_url,
+        'final_url': (link_obj.get('final_url') if isinstance(link_obj, dict) else '') or final_url,
+        'network': 'amazon',
+        'label': link_label,
+        'utm': {
+            'utm_source': utm_source,
+            'utm_medium': utm_medium,
+            'utm_campaign': utm_campaign,
+            'utm_content': utm_content,
+            'utm_term': utm_term,
+        },
+        'urlgenius': True,
+        'from_registry': ug_result.get('_from_registry', False) if isinstance(ug_result, dict) else False,
+        'link_id': _extract_urlgenius_link_id(link_obj),
+    }
+
+
 def _make_smart_link(asin: str, network: str = 'amazon', utm_source: str = 'fb-group',
                      utm_medium: str = 'organic', utm_campaign: str = '',
                      utm_term: str = '', creator_id: str = 'everydaywithsteph') -> dict:
@@ -2815,7 +2945,22 @@ def urlgenius_smart_link():
     affiliate_url = None
 
     if network == 'amazon':
-        affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
+        try:
+            result = _amazon_urlgenius_link(
+                asin,
+                {
+                    'source': utm_source,
+                    'medium': utm_medium,
+                    'campaign': utm_campaign,
+                    'content': utm_content,
+                    'term': utm_term,
+                },
+                force_new=force_new,
+            )
+            return jsonify(result)
+        except Exception as e:
+            logging.error(f"[URLGENIUS] smart_link amazon failed: {e}")
+            affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
 
     elif network == 'archer':
         a = ArcherAPI()
@@ -2859,6 +3004,7 @@ def urlgenius_smart_link():
         return jsonify({
             'genius_url': affiliate_url,
             'affiliate_url': affiliate_url,
+            'final_url': affiliate_url,
             'network': network,
             'label': link_label,
             'utm': utm_meta,
@@ -2883,18 +3029,20 @@ def urlgenius_smart_link():
         return jsonify({
             'genius_url': genius_url,
             'affiliate_url': affiliate_url,
+            'final_url': (link_obj.get('final_url') if isinstance(link_obj, dict) else '') or None,
             'network': network,
             'label': link_label,
             'utm': utm_meta,
             'urlgenius': True,
             'from_registry': ug_result.get('_from_registry', False),
-            'link_id': link_obj.get('id') if isinstance(link_obj, dict) else None,
+            'link_id': _extract_urlgenius_link_id(link_obj),
         })
     except Exception as e:
         logging.error(f"[URLGENIUS] smart_link failed: {e}")
         return jsonify({
             'genius_url': affiliate_url,
             'affiliate_url': affiliate_url,
+            'final_url': affiliate_url,
             'network': network,
             'label': link_label,
             'utm': utm_meta,

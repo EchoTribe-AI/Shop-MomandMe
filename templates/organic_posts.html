@@ -964,6 +964,9 @@ async function fireSmartLink(asin, postId = '', key = asin) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           smart_link: gUrl,
+          smart_link_id: data.link_id || '',
+          smart_link_affiliate_url: data.affiliate_url || '',
+          smart_link_final_url: data.final_url || '',
           utm_source: utm.source,
           utm_medium: utm.medium,
           utm_campaign: utm.campaign,
@@ -1048,7 +1051,11 @@ async function genModeB() {
     const res = await fetch('/archer/generate_posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'b', product_list }),
+      body: JSON.stringify({
+        mode: 'b',
+        product_list,
+        utm_defaults: { source, medium, term },
+      }),
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
@@ -1056,7 +1063,7 @@ async function genModeB() {
     const persisted = data.persisted_posts || [];
     const posts = persisted.length ? persisted : (data.posts || []);
     renderModeB(posts, source, medium, term);
-    showToast(`${posts.length} posts generated · ${data.persisted_count||0} saved as draft`);
+    showToast(`${posts.length} posts generated · smart links saved with drafts`);
   } catch (err) {
     showErr('b-err', err.message);
     document.getElementById('b-res').innerHTML = '<div class="empty">Generation failed — see error above.</div>';

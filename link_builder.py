@@ -130,6 +130,8 @@ class ArcherURLGenius:
             return {
                 'genius_url':    genius_url,
                 'affiliate_url': affiliate_url,
+                'final_url':     link_obj.get('final_url') if isinstance(link_obj, dict) else '',
+                'link_id':       (link_obj.get('id') or link_obj.get('link_id') or '') if isinstance(link_obj, dict) else '',
                 'label':         link_label,
                 'urlgenius':     True,
                 'network':       'archer',

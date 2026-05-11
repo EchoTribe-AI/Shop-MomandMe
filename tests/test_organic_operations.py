@@ -117,7 +117,11 @@ class OrganicOperationsTestCase(unittest.TestCase):
 
         edit = self.client.get(f"/archer/posts/{post_id}/edit")
         self.assertEqual(edit.status_code, 200)
-        self.assertIn("Edit Organic Post", edit.get_data(as_text=True))
+        html = edit.get_data(as_text=True)
+        self.assertIn("Edit Organic Post", html)
+        self.assertIn("This is the post copy.", html)
+        self.assertNotIn("built-in method copy", html)
+        self.assertIn("Create Smart Link", html)
 
     def test_manage_page_lists_posts_without_using_build_queue(self):
         self._insert_post(status="approved")
@@ -127,6 +131,143 @@ class OrganicOperationsTestCase(unittest.TestCase):
         self.assertIn("Saved Posts & Collections", html)
         self.assertIn("Dinosaur Toys Magnetic Tiles", html)
         self.assertIn("Open Collage Builder", html)
+
+    def test_posts_schema_has_urlgenius_metadata_columns(self):
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(posts)")}
+        finally:
+            conn.close()
+        self.assertIn("smart_link_id", cols)
+        self.assertIn("smart_link_affiliate_url", cols)
+        self.assertIn("smart_link_final_url", cols)
+
+    def test_smart_link_route_returns_urlgenius_id_and_patch_stores_it(self):
+        import product_api
+
+        real_urlgenius = product_api.URLGeniusAPI
+
+        class FakeURLGeniusAPI:
+            api_key = "test-key"
+
+            @staticmethod
+            def _append_utms(*args, **kwargs):
+                return real_urlgenius._append_utms(*args, **kwargs)
+
+            def create_link(self, destination_url, **kwargs):
+                final_url = self._append_utms(destination_url, **{
+                    k: v for k, v in kwargs.items() if k.startswith("utm_")
+                })
+                return {
+                    "link": {
+                        "id": "ug_123",
+                        "genius_url": "https://urlgeni.us/amazon/abc",
+                        "final_url": final_url,
+                    }
+                }
+
+        product_api.URLGeniusAPI = FakeURLGeniusAPI
+        try:
+            resp = self.client.post("/urlgenius/smart_link", json={
+                "asin": "B0CQMZFP4H",
+                "network": "amazon",
+                "placement": {
+                    "source": "facebook",
+                    "medium": "organic_social",
+                    "campaign": "coodoo_dino_organic",
+                    "content": "organic_gift_static",
+                },
+            })
+        finally:
+            product_api.URLGeniusAPI = real_urlgenius
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["genius_url"], "https://urlgeni.us/amazon/abc")
+        self.assertEqual(data["link_id"], "ug_123")
+        self.assertIn("tag=mommymedeals-20", data["affiliate_url"])
+        self.assertIn("utm_content=organic_gift_static", data["final_url"])
+
+        post_id = self._insert_post(status="approved")
+        patch = self.client.patch(f"/archer/posts/{post_id}", json={
+            "smart_link": data["genius_url"],
+            "smart_link_id": data["link_id"],
+            "smart_link_affiliate_url": data["affiliate_url"],
+            "smart_link_final_url": data["final_url"],
+        })
+        self.assertEqual(patch.status_code, 200)
+        saved = patch.get_json()["post"]
+        self.assertEqual(saved["smart_link_id"], "ug_123")
+        self.assertEqual(saved["smart_link"], "https://urlgeni.us/amazon/abc")
+
+    def test_generate_posts_auto_creates_and_stores_urlgenius_link(self):
+        import product_api
+
+        real_anthropic = self.app_module.anthropic.Anthropic
+        real_urlgenius = product_api.URLGeniusAPI
+
+        class FakeMessage:
+            content = [type("Block", (), {
+                "text": '{"posts":[{"asin":"B0CQMZFP4H","angle":"gift-idea","copy":"Fresh copy","image_note":"Bright product photo"}]}'
+            })()]
+
+        class FakeMessages:
+            def create(self, **_kwargs):
+                return FakeMessage()
+
+        class FakeAnthropic:
+            def __init__(self, **_kwargs):
+                self.messages = FakeMessages()
+
+        class FakeURLGeniusAPI:
+            api_key = "test-key"
+
+            @staticmethod
+            def _append_utms(*args, **kwargs):
+                return real_urlgenius._append_utms(*args, **kwargs)
+
+            def create_link(self, destination_url, **kwargs):
+                final_url = self._append_utms(destination_url, **{
+                    k: v for k, v in kwargs.items() if k.startswith("utm_")
+                })
+                return {
+                    "link": {
+                        "id": "ug_auto",
+                        "genius_url": "https://urlgeni.us/amazon/auto",
+                        "final_url": final_url,
+                    }
+                }
+
+        self.app_module.anthropic.Anthropic = FakeAnthropic
+        product_api.URLGeniusAPI = FakeURLGeniusAPI
+        try:
+            resp = self.client.post("/archer/generate_posts", json={
+                "mode": "b",
+                "utm_defaults": {
+                    "source": "facebook",
+                    "medium": "organic_social",
+                    "term": "steph",
+                },
+                "product_list": [{
+                    "asin": "B0CQMZFP4H",
+                    "product_name": "Dinosaur Toys Magnetic Tiles",
+                    "brand": "Coodoo",
+                    "price": "$19.99",
+                    "image_encoded_string": "https://example.test/img.jpg",
+                }],
+            })
+        finally:
+            self.app_module.anthropic.Anthropic = real_anthropic
+            product_api.URLGeniusAPI = real_urlgenius
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        saved = data["persisted_posts"][0]
+        self.assertEqual(saved["smart_link"], "https://urlgeni.us/amazon/auto")
+        self.assertEqual(saved["smart_link_id"], "ug_auto")
+        self.assertEqual(saved["utm_source"], "facebook")
+        self.assertEqual(saved["utm_medium"], "organic_social")
+        self.assertEqual(saved["utm_content"], "organic_gift-idea_static")
 
 
 if __name__ == "__main__":
