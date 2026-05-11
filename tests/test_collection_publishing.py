@@ -82,6 +82,17 @@ class CollectionPublishingTestCase(unittest.TestCase):
         self.assertEqual(data["public_url"], "/shop/draft-page?preview=1")
         generate.assert_not_called()
 
+    def test_collage_builder_exposes_draft_publish_and_management_actions(self):
+        resp = self.client.get("/archer/collage")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.get_data(as_text=True)
+        self.assertIn("Save Draft", html)
+        self.assertIn("Publish", html)
+        self.assertIn("Manage Collections", html)
+        self.assertIn("saveDraftCollage()", html)
+        self.assertIn("publishCurrentCollage()", html)
+        self.assertIn("publishSavedCollage", html)
+
     def test_publish_flips_status_and_returns_public_url(self):
         self._save("publish-me", status="draft")
         with patch("product_api.ArcherAPI.generate_link", return_value={"url": "https://archer.example/publish-me"}):
