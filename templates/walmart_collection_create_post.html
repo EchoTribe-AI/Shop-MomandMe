@@ -38,6 +38,11 @@
     .hook { border:1px solid var(--line); border-radius:14px; padding:10px; background:#fffdfb; font-size:13px; }
     .status { display:none; margin-top:12px; border-radius:14px; padding:10px 12px; background:#eef8f4; color:var(--green); font-size:13px; font-weight:800; }
     .status.err { background:#fff0ed; color:#a02828; }
+    .workflow-state { margin-top:14px; display:grid; gap:8px; }
+    .state-row { display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid var(--line); border-radius:14px; padding:10px 12px; background:#fffdfb; font-size:12px; }
+    .state-label { color:var(--muted); font-weight:900; text-transform:uppercase; letter-spacing:.06em; }
+    .state-value { color:var(--ink); font-weight:850; text-align:right; overflow-wrap:anywhere; }
+    .state-value a { color:var(--accent); text-decoration:none; }
     .fine { color:var(--muted); font-size:12px; line-height:1.45; margin-top:10px; }
     .top-alert { margin-top:14px; padding:11px 12px; border-radius:14px; background:#fff3e0; color:#a45700; font-size:13px; font-weight:800; line-height:1.4; }
   </style>
@@ -45,7 +50,8 @@
 <body>
   <main class="page">
     <div class="topbar">
-      <a class="back" href="/walmart/trending-now?admin=1">← Back to Walmart trends</a>
+      <a class="back" href="/walmart/trending-now?admin=1{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">← Back to Walmart trends</a>
+      <a class="back" href="/archer/organic">Organic</a>
       <span class="pill">Creator Voice · Paste-first demo</span>
     </div>
 
@@ -138,6 +144,20 @@
           <a class="btn ghost" id="insightsLink" href="/insights?creator_id={{ creator_id }}" style="display:none;">View in Insights</a>
         </div>
         <div id="status" class="status"></div>
+        <div class="workflow-state" aria-label="Walmart collection publishing status">
+          <div class="state-row">
+            <span class="state-label">Draft</span>
+            <span class="state-value" id="draftState">Not saved yet</span>
+          </div>
+          <div class="state-row">
+            <span class="state-label">Preview</span>
+            <span class="state-value" id="previewState">Save a draft to preview</span>
+          </div>
+          <div class="state-row">
+            <span class="state-label">Public shop</span>
+            <span class="state-value" id="publicState">Publish to create /shop link</span>
+          </div>
+        </div>
 
         <label>Hooks</label>
         <div class="hooks">
@@ -181,6 +201,22 @@
       box.textContent = message;
       box.className = `status ${isError ? 'err' : ''}`;
       box.style.display = 'block';
+    }
+
+    function setStateLink(id, label, url) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = '';
+      if (url) {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = label;
+        el.appendChild(link);
+      } else {
+        el.textContent = label;
+      }
     }
 
     function switchVoiceTab(tab) {
@@ -355,6 +391,9 @@
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
         draftId = data.draft_id;
         previewUrl = data.preview_url;
+        setStateLink('draftState', `Draft #${draftId} saved`, null);
+        setStateLink('previewState', previewUrl, previewUrl);
+        setStateLink('publicState', 'Publish to create /shop link', null);
         setStatus(`Draft saved. Preview: ${previewUrl}`);
         return data;
       } catch (err) {
@@ -377,6 +416,9 @@
         const res = await fetch(`/api/collection-content-drafts/${draftId}/publish`, { method:'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        setStateLink('draftState', `Draft #${draftId} published`, null);
+        setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
+        setStateLink('publicState', data.public_url, data.public_url);
         setStatus(`Published: ${data.public_url}`);
         const insights = document.getElementById('insightsLink');
         if (insights) { insights.href = data.insights_url || insights.href; insights.style.display = 'inline-flex'; }
