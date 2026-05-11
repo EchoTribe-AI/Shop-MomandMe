@@ -228,6 +228,9 @@ async function sendLandingChat() {
   if (!msg) return;
   input.value = '';
   _appendLandingBubble(msg, 'user');
+  const chatSessionKey = 'storefront_chat_session_everydaywithsteph';
+  let chatSessionId = '';
+  try { chatSessionId = localStorage.getItem(chatSessionKey) || ''; } catch (e) {}
 
   try {
     const res = await fetch('/api/shop/chat', {
@@ -237,9 +240,13 @@ async function sendLandingChat() {
         message: msg,
         creator_id: 'everydaywithsteph',
         slug: 'shop-home',
+        session_id: chatSessionId,
       }),
     });
     const data = await res.json();
+    if (data.session_id) {
+      try { localStorage.setItem(chatSessionKey, data.session_id); } catch (e) {}
+    }
     if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
     _appendLandingBubble(data.reply || "Here are a few good picks for that.");
     _appendLandingProducts(data.products || []);

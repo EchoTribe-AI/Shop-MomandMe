@@ -358,6 +358,9 @@ async function sendLandingChat() {
   if (!message) return;
   _appendLandingBubble(message, 'user');
   input.value = '';
+  const chatSessionKey = 'storefront_chat_session_{{ creator.id if creator else "everydaywithsteph" }}';
+  let chatSessionId = '';
+  try { chatSessionId = localStorage.getItem(chatSessionKey) || ''; } catch (e) {}
   try {
     const res = await fetch('/api/shop/chat', {
       method: 'POST',
@@ -366,9 +369,13 @@ async function sendLandingChat() {
         message,
         slug: '{{ collage.slug }}',
         creator_id: '{{ creator.id if creator else "everydaywithsteph" }}',
+        session_id: chatSessionId,
       }),
     });
     const data = await res.json();
+    if (data.session_id) {
+      try { localStorage.setItem(chatSessionKey, data.session_id); } catch (e) {}
+    }
     _appendLandingBubble(data.reply || "I found a few options for you.", 'bot');
     _appendLandingProducts(data.products || []);
   } catch (e) {

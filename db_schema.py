@@ -9,6 +9,7 @@ Tables introduced
 creators          — per-creator brand/voice/auth config (Steph seeded by default)
 earnings_amazon   — Amazon Associates earnings rows from manual CSV uploads
 attribution_paid  — Archer (and later Impact) paid-ad attribution snapshots
+storefront_chat_sessions — lightweight creator-scoped public shop chat memory
 
 Columns added to collages
 -------------------------
@@ -195,6 +196,24 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_collection ON posts(collection_slug)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)")
+
+        # Public storefront chat memory. The browser owns the opaque
+        # session_id; the server keeps only the last few turns per creator.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS storefront_chat_sessions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                creator_id  TEXT NOT NULL,
+                session_id  TEXT NOT NULL,
+                turns_json  TEXT DEFAULT '[]',
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(creator_id, session_id)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_storefront_chat_creator_session "
+            "ON storefront_chat_sessions(creator_id, session_id)"
+        )
 
         # ── campaigns_v3 (Branch 3) ──────────────────────────────────────
         # Persists Campaign Build Packages per the Campaign_Build_Package_Spec.
