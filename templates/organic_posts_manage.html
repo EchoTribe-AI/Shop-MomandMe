@@ -92,7 +92,11 @@
         <div>{{ c.product_count }} products</div>
         <div>{{ c.created_at }}</div>
         <div class="actions">
+          {% if 'walmart_trend' in (c.campaign_types or []) %}
+          <a class="btn primary" href="/walmart/pages/{{ c.slug }}/edit">Edit</a>
+          {% else %}
           <a class="btn primary" href="/archer/collage?collection={{ c.slug }}">Edit</a>
+          {% endif %}
           <a class="btn" href="/shop/{{ c.slug }}{% if is_draft %}?preview=1{% endif %}" target="_blank">{% if is_draft %}Preview{% else %}View{% endif %}</a>
           {% if is_draft %}<button class="btn green" onclick="publishCollection('{{ c.slug }}', this)">Publish</button>{% endif %}
         </div>

@@ -56,6 +56,7 @@ SHOP_SUBDOMAIN = os.environ.get('SHOP_SUBDOMAIN', 'shop.echotribe.ai').lower()
 def _public_shop_nav(active: str = '') -> list[dict]:
     base = f'https://{SHOP_SUBDOMAIN}'
     return [
+        {'key': 'collections', 'label': 'Collections', 'href': f'{base}/collections'},
         {'key': 'trends', 'label': 'Trends', 'href': f'{base}/trends'},
         {'key': 'posts', 'label': 'Social Posts', 'href': f'{base}/posts'},
     ]
@@ -91,6 +92,8 @@ def _route_shop_subdomain():
 
     if request.method == 'GET':
         if path == '/' or path == '':
+            return shop_directory()
+        if path == '/collections':
             return shop_directory()
         if path == '/trends':
             return shop_trends()
@@ -1164,6 +1167,12 @@ def archer_save_collage():
     from product_api import ArcherAPI
     data = request.get_json() or {}
     try:
+        existing = collection_service.get_collage(data.get('slug') or '')
+        if existing and 'walmart_trend' in (existing.get('campaign_types') or []):
+            return jsonify({
+                'error': 'Walmart-origin pages must be edited in the Walmart collection editor',
+                'edit_url': f"/walmart/pages/{existing['slug']}/edit",
+            }), 409
         archer = None
 
         def generate_link(asin, label):
@@ -1221,6 +1230,9 @@ def archer_collage_get(slug):
     out = collection_service.get_collage(slug)
     if not out:
         return jsonify({'error': 'not found'}), 404
+    if 'walmart_trend' in (out.get('campaign_types') or []):
+        out['editor_type'] = 'walmart_collection'
+        out['edit_url'] = f"/walmart/pages/{out['slug']}/edit"
     return jsonify({'collage': out})
 
 
@@ -1230,6 +1242,13 @@ def archer_list_collages():
     status = request.args.get('status') or 'published'
     try:
         collages = collection_service.list_collages(status=status, limit=50)
+        for collage in collages:
+            if 'walmart_trend' in (collage.get('campaign_types') or []):
+                collage['editor_type'] = 'walmart_collection'
+                collage['edit_url'] = f"/walmart/pages/{collage['slug']}/edit"
+            else:
+                collage['editor_type'] = 'collage'
+                collage['edit_url'] = f"/archer/collage?collection={collage['slug']}"
     except collection_service.CollectionServiceError as exc:
         return jsonify({'error': str(exc)}), 400
     return jsonify({'collages': collages})
@@ -1291,6 +1310,7 @@ def shop_landing(slug):
     )
 
 @app.route('/shop/')
+@app.route('/collections')
 def shop_directory():
     """Public directory of all published collections at shop.echotribe.ai/
 
@@ -1344,7 +1364,7 @@ def shop_directory():
         'shop_directory.html',
         items=items,
         themes=THEMES,
-        canonical_url=f'https://{SHOP_SUBDOMAIN}/',
+        canonical_url=f'https://{SHOP_SUBDOMAIN}/collections',
         shop_subdomain=SHOP_SUBDOMAIN,
         public_nav_items=_public_shop_nav('collections'),
         nav_active='collections',
@@ -1517,10 +1537,15 @@ def walmart_trending_now_page():
 def shop_trends():
     """Public Walmart trends home for the shop subdomain/menu."""
     from walmart_trends import get_trending_page_data
+    try:
+        data = get_trending_page_data()
+    except Exception as exc:
+        logging.warning("[WALMART_TRENDS] public trends unavailable: %s", exc)
+        data = {'last_refreshed': '', 'collections': []}
 
     return render_template(
         'walmart_trending_now.html',
-        data=get_trending_page_data(),
+        data=data,
         admin_mode=False,
         admin_token='',
         shop_subdomain=SHOP_SUBDOMAIN,
@@ -1558,6 +1583,39 @@ def walmart_collection_create_post(collection_slug):
         default_public_slug=default_public_slug,
         admin_token=admin_token,
         demo_auth_allowed=_walmart_content_demo_allowed(),
+        existing_draft=None,
+        editor_mode='create',
+        shop_subdomain=SHOP_SUBDOMAIN,
+    )
+
+
+@app.route('/walmart/pages/<public_slug>/edit')
+def walmart_page_edit(public_slug):
+    """Walmart-aware editor for published Walmart collection pages."""
+    import collection_content as cc
+
+    draft = cc.get_latest_draft_for_public_slug(public_slug)
+    if not draft:
+        return "Walmart page draft not found", 404
+    collection_slug = draft.get('source_collection_slug') or ''
+    collection = cc.get_walmart_collection(collection_slug) if collection_slug else None
+    if not collection:
+        collection = cc.collection_from_draft_snapshot(draft)
+    creator_id = (request.args.get('creator_id') or draft.get('creator_id') or 'everydaywithsteph').strip()
+    admin_token = (request.args.get('admin_token') or '').strip()
+    products = collection.get('items', [])[:10]
+    return render_template(
+        'walmart_collection_create_post.html',
+        collection=collection,
+        products=products,
+        product_count=len(collection.get('items', []) or []),
+        creator_id=creator_id,
+        default_public_slug=draft.get('public_slug') or public_slug,
+        admin_token=admin_token,
+        demo_auth_allowed=_walmart_content_demo_allowed(),
+        existing_draft=draft,
+        editor_mode='edit',
+        shop_subdomain=SHOP_SUBDOMAIN,
     )
 
 
@@ -1938,6 +1996,9 @@ def shop_sitemap():
     parts = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     parts.append(f'  <url><loc>{base}/</loc><changefreq>daily</changefreq><priority>0.9</priority></url>')
+    parts.append(f'  <url><loc>{base}/collections</loc><changefreq>daily</changefreq><priority>0.9</priority></url>')
+    parts.append(f'  <url><loc>{base}/trends</loc><changefreq>daily</changefreq><priority>0.8</priority></url>')
+    parts.append(f'  <url><loc>{base}/posts</loc><changefreq>daily</changefreq><priority>0.8</priority></url>')
     for slug, updated in rows:
         lastmod = (updated or '')[:10]
         parts.append(

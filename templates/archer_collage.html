@@ -412,6 +412,10 @@
       const data = await res.json();
       if (!res.ok || data.error || !data.collage) throw new Error(data.error || `HTTP ${res.status}`);
       const c = data.collage;
+      if (c.editor_type === 'walmart_collection' && c.edit_url) {
+        window.location.href = c.edit_url;
+        return;
+      }
       state.slug = c.slug || slug;
       state.layout = c.layout || 'layout-2';
       state.theme = c.theme || 'coral';
@@ -797,6 +801,7 @@
         const isDraft = (c.status || 'published') !== 'published';
         const viewUrl = isDraft ? `/shop/${c.slug}?preview=1` : `/shop/${c.slug}`;
         const copyUrl = isDraft ? `${location.origin}/shop/${c.slug}?preview=1` : `https://shop.echotribe.ai/${c.slug}`;
+        const editUrl = c.edit_url || `/archer/collage?collection=${encodeURIComponent(c.slug)}`;
         return `
         <div class="collage-item">
           <div class="ci-info">
@@ -804,7 +809,7 @@
             <div class="ci-meta">${c.product_count} products · ${c.theme} · ${c.created_at} · ${escStr(c.status || 'published')}</div>
           </div>
           <div class="ci-actions">
-            <button class="ci-btn" onclick="editSavedCollage('${escStr(c.slug)}')">Edit</button>
+            <button class="ci-btn" onclick="window.location.href='${editUrl}'">Edit</button>
             <button class="ci-btn open" onclick="window.open('${viewUrl}','_blank')">${isDraft ? 'Preview' : 'View'}</button>
             <button class="ci-btn" onclick="copyToClipboard('${copyUrl}');showToast('URL copied!')">Copy</button>
             ${isDraft ? `<button class="ci-btn publish" onclick="publishSavedCollage('${escStr(c.slug)}', this)">Publish</button>` : ''}
