@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import db_schema
+from product_api import CrawlbaseAPI, URLGeniusAPI
 from walmart_trends import (
     RefreshResult,
     WalmartTrendStore,
@@ -375,6 +376,50 @@ class AmazonTrendStore:
         finally:
             conn.close()
 
+    def update_product_enrichment(
+        self,
+        asin: str,
+        data: dict[str, Any],
+        status: str = "ok",
+        error: str = "",
+    ) -> None:
+        """Update display metadata on an existing amazon_trend_products row.
+
+        Never overwrites a non-empty field with an empty value — callers pass
+        whatever they have and COALESCE preserves the best-known value.
+        """
+        conn = _connect()
+        try:
+            conn.execute(
+                """
+                UPDATE amazon_trend_products
+                SET
+                    image_url         = COALESCE(NULLIF(?, ''), image_url),
+                    current_price     = COALESCE(?, current_price),
+                    price_display     = COALESCE(NULLIF(?, ''), price_display),
+                    brand             = COALESCE(NULLIF(?, ''), brand),
+                    category          = COALESCE(NULLIF(?, ''), category),
+                    enrichment_status = ?,
+                    enrichment_error  = ?,
+                    last_verified_at  = CURRENT_TIMESTAMP,
+                    updated_at        = CURRENT_TIMESTAMP
+                WHERE asin = ?
+                """,
+                (
+                    data.get("image_url") or "",
+                    data.get("current_price"),
+                    data.get("price_display") or "",
+                    data.get("brand") or "",
+                    data.get("category") or "",
+                    status,
+                    error,
+                    asin,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
 
 class AmazonCollectionBuilder:
     """Build collection dicts from an Amazon parsed workbook."""
@@ -436,6 +481,109 @@ class AmazonCollectionBuilder:
         }
 
 
+class AmazonURLGeniusLinkService:
+    """Wrap Amazon affiliate URLs with URLGenius deep links.
+
+    Stores in the shared walmart_urlgenius_links table (retailer-agnostic
+    destination→genius_url cache). Never touches Walmart affiliate rows.
+    """
+
+    def __init__(self, store: AmazonTrendStore):
+        self.store = store
+        self.client = URLGeniusAPI()
+
+    def ensure(self, affiliate_url: str, asin: str, force_new: bool = False) -> str:
+        """Return a URLGenius short link for the Amazon affiliate URL.
+
+        Creates one if not already cached. Returns the original URL on any
+        failure so the caller always has a usable link.
+        """
+        if not affiliate_url:
+            return affiliate_url
+        existing = None if force_new else self.store.urlgenius_for(affiliate_url)
+        if existing:
+            return existing.get("genius_url") or affiliate_url
+        if not self.client.api_key:
+            self.store.save_urlgenius_link(
+                affiliate_url, affiliate_url,
+                status="fallback", error="URLGENIUS_API_KEY not set",
+            )
+            return affiliate_url
+        try:
+            result = self.client.create_link(
+                affiliate_url,
+                utm_source="amazon",
+                utm_medium="affiliate",
+                utm_campaign="trending-picks",
+                utm_content=asin,
+                force_new=force_new,
+            )
+            link = result.get("link", {}) if isinstance(result, dict) else {}
+            genius_url = link.get("genius_url") or link.get("short_url") or affiliate_url
+            self.store.save_urlgenius_link(affiliate_url, genius_url, str(link.get("id") or ""))
+            return genius_url
+        except Exception as exc:
+            logging.warning("[AMAZON_TRENDS] URLGenius failed for %s: %s", asin, exc)
+            self.store.save_urlgenius_link(
+                affiliate_url, affiliate_url,
+                status="fallback", error=str(exc),
+            )
+            return affiliate_url
+
+
+class AmazonProductEnricher:
+    """Fetch and store display metadata (image, price, brand) for Amazon products.
+
+    Uses CrawlbaseAPI.get_amazon_product(). If the token is absent or the API
+    returns no data, the existing row is preserved and enrichment_status is
+    set to 'pending' so a later pass can retry.
+    """
+
+    def __init__(self, store: AmazonTrendStore):
+        self.store = store
+        self.client = CrawlbaseAPI()
+
+    def enrich(self, asin: str) -> dict[str, Any]:
+        """Enrich one ASIN. Returns the final product dict (may be unchanged)."""
+        existing = self.store.get_product(asin) or {}
+        if existing.get("enrichment_status") == "ok" and existing.get("image_url"):
+            return existing
+        if not self.client.token:
+            return existing  # no key — leave enrichment_status as 'pending', no write
+        try:
+            item = self.client.get_amazon_product(asin) or {}
+            if not item:
+                self.store.update_product_enrichment(asin, {}, "pending", "Crawlbase returned no data")
+                return existing
+            price_value = _to_float(item.get("price") or item.get("current_price"))
+            data = {
+                "image_url": item.get("imageUrl") or item.get("image") or item.get("image_url") or "",
+                "current_price": price_value,
+                "price_display": _price_display(price_value) if price_value else item.get("price_display") or "",
+                "brand": item.get("brand") or "",
+                "category": item.get("category") or "",
+            }
+            self.store.update_product_enrichment(asin, data, "ok")
+            return {**existing, **{k: v for k, v in data.items() if v not in (None, "")}}
+        except Exception as exc:
+            logging.warning("[AMAZON_TRENDS] enrichment failed for %s: %s", asin, exc)
+            self.store.update_product_enrichment(asin, {}, "fallback", str(exc))
+            return existing
+
+    def enrich_batch(self, asins: list[str]) -> dict[str, int]:
+        """Enrich a list of ASINs; return counts {ok, pending, fallback, skipped}."""
+        counts: dict[str, int] = {"ok": 0, "pending": 0, "fallback": 0, "skipped": 0}
+        for asin in asins:
+            existing = self.store.get_product(asin) or {}
+            if existing.get("enrichment_status") == "ok" and existing.get("image_url"):
+                counts["skipped"] += 1
+                continue
+            result = self.enrich(asin)
+            status = (self.store.get_product(asin) or {}).get("enrichment_status") or "pending"
+            counts[status] = counts.get(status, 0) + 1
+        return counts
+
+
 class AmazonTrendRefreshService:
     """Orchestrate a full Amazon workbook bootstrap."""
 
@@ -443,6 +591,8 @@ class AmazonTrendRefreshService:
         db_schema.bootstrap()
         self.store = AmazonTrendStore()
         self.builder = AmazonCollectionBuilder()
+        self.urlgenius = AmazonURLGeniusLinkService(self.store)
+        self.enricher = AmazonProductEnricher(self.store)
 
     def bootstrap_from_workbook(
         self, workbook_path: "str | os.PathLike[str]"
@@ -486,12 +636,22 @@ class AmazonTrendRefreshService:
                     "Workbook parsed successfully but produced no trend records"
                 )
 
-            return self._process_records(
+            result = self._process_records(
                 run_id,
                 trend_records,
                 self.builder.from_workbook(parsed),
                 diagnostics=diagnostics,
             )
+
+            # Optional enrichment pass — runs only when CRAWLBASE_JS_TOKEN is set.
+            # Safe to skip: existing workbook data is already stored; enrichment
+            # only backfills image_url / price_display / brand when available.
+            all_asins = list({r.asin for r in trend_records if r.asin})
+            enrich_counts = self.enricher.enrich_batch(all_asins)
+            if any(enrich_counts.values()):
+                logging.info("[AMAZON_TRENDS] enrichment pass: %s", enrich_counts)
+
+            return result
         except Exception as exc:
             failures = [{"stage": "workbook_parse", "error": str(exc)}]
             self.store.finish_run(run_id, "failed", {"records": 0}, failures)
@@ -514,6 +674,7 @@ class AmazonTrendRefreshService:
             except Exception as exc:
                 failures.append({"stage": "snapshot", "asin": record.asin, "error": str(exc)})
 
+        seeded_genius = 0
         for record in records:
             if record.amazon_link:
                 try:
@@ -522,6 +683,17 @@ class AmazonTrendRefreshService:
                     logging.debug(
                         "[AMAZON_TRENDS] affiliate seed skipped for %s: %s", record.asin, exc
                     )
+                try:
+                    affiliate_url = self.store.affiliate_link_for(record.asin) or record.amazon_link
+                    genius_url = self.urlgenius.ensure(affiliate_url, record.asin)
+                    if genius_url and genius_url != affiliate_url:
+                        seeded_genius += 1
+                except Exception as exc:
+                    logging.debug(
+                        "[AMAZON_TRENDS] URLGenius skipped for %s: %s", record.asin, exc
+                    )
+        if seeded_genius:
+            logging.info("[AMAZON_TRENDS] Created/cached %d URLGenius links", seeded_genius)
 
         collection_item_rows = sum(len(c.get("items", [])) for c in collections)
         try:
@@ -535,6 +707,7 @@ class AmazonTrendRefreshService:
             "products_inserted_updated": len(unique_asins),
             "collections": len(collections),
             "collection_item_rows_inserted": collection_item_rows,
+            "urlgenius_links": seeded_genius,
             "failures": len(failures),
         }
         logging.info(

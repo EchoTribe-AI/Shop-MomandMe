@@ -498,6 +498,10 @@ def init_amazon_trends_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_amazon_affiliate_asin ON amazon_affiliate_links(asin)")
 
+    # Phase 3 enrichment columns (idempotent for existing DBs).
+    _add_column_if_missing(conn, 'amazon_trend_products', "enrichment_error TEXT")
+    _add_column_if_missing(conn, 'amazon_trend_products', "last_verified_at TIMESTAMP")
+
 
 def seed_default_creator() -> None:
     """Insert the default Steph row if creators is empty. Idempotent."""
