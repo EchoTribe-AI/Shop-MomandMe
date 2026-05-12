@@ -18,6 +18,17 @@
     .admin-bar { margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-top:1px solid var(--line); padding-top:10px; }
     .admin-note { color:rgba(26,26,23,.58); font-size:11px; line-height:1.35; font-weight:750; }
     .admin-link { flex:0 0 auto; text-decoration:none; color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; }
+    .workbook-panel { margin-top:10px; border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:8px; }
+    .workbook-panel-label { font-size:10px; font-weight:800; color:rgba(26,26,23,.5); text-transform:uppercase; letter-spacing:.06em; }
+    .workbook-row { display:flex; gap:8px; align-items:center; }
+    .workbook-select { flex:1; font-size:11px; font-weight:700; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 12px; appearance:none; -webkit-appearance:none; cursor:pointer; outline:none; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+    .workbook-select:focus { border-color:var(--accent); }
+    .workbook-run-btn { flex:0 0 auto; font-size:11px; font-weight:850; color:#fff; background:var(--ink); border:none; border-radius:999px; padding:7px 12px; cursor:pointer; white-space:nowrap; }
+    .workbook-run-btn:disabled { opacity:.45; cursor:not-allowed; }
+    .workbook-status { font-size:11px; line-height:1.4; color:rgba(26,26,23,.6); min-height:14px; }
+    .workbook-status.ok { color:var(--green); font-weight:750; }
+    .workbook-status.err { color:#c0392b; font-weight:750; }
+    .workbook-none { font-size:11px; color:rgba(26,26,23,.5); font-style:italic; }
     .public-shop-nav { margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .public-shop-link { color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; text-decoration:none; }
     .public-shop-link.active { background:var(--accent); color:#fff; border-color:var(--accent); }
@@ -61,6 +72,24 @@
         <div class="admin-bar">
           <div class="admin-note">Admin workflow: choose a section, create a collection draft, preview it, then publish to the public shop.</div>
           <a class="admin-link" href="/archer/organic">Organic</a>
+        </div>
+        <div class="workbook-panel">
+          <div class="workbook-panel-label">Workbook Import</div>
+          {% if workbooks %}
+            <div class="workbook-row">
+              <select id="wb-select" class="workbook-select">
+                {% for wb in workbooks %}
+                  <option value="{{ wb.path }}" {% if loop.first %}selected{% endif %}>
+                    {{ wb.source }} · {{ wb.date_label or wb.filename }} · {{ wb.modified_display }}
+                  </option>
+                {% endfor %}
+              </select>
+              <button id="wb-run-btn" class="workbook-run-btn" onclick="runWorkbookImport()">Run Import</button>
+            </div>
+            <div id="wb-status" class="workbook-status"></div>
+          {% else %}
+            <div class="workbook-none">No .xlsx workbook files found in attached_assets/. Drop a workbook file there and reload.</div>
+          {% endif %}
         </div>
       {% endif %}
     </header>
@@ -168,5 +197,47 @@
 
     <p class="fine">As an affiliate, we may earn from qualifying purchases. Product details can change at Walmart.</p>
   </main>
+  {% if admin_mode and workbooks %}
+  <script>
+    async function runWorkbookImport() {
+      const select = document.getElementById('wb-select');
+      const btn = document.getElementById('wb-run-btn');
+      const status = document.getElementById('wb-status');
+      const path = select.value;
+      if (!path) return;
+      btn.disabled = true;
+      status.className = 'workbook-status';
+      status.textContent = 'Running import…';
+      try {
+        const resp = await fetch('/admin/walmart-trends/bootstrap', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Walmart-Trends-Admin-Token': '{{ admin_token|e }}'
+          },
+          body: JSON.stringify({ workbook: path })
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          const c = data.counts || {};
+          const parts = [];
+          if (c.products) parts.push(c.products + ' products');
+          if (c.collections) parts.push(c.collections + ' collections');
+          if (c.affiliate_links) parts.push(c.affiliate_links + ' links seeded');
+          status.className = 'workbook-status ok';
+          status.textContent = 'Done — run #' + data.run_id + (parts.length ? ' · ' + parts.join(', ') : '') + '.';
+        } else {
+          status.className = 'workbook-status err';
+          status.textContent = 'Error: ' + (data.error || resp.status);
+        }
+      } catch (e) {
+        status.className = 'workbook-status err';
+        status.textContent = 'Request failed: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+  {% endif %}
 </body>
 </html>

@@ -27,6 +27,7 @@ from product_api import ImpactAPI, URLGeniusAPI, WalmartAPI
 
 DB_PATH = db_schema.DB_PATH
 DEFAULT_WORKBOOK = Path("attached_assets/Walmart_May6th_Analysis.xlsx")
+ATTACHED_ASSETS_DIR = Path("attached_assets")
 SHEET_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 STALE_DOUBLE_ENCODED_WALMART_GOTO_ERROR = "stale double-encoded Walmart goto destination"
 
@@ -43,6 +44,8 @@ class TrendRecord:
     collection_name: str = ""
     rank: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    brand: str = ""
+    landing_page_url: str = ""
 
 
 @dataclass
@@ -60,6 +63,49 @@ class RefreshAlreadyRunning(RuntimeError):
 
 class WorkbookValidationError(ValueError):
     """Raised when the workbook is missing required sheets or columns."""
+
+
+def parse_workbook_filename(path: "str | os.PathLike[str]") -> dict[str, str]:
+    """Extract source type and date label from a workbook filename.
+
+    Walmart_May12_Analysis.xlsx   → {"source": "Walmart", "date_label": "May12"}
+    Amazon_Summer2025_Analysis.xlsx → {"source": "Amazon",  "date_label": "Summer2025"}
+    unknown.xlsx                  → {"source": "unknown",  "date_label": ""}
+
+    Rule: split stem on '_', first part is source, second part is date label.
+    """
+    stem = Path(path).stem
+    parts = stem.split("_", 2)
+    source = parts[0] if len(parts) >= 2 and parts[0] in ("Walmart", "Amazon") else "unknown"
+    date_label = parts[1] if source != "unknown" and len(parts) >= 2 else ""
+    return {"source": source, "date_label": date_label}
+
+
+def discover_workbooks(assets_dir: Path = ATTACHED_ASSETS_DIR) -> list[dict]:
+    """Scan assets_dir for .xlsx workbook files.
+
+    Returns a list of dicts sorted newest-modified first:
+      filename, path, source, date_label, modified_at (ISO), modified_display
+    """
+    if not assets_dir.is_dir():
+        return []
+    workbooks = []
+    for p in assets_dir.glob("*.xlsx"):
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        meta = parse_workbook_filename(p)
+        workbooks.append({
+            "filename": p.name,
+            "path": str(p),
+            "source": meta["source"],
+            "date_label": meta["date_label"],
+            "modified_at": datetime.fromtimestamp(mtime).strftime("%Y-%m-%dT%H:%M:%S"),
+            "modified_display": datetime.fromtimestamp(mtime).strftime("%b %-d, %Y"),
+        })
+    workbooks.sort(key=lambda w: w["modified_at"], reverse=True)
+    return workbooks
 
 
 def _connect() -> sqlite3.Connection:
@@ -151,6 +197,15 @@ def extract_walmart_sku_from_url(url: str) -> str:
     return ""
 
 
+def _is_numeric_cell(value: str) -> bool:
+    """Return True if the string looks like a plain number (int or float), not a label."""
+    try:
+        float(value.replace(",", "").replace("$", ""))
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
 def _to_int(value: Any) -> int:
     try:
         return int(float(str(value or "0").replace(",", "")))
@@ -171,17 +226,22 @@ def _price_display(value: Any) -> str:
 
 
 class WorkbookTrendParser:
-    REQUIRED_SHEETS = {
-        "Trending - Item Count First": {"SKU", "Item Name", "Category List", "Item Count", "Sale Amount", "Total Earnings"},
-        "Trending - Earnings First": {"SKU", "Item Name", "Category List", "Item Count", "Sale Amount", "Total Earnings"},
-        "Curated Collections": {"Collection", "SKU", "Item Name", "Category List", "Item Count", "Sale Amount", "Total Earnings"},
-    }
-
     """Parse the workbook with stdlib XLSX XML support.
 
     Avoiding an openpyxl dependency keeps the Replit app lightweight. The parser
     handles shared strings and simple scalar cell values used by this workbook.
     """
+
+    REQUIRED_SHEETS = {
+        "Trending - Item Count First": {"SKU", "Item Name", "Category List", "Item Count", "Sale Amount", "Total Earnings"},
+        "Trending - Earnings First": {"SKU", "Item Name", "Category List", "Item Count", "Sale Amount", "Total Earnings"},
+        "Curated Collections": {"Collection", "SKU", "Item Name", "Category List", "Item Count", "Sale Amount", "Total Earnings"},
+    }
+    # Present in newer workbooks — parse if available, skip silently if absent.
+    OPTIONAL_SHEETS = {
+        "All Aggregated SKUs": {"SKU"},
+        "Summary": set(),
+    }
 
     def __init__(self, workbook_path: str | os.PathLike[str] = DEFAULT_WORKBOOK):
         self.workbook_path = Path(workbook_path)
@@ -203,6 +263,12 @@ class WorkbookTrendParser:
             "collections": self._records_from_sheet(
                 rows_by_sheet.get("Curated Collections", []), "collection"
             ),
+            "all_skus": self._records_from_aggregated_sheet(
+                rows_by_sheet.get("All Aggregated SKUs", [])
+            ),
+            "summary_meta": self._parse_summary_tab(
+                rows_by_sheet.get("Summary", [])
+            ),
         }
 
     def _read_workbook_rows(self) -> dict[str, list[dict[str, str]]]:
@@ -215,6 +281,15 @@ class WorkbookTrendParser:
                 raw_rows = self._sheet_rows(zf, sheet_path, shared)
                 if not raw_rows:
                     out[sheet_name] = []
+                    continue
+                if sheet_name == "Summary":
+                    # Summary tab has no column headers — index by position (col0, col1, ...)
+                    rows = []
+                    for raw in raw_rows:
+                        if not any(raw):
+                            continue
+                        rows.append({f"col{i}": raw[i] for i in range(len(raw))})
+                    out[sheet_name] = rows
                     continue
                 headers = [h.strip() for h in raw_rows[0]]
                 rows = []
@@ -296,15 +371,20 @@ class WorkbookTrendParser:
         if missing_columns:
             raise WorkbookValidationError(f"Workbook missing required columns: {'; '.join(missing_columns)}")
 
-    def diagnostics(self, parsed: dict[str, list[TrendRecord]]) -> dict[str, Any]:
+    def diagnostics(self, parsed: dict[str, Any]) -> dict[str, Any]:
         collection_names = sorted({r.collection_name for r in parsed.get("collections", []) if r.collection_name})
+        file_meta = parse_workbook_filename(self.workbook_path)
         return {
             "workbook_path": str(self.workbook_path),
+            "date_label": file_meta["date_label"],
+            "source": file_meta["source"],
             "sheet_names_found": self.sheet_names_found,
             "item_count_trend_records": len(parsed.get("1A", [])),
             "earnings_trend_records": len(parsed.get("1B", [])),
             "curated_collection_names_found": collection_names,
             "curated_collection_count": len(collection_names),
+            "all_skus_count": len(parsed.get("all_skus", [])),
+            "summary_meta": parsed.get("summary_meta") or {},
         }
 
     def _records_from_sheet(self, rows: list[dict[str, str]], source_type: str) -> list[TrendRecord]:
@@ -326,9 +406,48 @@ class WorkbookTrendParser:
             ))
         return records
 
+    def _records_from_aggregated_sheet(self, rows: list[dict[str, str]]) -> list[TrendRecord]:
+        """Parse All Aggregated SKUs tab. Captures Brand and Landing Page URL when present."""
+        records = []
+        for row in rows:
+            sku = str(row.get("SKU") or "").strip()
+            if not sku:
+                continue
+            records.append(TrendRecord(
+                sku=sku,
+                item_name=(row.get("Item Name") or "").strip(),
+                category_list=(row.get("Category List") or "").strip(),
+                item_count=_to_int(row.get("Item Count")),
+                sale_amount=_to_float(row.get("Sale Amount")),
+                total_earnings=_to_float(row.get("Total Earnings")),
+                source_list_type="all_skus",
+                brand=(row.get("Brand") or "").strip(),
+                landing_page_url=(row.get("Landing Page URL") or "").strip(),
+            ))
+        return records
+
+    def _parse_summary_tab(self, rows: list[dict[str, str]]) -> dict[str, Any]:
+        """Parse Summary tab as key-value pairs. Handles multi-pair rows. Never raises."""
+        meta: dict[str, Any] = {}
+        if not rows:
+            return meta
+        for row in rows:
+            vals = list(row.values())
+            i = 0
+            while i < len(vals) - 1:
+                key_raw = str(vals[i]).strip()
+                val_raw = str(vals[i + 1]).strip()
+                if key_raw and not _is_numeric_cell(key_raw) and val_raw:
+                    key = key_raw.lower().replace(" ", "_")
+                    meta[key] = val_raw
+                    i += 2
+                else:
+                    i += 1
+        return meta
+
 
 class WalmartTrendStore:
-    def create_run(self, source_type: str, source_file: str = "", window_start: str = "", window_end: str = "") -> int:
+    def create_run(self, source_type: str, source_file: str = "", window_start: str = "", window_end: str = "", date_label: str = "") -> int:
         conn = _connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -361,10 +480,10 @@ class WalmartTrendStore:
             cur = conn.execute(
                 """
                 INSERT INTO walmart_refresh_runs
-                (source_type, source_file, window_start, window_end, status)
-                VALUES (?, ?, ?, ?, 'running')
+                (source_type, source_file, window_start, window_end, status, date_label)
+                VALUES (?, ?, ?, ?, 'running', ?)
                 """,
-                (source_type, source_file, window_start or None, window_end or None),
+                (source_type, source_file, window_start or None, window_end or None, date_label or None),
             )
             conn.commit()
             return int(cur.lastrowid)
@@ -395,15 +514,16 @@ class WalmartTrendStore:
         try:
             conn.execute(
                 """
-                INSERT INTO walmart_products (sku, item_name, category_list, canonical_url, updated_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO walmart_products (sku, item_name, category_list, brand, canonical_url, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(sku) DO UPDATE SET
                     item_name = COALESCE(NULLIF(excluded.item_name, ''), walmart_products.item_name),
                     category_list = COALESCE(NULLIF(excluded.category_list, ''), walmart_products.category_list),
+                    brand = COALESCE(NULLIF(excluded.brand, ''), walmart_products.brand),
                     canonical_url = COALESCE(walmart_products.canonical_url, excluded.canonical_url),
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (record.sku, record.item_name, record.category_list, f"https://www.walmart.com/ip/{record.sku}"),
+                (record.sku, record.item_name, record.category_list, record.brand, f"https://www.walmart.com/ip/{record.sku}"),
             )
             conn.commit()
         finally:
@@ -570,6 +690,52 @@ class WalmartTrendStore:
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (sku, product_url, impact_url, status, error),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def seed_workbook_affiliate_link(self, sku: str, landing_page_url: str) -> bool:
+        """Insert a workbook-sourced URL as a last-resort affiliate link.
+
+        Only inserts if no active or fallback link exists for this SKU.
+        Never overwrites Impact-generated links. Returns True if inserted.
+        """
+        if not sku or not landing_page_url:
+            return False
+        conn = _connect()
+        try:
+            existing = conn.execute(
+                """
+                SELECT id FROM walmart_affiliate_links
+                WHERE sku = ? AND status IN ('active', 'fallback')
+                LIMIT 1
+                """,
+                (sku,),
+            ).fetchone()
+            if existing:
+                return False
+            conn.execute(
+                """
+                INSERT INTO walmart_affiliate_links
+                    (sku, product_url, impact_url, status, updated_at)
+                VALUES (?, ?, ?, 'workbook', CURRENT_TIMESTAMP)
+                ON CONFLICT(sku, product_url) DO NOTHING
+                """,
+                (sku, landing_page_url, landing_page_url),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def update_run_metadata(self, run_id: int, metadata: dict[str, Any]) -> None:
+        """Store summary-tab metadata on the run record."""
+        conn = _connect()
+        try:
+            conn.execute(
+                "UPDATE walmart_refresh_runs SET run_metadata_json = ? WHERE id = ?",
+                (json.dumps(metadata), run_id),
             )
             conn.commit()
         finally:
@@ -971,8 +1137,9 @@ class WalmartTrendStore:
                         """
                         SELECT impact_url
                         FROM walmart_affiliate_links
-                        WHERE sku = ? AND status IN ('active', 'fallback')
-                        ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                        WHERE sku = ? AND status IN ('active', 'fallback', 'workbook')
+                        ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'fallback' THEN 1 ELSE 2 END,
+                                 updated_at DESC, id DESC
                         LIMIT 1
                         """,
                         (rd["sku"],),
@@ -1481,18 +1648,43 @@ class WalmartTrendRefreshService:
         self.urlgenius = URLGeniusLinkService(self.store)
 
     def bootstrap_from_workbook(self, workbook_path: str | os.PathLike[str] = DEFAULT_WORKBOOK) -> RefreshResult:
-        run_id = self.store.create_run("workbook_bootstrap", str(workbook_path))
+        file_meta = parse_workbook_filename(Path(workbook_path))
+        run_id = self.store.create_run(
+            "workbook_bootstrap",
+            str(workbook_path),
+            date_label=file_meta["date_label"],
+        )
         try:
             parser = WorkbookTrendParser(workbook_path)
             parsed = parser.parse()
             diagnostics = parser.diagnostics(parsed)
-            all_records = parsed.get("1A", []) + parsed.get("1B", []) + parsed.get("collections", [])
-            if not all_records:
+
+            # Persist summary-tab metadata on the run record
+            summary_meta = parsed.get("summary_meta") or {}
+            if summary_meta:
+                self.store.update_run_metadata(run_id, summary_meta)
+
+            # Upsert all-SKUs product rows (brand, landing_page_url) and seed workbook links.
+            # Handled before _process_records so enrichment can see the full inventory.
+            seeded_links = 0
+            for record in parsed.get("all_skus", []):
+                try:
+                    self.store.upsert_product_from_record(record)
+                    if record.landing_page_url:
+                        if self.store.seed_workbook_affiliate_link(record.sku, record.landing_page_url):
+                            seeded_links += 1
+                except Exception as exc:
+                    logging.warning("[WALMART_TRENDS] all_skus upsert failed for %s: %s", record.sku, exc)
+            if seeded_links:
+                logging.info("[WALMART_TRENDS] Seeded %d workbook affiliate links", seeded_links)
+
+            trend_records = parsed.get("1A", []) + parsed.get("1B", []) + parsed.get("collections", [])
+            if not trend_records and not parsed.get("all_skus"):
                 raise WorkbookValidationError("Workbook parsed successfully but produced no trend records")
             return self._process_records(
                 run_id,
                 "workbook_bootstrap",
-                all_records,
+                trend_records,
                 self.builder.from_workbook(parsed),
                 diagnostics=diagnostics,
             )

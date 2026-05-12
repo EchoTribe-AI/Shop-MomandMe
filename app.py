@@ -1517,16 +1517,18 @@ def _require_walmart_admin_if_configured():
 @app.route('/walmart/trending-now')
 def walmart_trending_now_page():
     """Mobile-first Walmart What's Trending Now landing page."""
-    from walmart_trends import get_trending_page_data
+    from walmart_trends import get_trending_page_data, discover_workbooks
 
     data = get_trending_page_data()
     admin_mode = request.args.get('admin') == '1'
     admin_token = (request.args.get('admin_token') or '').strip()
+    workbooks = discover_workbooks() if admin_mode else []
     return render_template(
         'walmart_trending_now.html',
         data=data,
         admin_mode=admin_mode,
         admin_token=admin_token,
+        workbooks=workbooks,
         shop_subdomain=SHOP_SUBDOMAIN,
         public_nav_items=_public_shop_nav('trends'),
         nav_active='trends',
@@ -1757,19 +1759,57 @@ def collection_content_draft_publish(draft_id):
         return jsonify({'error': str(exc)}), 500
 
 
+@app.route('/admin/walmart-trends/workbooks', methods=['GET'])
+def admin_walmart_trends_workbooks():
+    """Return discovered workbook files from attached_assets/, newest first."""
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from walmart_trends import discover_workbooks
+    return jsonify(discover_workbooks())
+
+
+def _validate_workbook_path(raw: str) -> tuple[str | None, str | None]:
+    """Return (resolved_path_str, error_msg). Rejects paths outside attached_assets/."""
+    from pathlib import Path as _Path
+    try:
+        candidate = _Path(raw).resolve()
+        assets_root = _Path("attached_assets").resolve()
+        if not str(candidate).startswith(str(assets_root) + os.sep) and candidate != assets_root:
+            return None, "Workbook path must be inside attached_assets/"
+        if candidate.suffix.lower() != ".xlsx":
+            return None, "Workbook must be an .xlsx file"
+        if not candidate.exists():
+            return None, f"Workbook not found: {_Path(raw).name}"
+    except Exception:
+        return None, "Invalid workbook path"
+    return str(candidate), None
+
+
 @app.route('/admin/walmart-trends/bootstrap', methods=['POST'])
 def admin_walmart_trends_bootstrap():
-    """Seed Walmart trends from the attached workbook.
+    """Seed Walmart trends from a workbook in attached_assets/.
 
-    Optional JSON body: {"workbook": "attached_assets/Walmart_May6th_Analysis.xlsx"}
+    JSON body: {"workbook": "attached_assets/Walmart_May12_Analysis.xlsx"}
+    Omit 'workbook' to use the newest discovered workbook.
     """
     guard = _require_walmart_trends_admin()
     if guard:
         return guard
-    from walmart_trends import DEFAULT_WORKBOOK, RefreshAlreadyRunning, WalmartTrendRefreshService
+    from walmart_trends import DEFAULT_WORKBOOK, RefreshAlreadyRunning, WalmartTrendRefreshService, discover_workbooks
 
     body = request.get_json(silent=True) or {}
-    workbook = body.get('workbook') or str(DEFAULT_WORKBOOK)
+    raw_path = body.get('workbook')
+    if not raw_path:
+        workbooks = discover_workbooks()
+        if not workbooks:
+            return jsonify({'error': 'No workbook files found in attached_assets/'}), 400
+        raw_path = workbooks[0]['path']
+
+    workbook, err = _validate_workbook_path(raw_path)
+    if err:
+        return jsonify({'error': err}), 400
+
     try:
         result = WalmartTrendRefreshService().bootstrap_from_workbook(workbook)
     except RefreshAlreadyRunning as exc:
