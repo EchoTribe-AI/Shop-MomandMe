@@ -555,11 +555,11 @@ class AmazonProductEnricher:
             if not item:
                 self.store.update_product_enrichment(asin, {}, "pending", "Crawlbase returned no data")
                 return existing
-            price_value = _to_float(item.get("price") or item.get("current_price"))
+            price_value = _to_float(item.get("current_price") or item.get("price"))
             data = {
-                "image_url": item.get("imageUrl") or item.get("image") or item.get("image_url") or "",
+                "image_url": item.get("image_url") or item.get("imageUrl") or item.get("image") or "",
                 "current_price": price_value,
-                "price_display": _price_display(price_value) if price_value else item.get("price_display") or "",
+                "price_display": _price_display(price_value) if price_value else (item.get("price_display") or ""),
                 "brand": item.get("brand") or "",
                 "category": item.get("category") or "",
             }

@@ -174,64 +174,135 @@ class WalmartAPI:
 
 
 class CrawlbaseAPI:
-    """Crawlbase API for Amazon product scraping"""
-    
+    """Crawlbase API for Amazon product scraping.
+
+    Uses the JS-rendered endpoint per Amazon_Crawlbase_URLGenius_Spec:
+    - params: token, url, render=true
+    - timeout=60s
+    - retries with exponential backoff
+    """
+
     BASE_URL = "https://api.crawlbase.com/"
-    
+    TIMEOUT_SECONDS = 60
+    MAX_RETRIES = 3
+
     def __init__(self):
         self.token = os.environ.get('CRAWLBASE_JS_TOKEN')
-    
+
+    def _fetch_rendered_html(self, url: str) -> Optional[str]:
+        if not self.token:
+            return None
+        params = {'token': self.token, 'url': url, 'render': 'true'}
+        delay = 2
+        last_error: Optional[Exception] = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                response = requests.get(self.BASE_URL, params=params, timeout=self.TIMEOUT_SECONDS)
+                print(f"Crawlbase API Response - Status: {response.status_code}, URL: {url}")
+                response.raise_for_status()
+                return response.text
+            except Exception as exc:
+                last_error = exc
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(delay)
+                    delay *= 2
+        logging.warning("[CRAWLBASE] Fetch failed after retries for %s: %s", url, last_error)
+        return None
+
     def search_amazon(self, query: str, max_results: int = 3) -> List[Dict]:
         """Search Amazon products via Crawlbase"""
         search_url = f"https://www.amazon.com/s?k={quote(query)}"
-        
-        params = {
-            'token': self.token,
-            'url': search_url,
-            'ajax_wait': 'true',
-            'page_wait': '2000'
-        }
-        
-        try:
-            response = requests.get(self.BASE_URL, params=params, timeout=30)
-            response.raise_for_status()
-            products = self._parse_amazon_search(response.text, max_results)
-            return products
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Crawlbase API error: {e}")
+        html = self._fetch_rendered_html(search_url)
+        if not html:
             return []
-    
+        return self._parse_amazon_search(html, max_results)
+
     def get_amazon_product(self, asin: str) -> Optional[Dict]:
-        """Get detailed Amazon product info by ASIN"""
+        """Get detailed Amazon product info by ASIN.
+
+        Returns a dict with keys: image_url, current_price (float),
+        price_display, brand, product_title — or None on failure.
+        """
         product_url = f"https://www.amazon.com/dp/{asin}"
-        
-        params = {
-            'token': self.token,
-            'url': product_url,
-            'ajax_wait': 'true',
-            'page_wait': '2000'
-        }
-        
-        try:
-            response = requests.get(self.BASE_URL, params=params, timeout=30)
-            response.raise_for_status()
-            product = self._parse_amazon_product(response.text, asin)
-            return product
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Crawlbase product fetch error: {e}")
+        html = self._fetch_rendered_html(product_url)
+        if not html:
             return None
-    
+        return self._parse_amazon_product(html, asin)
+
     def _parse_amazon_search(self, html: str, max_results: int) -> List[Dict]:
         """Parse Amazon search results HTML"""
-        products = []
-        return products
-    
+        return []
+
     def _parse_amazon_product(self, html: str, asin: str) -> Optional[Dict]:
-        """Parse Amazon product page HTML"""
-        return None
-    
+        """Parse Amazon PDP HTML for image, price, brand, title."""
+        import re
+        # Title
+        title = ""
+        m = re.search(r'id="productTitle"[^>]*>\s*(.*?)\s*</span>', html, re.DOTALL)
+        if m:
+            title = re.sub(r'\s+', ' ', m.group(1)).strip()
+        else:
+            m = re.search(r'"title"\s*:\s*"([^"]{10,})"', html)
+            if m:
+                title = m.group(1)
+        # Image
+        image_url = ""
+        for pat in (
+            r'"hiRes"\s*:\s*"(https://[^"]+)"',
+            r'id="landingImage"[^>]+src="(https://[^"]+)"',
+            r'id="imgTagWrapperId"[^>]*>.*?<img[^>]+src="(https://[^"]+)"',
+            r'"large"\s*:\s*"(https://[^"]+)"',
+        ):
+            mi = re.search(pat, html, re.DOTALL)
+            if mi:
+                image_url = mi.group(1)
+                break
+        # Price
+        price: Optional[float] = None
+        m_whole = re.search(r'<span[^>]+class="[^"]*a-price-whole[^"]*">(\d[\d,]*)<', html)
+        m_frac = re.search(r'<span[^>]+class="[^"]*a-price-fraction[^"]*">(\d+)<', html)
+        if m_whole and m_frac:
+            try:
+                price = float(f"{m_whole.group(1).replace(',', '')}.{m_frac.group(1)}")
+            except ValueError:
+                price = None
+        if price is None:
+            for pat in (
+                r'"priceAmount"\s*:\s*(\d+(?:\.\d+)?)',
+                r'id="priceblock_ourprice"[^>]*>\s*\$?([\d,]+\.?\d*)',
+                r'id="priceblock_dealprice"[^>]*>\s*\$?([\d,]+\.?\d*)',
+                r'id="apex_desktop_[^"]*"[^>]*>.*?\$\s*([\d,]+\.?\d*)',
+            ):
+                mp = re.search(pat, html, re.DOTALL)
+                if mp:
+                    try:
+                        price = float(mp.group(1).replace(',', ''))
+                        break
+                    except ValueError:
+                        continue
+        # Brand — "Visit the X Store" / "Brand: X" / bylineInfo
+        brand = ""
+        for pat in (
+            r'id="bylineInfo"[^>]*>\s*(?:Visit the\s+|Brand:\s*)?([^<]+?)(?:\s+Store)?\s*</a>',
+            r'"brand"\s*:\s*"([^"]+)"',
+            r'<tr[^>]*>\s*<td[^>]*>\s*Brand\s*</td>\s*<td[^>]*>\s*([^<]+?)\s*</td>',
+        ):
+            mb = re.search(pat, html, re.DOTALL)
+            if mb:
+                brand = mb.group(1).strip()
+                break
+
+        if not (image_url or price or title or brand):
+            return None
+        return {
+            "asin": asin,
+            "product_title": title,
+            "image_url": image_url,
+            "current_price": price,
+            "price_display": f"${price:.2f}" if price else "",
+            "brand": brand,
+        }
+
     def build_affiliate_link(self, asin: str, tag: str = "mommymedeals-20") -> str:
         """Build Amazon affiliate link from ASIN"""
         return f"https://amazon.com/dp/{asin}?tag={tag}"

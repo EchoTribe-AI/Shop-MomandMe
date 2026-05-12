@@ -470,5 +470,61 @@ class TestRefreshServiceURLGeniusWiring(unittest.TestCase):
             self.assertEqual(coll["items"][0]["shop_url"], genius_url)
 
 
+class TestCrawlbaseAmazonContract(unittest.TestCase):
+    """Verify spec-compliant Crawlbase Amazon enrichment per Amazon_Crawlbase_URLGenius_Spec."""
+
+    def test_request_uses_render_true_and_60s_timeout(self):
+        from product_api import CrawlbaseAPI
+        api = CrawlbaseAPI()
+        api.token = "fake-token"
+        captured: dict = {}
+
+        def fake_get(url, params=None, timeout=None):
+            captured["url"] = url
+            captured["params"] = params
+            captured["timeout"] = timeout
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.text = '<html><span id="productTitle">X</span></html>'
+            resp.raise_for_status = lambda: None
+            return resp
+
+        with patch("product_api.requests.get", side_effect=fake_get):
+            api.get_amazon_product("B0TEST")
+
+        self.assertEqual(captured["url"], "https://api.crawlbase.com/")
+        self.assertEqual(captured["params"]["render"], "true")
+        self.assertEqual(captured["params"]["token"], "fake-token")
+        self.assertIn("/dp/B0TEST", captured["params"]["url"])
+        self.assertEqual(captured["timeout"], 60)
+        # Critically: no ajax_wait / page_wait (spec removed these)
+        self.assertNotIn("ajax_wait", captured["params"])
+        self.assertNotIn("page_wait", captured["params"])
+
+    def test_parses_title_image_price_brand(self):
+        from product_api import CrawlbaseAPI
+        api = CrawlbaseAPI()
+        html = (
+            '<html>'
+            '<span id="productTitle">Cool Widget XL</span>'
+            '<img id="landingImage" src="https://images-na.amazon.com/widget.jpg" />'
+            '<span class="a-price-whole">29</span><span class="a-price-fraction">99</span>'
+            '<a id="bylineInfo">Visit the WidgetCo Store</a>'
+            '</html>'
+        )
+        result = api._parse_amazon_product(html, "B0TEST")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["product_title"], "Cool Widget XL")
+        self.assertEqual(result["image_url"], "https://images-na.amazon.com/widget.jpg")
+        self.assertEqual(result["current_price"], 29.99)
+        self.assertEqual(result["price_display"], "$29.99")
+        self.assertEqual(result["brand"], "WidgetCo")
+
+    def test_parser_returns_none_for_empty_html(self):
+        from product_api import CrawlbaseAPI
+        api = CrawlbaseAPI()
+        self.assertIsNone(api._parse_amazon_product("<html></html>", "B0TEST"))
+
+
 if __name__ == "__main__":
     unittest.main()
