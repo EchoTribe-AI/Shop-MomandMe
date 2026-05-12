@@ -357,6 +357,22 @@ class WorkbookTrendParser:
             idx = idx * 26 + (ord(char) - ord("A") + 1)
         return max(idx - 1, 0)
 
+    @staticmethod
+    def _find_header_row_index(raw_rows: list[list[str]], key_col: str) -> int:
+        """Return the index of the first row containing key_col as an exact cell value.
+
+        Comparison is strip+case-insensitive. Used by subclasses whose sheets prepend a
+        title row and/or blank rows before the actual column headers. Falls back to 0
+        (treat first row as headers) when key_col is empty or not found.
+        """
+        if not key_col:
+            return 0
+        needle = key_col.strip().lower()
+        for i, row in enumerate(raw_rows):
+            if any(cell.strip().lower() == needle for cell in row):
+                return i
+        return 0
+
     def _validate(self, rows_by_sheet: dict[str, list[dict[str, str]]]) -> None:
         missing_sheets = [name for name in self.REQUIRED_SHEETS if name not in rows_by_sheet]
         if missing_sheets:

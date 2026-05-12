@@ -618,5 +618,181 @@ class TestChatNonBreakingWithMixedCollections(unittest.TestCase):
             conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Parser fix: _find_header_row_index + _read_workbook_rows override
+# ---------------------------------------------------------------------------
+
+class TestFindHeaderRowIndex(unittest.TestCase):
+    """WorkbookTrendParser._find_header_row_index static method."""
+
+    def setUp(self):
+        import walmart_trends
+        self.wt = walmart_trends
+
+    def test_finds_header_in_title_blank_header_pattern(self):
+        raw_rows = [
+            ["Top Amazon Products — Clicks First", "", "", ""],  # row 0: title
+            ["", "", "", ""],                                     # row 1: blank
+            ["ASIN", "Product Title", "Amazon Link", "Rank"],    # row 2: real headers
+            ["B001", "Widget", "https://amazon.com/dp/B001", "1"],
+        ]
+        idx = self.wt.WorkbookTrendParser._find_header_row_index(raw_rows, "ASIN")
+        self.assertEqual(idx, 2)
+
+    def test_returns_zero_when_key_not_found(self):
+        raw_rows = [
+            ["Col A", "Col B"],
+            ["val1", "val2"],
+        ]
+        idx = self.wt.WorkbookTrendParser._find_header_row_index(raw_rows, "ASIN")
+        self.assertEqual(idx, 0)
+
+    def test_returns_zero_when_key_col_empty(self):
+        raw_rows = [
+            ["ASIN", "Title"],
+            ["B001", "Widget"],
+        ]
+        idx = self.wt.WorkbookTrendParser._find_header_row_index(raw_rows, "")
+        self.assertEqual(idx, 0)
+
+    def test_case_insensitive_match(self):
+        raw_rows = [
+            ["title row"],
+            ["asin", "Product Title"],
+        ]
+        idx = self.wt.WorkbookTrendParser._find_header_row_index(raw_rows, "ASIN")
+        self.assertEqual(idx, 1)
+
+    def test_returns_zero_on_empty_rows(self):
+        idx = self.wt.WorkbookTrendParser._find_header_row_index([], "ASIN")
+        self.assertEqual(idx, 0)
+
+    def test_collection_sheet_key(self):
+        raw_rows = [
+            ["Curated Collections Export"],
+            [""],
+            ["Collection", "ASIN", "Rank"],
+        ]
+        idx = self.wt.WorkbookTrendParser._find_header_row_index(raw_rows, "Collection")
+        self.assertEqual(idx, 2)
+
+
+class TestAmazonParserHeaderDetection(unittest.TestCase):
+    """AmazonWorkbookParser correctly skips title/blank rows when building dicts."""
+
+    def setUp(self):
+        import amazon_trends
+        import walmart_trends
+        self.at = amazon_trends
+        self.wt = walmart_trends
+
+    def _make_raw_rows_for_sheet(self, title, headers, data_rows):
+        """Simulate Amazon workbook sheet: title → blank → headers → data."""
+        return [
+            [title] + [""] * (len(headers) - 1),
+            [""] * len(headers),
+            list(headers),
+        ] + [list(row) for row in data_rows]
+
+    def test_header_key_covers_all_non_summary_sheets(self):
+        """Every required/optional sheet has an entry in _HEADER_KEY."""
+        parser_cls = self.at.AmazonWorkbookParser
+        all_sheets = list(parser_cls.REQUIRED_SHEETS) + list(parser_cls.OPTIONAL_SHEETS)
+        for sheet in all_sheets:
+            if sheet == "Summary":
+                continue
+            self.assertIn(
+                sheet, parser_cls._HEADER_KEY,
+                f"Sheet '{sheet}' missing from _HEADER_KEY",
+            )
+
+    def test_find_header_row_index_with_asin_sheet(self):
+        raw = self._make_raw_rows_for_sheet(
+            "Trending - Clicks First",
+            ["ASIN", "Product Title", "Amazon Link", "Rank"],
+            [["B001", "Widget", "https://amazon.com/dp/B001", "1"]],
+        )
+        idx = self.wt.WorkbookTrendParser._find_header_row_index(raw, "ASIN")
+        self.assertEqual(idx, 2)
+
+    def test_find_header_row_index_with_collection_sheet(self):
+        raw = self._make_raw_rows_for_sheet(
+            "Curated Collections",
+            ["Collection", "ASIN", "Rank"],
+            [["Mom Picks", "B002", "1"]],
+        )
+        idx = self.wt.WorkbookTrendParser._find_header_row_index(raw, "Collection")
+        self.assertEqual(idx, 2)
+
+    def test_dict_keys_use_real_column_names(self):
+        """Simulate what _read_workbook_rows would produce from title+blank+header+data."""
+        raw = self._make_raw_rows_for_sheet(
+            "Trending - Clicks First",
+            ["ASIN", "Product Title", "Amazon Link", "Rank"],
+            [["B001", "Widget", "https://amazon.com/dp/B001", "1"]],
+        )
+        key_col = "ASIN"
+        header_idx = self.wt.WorkbookTrendParser._find_header_row_index(raw, key_col)
+        headers = [h.strip() for h in raw[header_idx]]
+        rows = []
+        for data_row in raw[header_idx + 1:]:
+            if not any(data_row):
+                continue
+            rows.append({headers[i]: data_row[i] if i < len(data_row) else "" for i in range(len(headers))})
+
+        self.assertEqual(len(rows), 1)
+        self.assertIn("ASIN", rows[0])
+        self.assertIn("Product Title", rows[0])
+        self.assertEqual(rows[0]["ASIN"], "B001")
+        self.assertNotIn("col0", rows[0], "dict keys should be real column names, not col0 positionals")
+
+
+@unittest.skipUnless(
+    os.path.exists(
+        os.path.join(os.path.dirname(__file__), "..", "attached_assets", "Amazon_May12_Analysis.xlsx")
+    ),
+    "Amazon_May12_Analysis.xlsx not present — skipping live workbook integration test",
+)
+class TestAmazonWorkbookIntegration(unittest.TestCase):
+    """Live parse of Amazon_May12_Analysis.xlsx — skipped when file absent."""
+
+    @classmethod
+    def setUpClass(cls):
+        import amazon_trends
+        cls.at = amazon_trends
+        workbook_path = os.path.join(
+            os.path.dirname(__file__), "..", "attached_assets", "Amazon_May12_Analysis.xlsx"
+        )
+        parser = cls.at.AmazonWorkbookParser(workbook_path)
+        cls.result = parser.parse()
+
+    def test_parse_returns_nonempty_clicks_first(self):
+        self.assertTrue(len(self.result["2A"]) > 0, "2A (Clicks First) should have records")
+
+    def test_records_have_real_asin(self):
+        for record in self.result["2A"][:5]:
+            self.assertTrue(record.asin.startswith("B0") or len(record.asin) == 10,
+                            f"Unexpected ASIN format: {record.asin!r}")
+
+    def test_records_have_product_title(self):
+        for record in self.result["2A"][:5]:
+            self.assertNotEqual(record.product_title, "", "product_title should not be empty")
+            self.assertNotIn("Top Amazon", record.product_title,
+                             "product_title should not contain the sheet title row")
+
+    def test_amazon_links_present(self):
+        links_present = sum(1 for r in self.result["2A"] if r.amazon_link)
+        self.assertGreater(links_present, 0, "Some records should have Amazon links")
+
+    def test_collections_parsed(self):
+        self.assertTrue(len(self.result["collections"]) > 0, "collections list should not be empty")
+
+    def test_no_title_row_leaked_as_asin(self):
+        all_asins = [r.asin for r in self.result["2A"] + self.result["2B"] + self.result["2C"]]
+        for asin in all_asins:
+            self.assertNotIn("Top Amazon", asin, f"Title row leaked as ASIN: {asin!r}")
+            self.assertNotIn("Trending", asin, f"Sheet name leaked as ASIN: {asin!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

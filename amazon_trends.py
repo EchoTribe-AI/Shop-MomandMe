@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import zipfile
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,6 +89,56 @@ class AmazonWorkbookParser(WorkbookTrendParser):
         "Summary": set(),
         "Category Click Summary": set(),
     }
+
+    # Primary identifying column used to locate the real header row in each sheet.
+    # Amazon workbooks prepend a title row + blank row before the column headers.
+    _HEADER_KEY: dict[str, str] = {
+        "Trending - Clicks First": "ASIN",
+        "Trending - Earnings First": "ASIN",
+        "Trending - Items Shipped First": "ASIN",
+        "Curated Collections": "Collection",
+        "All Aggregated ASINs": "ASIN",
+        "Category Click Summary": "Category",
+    }
+
+    def _read_workbook_rows(self) -> dict[str, list[dict[str, str]]]:
+        """Override: Amazon sheets have title → blank → headers → data.
+
+        Scan each sheet for its header row by key column instead of assuming
+        row 0 = headers. Summary stays positional (parent behaviour preserved).
+        """
+        with zipfile.ZipFile(self.workbook_path) as zf:
+            shared = self._shared_strings(zf)
+            sheet_paths = self._sheet_paths(zf)
+            self.sheet_names_found = list(sheet_paths.keys())
+            out: dict[str, list[dict[str, str]]] = {}
+            for sheet_name, sheet_path in sheet_paths.items():
+                raw_rows = self._sheet_rows(zf, sheet_path, shared)
+                if not raw_rows:
+                    out[sheet_name] = []
+                    continue
+                if sheet_name == "Summary":
+                    # Positional — parent's _parse_summary_tab handles title/blank gracefully
+                    rows = []
+                    for raw in raw_rows:
+                        if not any(raw):
+                            continue
+                        rows.append({f"col{i}": raw[i] for i in range(len(raw))})
+                    out[sheet_name] = rows
+                    continue
+                key_col = self._HEADER_KEY.get(sheet_name, "")
+                header_idx = self._find_header_row_index(raw_rows, key_col)
+                headers = [h.strip() for h in raw_rows[header_idx]]
+                rows = []
+                for raw in raw_rows[header_idx + 1:]:
+                    if not any(raw):
+                        continue
+                    rows.append({
+                        headers[i]: raw[i] if i < len(raw) else ""
+                        for i in range(len(headers))
+                    })
+                out[sheet_name] = rows
+            return out
 
     def parse(self) -> dict[str, Any]:
         if not self.workbook_path.exists():
