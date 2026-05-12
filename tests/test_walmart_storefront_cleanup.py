@@ -142,13 +142,71 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         directory = self.client.get("/shop/").get_data(as_text=True)
 
         for html in (landing, posts, directory):
+            self.assertIn("https://shop.echotribe.ai/collections", html)
             self.assertIn("https://shop.echotribe.ai/trends", html)
             self.assertIn("https://shop.echotribe.ai/posts", html)
+
+        collections = self.client.get("/collections", headers={"Host": "shop.echotribe.ai"})
+        self.assertEqual(collections.status_code, 200)
+        self.assertIn("Shop creator-curated collections", collections.get_data(as_text=True))
 
         with patch("walmart_trends.get_trending_page_data", return_value={"last_refreshed": "Today", "collections": []}):
             trends = self.client.get("/trends", headers={"Host": "shop.echotribe.ai"})
         self.assertEqual(trends.status_code, 200)
         self.assertIn("What’s Trending Now", trends.get_data(as_text=True))
+
+    def test_walmart_origin_pages_use_walmart_editor_not_six_slot_collage_editor(self):
+        source = _walmart_collection(12)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "creator_id": "everydaywithsteph",
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Kids Room + Character Favorites",
+                "landing_intro": "Original rich landing intro",
+                "social_post": "Original social post",
+                "hooks": [{"type": "Fast Discovery", "text": "Original hook"}],
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+        publish_resp = self.client.post(f"/api/collection-content-drafts/{draft_id}/publish")
+        self.assertEqual(publish_resp.status_code, 200)
+
+        collage_resp = self.client.get("/archer/collage/walmart-kids-room-character-favorites")
+        self.assertEqual(collage_resp.status_code, 200)
+        collage = collage_resp.get_json()["collage"]
+        self.assertEqual(collage["editor_type"], "walmart_collection")
+        self.assertEqual(collage["edit_url"], "/walmart/pages/walmart-kids-room-character-favorites/edit")
+        self.assertEqual(len(collage["products"]), 12)
+
+        generic_save = self.client.post("/archer/collage/save", json={
+            "slug": "walmart-kids-room-character-favorites",
+            "products": [{"asin": "B000000001", "product_name": "Flattened"}],
+            "caption": "Generic caption",
+            "status": "published",
+        })
+        self.assertEqual(generic_save.status_code, 409)
+
+        editor = self.client.get("/walmart/pages/walmart-kids-room-character-favorites/edit")
+        self.assertEqual(editor.status_code, 200)
+        html = editor.get_data(as_text=True)
+        self.assertIn("Walmart page editor", html)
+        self.assertIn("Showing 10 of 12 products", html)
+        self.assertIn("Original rich landing intro", html)
+        self.assertIn("Original social post", html)
+        self.assertIn("Original hook", html)
+
+        update_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+            "draft_id": draft_id,
+            "creator_id": "everydaywithsteph",
+            "public_slug": "walmart-kids-room-character-favorites",
+            "title": "Kids Room + Character Favorites Updated",
+            "landing_intro": "Updated intro without flattening",
+            "social_post": "Updated social post",
+            "hooks": [{"type": "Fast Discovery", "text": "Updated hook"}],
+        })
+        self.assertEqual(update_resp.status_code, 200)
+        self.assertEqual(len(update_resp.get_json()["draft"]["product_snapshot"]), 12)
+        self.assertEqual(self._json_count("collages", "products_json", "slug", "walmart-kids-room-character-favorites"), 12)
 
     def test_backfill_enriches_walmart_posts_without_rewriting_links(self):
         conn = sqlite3.connect(self.db_path)

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Create Walmart Trend Post | EchoDashboard</title>
+  <title>{% if editor_mode == 'edit' %}Edit Walmart Collection Page{% else %}Create Walmart Trend Post{% endif %} | EchoDashboard</title>
   <style>
     :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.12); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; }
     * { box-sizing:border-box; }
@@ -52,13 +52,14 @@
     <div class="topbar">
       <a class="back" href="/walmart/trending-now?admin=1{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">← Back to Walmart trends</a>
       <a class="back" href="/archer/organic">Organic</a>
-      <span class="pill">Creator Voice · Paste-first demo</span>
+      <span class="pill">{% if editor_mode == 'edit' %}Walmart page editor{% else %}Creator Voice · Paste-first demo{% endif %}</span>
     </div>
 
     <section class="hero">
       <span class="pill">Walmart trend collection</span>
       <h1>{{ collection['name'] }}</h1>
       <p class="sub">{{ collection['description'] or 'Use this Walmart trend collection to create a creator-style social post and matching shoppable landing page intro.' }}</p>
+      {% if editor_mode == 'edit' %}<div class="top-alert">Editing in the Walmart-aware page model. The full saved product snapshot, landing intro, hooks, social copy, and existing Walmart links are preserved.</div>{% endif %}
       {% if demo_auth_allowed %}<div class="top-alert">Demo auth is enabled for this local/Replit environment. Production still requires an admin token.</div>{% endif %}
     </section>
 
@@ -83,7 +84,7 @@
       </aside>
 
       <section class="panel">
-        <h2>Create post + page intro</h2>
+        <h2>{% if editor_mode == 'edit' %}Edit page content{% else %}Create post + page intro{% endif %}</h2>
         <div class="row">
           <div>
             <label for="creatorId">Creator ID</label>
@@ -182,6 +183,8 @@
     const collectionSlug = {{ collection['slug']|tojson }};
     const adminToken = {{ admin_token|tojson }};
     const demoAuthAllowed = {{ demo_auth_allowed|tojson }};
+    const existingDraft = {{ existing_draft|tojson }};
+    const shopSubdomain = {{ shop_subdomain|tojson }};
     const hookTypes = ['Fast Discovery', 'Problem → Solution', 'Creator Favorites'];
     let draftId = null;
     let previewUrl = '';
@@ -191,6 +194,38 @@
     let recordingBlob = null;
     let timerHandle = null;
     let recordingStartedAt = 0;
+
+    function setValue(id, value) {
+      const el = document.getElementById(id);
+      if (el) el.value = value || '';
+    }
+
+    function initializeExistingDraft() {
+      if (!existingDraft) return;
+      draftId = existingDraft.id || null;
+      setValue('creatorId', existingDraft.creator_id || 'everydaywithsteph');
+      setValue('publicSlug', existingDraft.public_slug || {{ default_public_slug|tojson }});
+      setValue('title', existingDraft.title || {{ collection['name']|tojson }});
+      setValue('voice', existingDraft.voice_source_text || '');
+      setValue('cleanedTranscript', existingDraft.cleaned_transcript || existingDraft.voice_raw_transcript || '');
+      rawTranscript = existingDraft.voice_raw_transcript || '';
+      setValue('platform', existingDraft.platform || 'facebook_group');
+      setValue('tone', existingDraft.tone || 'warm mom-to-mom');
+      setValue('socialPost', existingDraft.social_post || '');
+      setValue('landingIntro', existingDraft.landing_intro || '');
+      setValue('cta', existingDraft.cta || 'Shop the Walmart finds');
+      (existingDraft.hooks || []).slice(0,3).forEach((hook, i) => {
+        setValue(`hook${i}`, typeof hook === 'string' ? hook : (hook.text || ''));
+      });
+      const slug = existingDraft.public_slug || {{ default_public_slug|tojson }};
+      previewUrl = `/shop/${slug}?preview=1`;
+      setStateLink('draftState', `Draft #${draftId} loaded`, null);
+      setStateLink('previewState', previewUrl, previewUrl);
+      if ((existingDraft.status || '') === 'published' || existingDraft.published_collage_slug) {
+        setStateLink('publicState', `https://${shopSubdomain}/${slug}`, `https://${shopSubdomain}/${slug}`);
+      }
+      switchVoiceTab((existingDraft.voice_source_text || '').trim() ? 'paste' : 'record');
+    }
 
     function authHeaders(extra={}) {
       const headers = {...extra};
@@ -444,6 +479,7 @@
       }
     }
     switchVoiceTab('record');
+    initializeExistingDraft();
   </script>
 </body>
 </html>

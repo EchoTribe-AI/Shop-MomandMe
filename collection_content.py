@@ -109,11 +109,64 @@ def get_walmart_collection(collection_slug: str) -> dict[str, Any] | None:
     from walmart_trends import get_trending_page_data
 
     slug = (collection_slug or "").strip()
-    data = get_trending_page_data()
+    try:
+        data = get_trending_page_data()
+    except Exception:
+        return None
     for collection in data.get("collections", []):
         if collection.get("slug") == slug:
             return collection
     return None
+
+
+def get_latest_draft_for_public_slug(public_slug: str) -> dict[str, Any] | None:
+    clean_slug = slugify(public_slug)
+    if not clean_slug:
+        return None
+    conn = _connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT id FROM collection_content_drafts
+            WHERE source_type = ?
+              AND (public_slug = ? OR published_collage_slug = ?)
+            ORDER BY
+              CASE WHEN status = 'published' THEN 0 ELSE 1 END,
+              updated_at DESC,
+              id DESC
+            LIMIT 1
+            """,
+            (SOURCE_WALMART_TREND, clean_slug, clean_slug),
+        ).fetchone()
+        return get_draft(int(row["id"])) if row else None
+    finally:
+        conn.close()
+
+
+def collection_from_draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
+    """Build an editor-safe Walmart collection from a saved product snapshot."""
+    items = []
+    for idx, product in enumerate(draft.get("product_snapshot") or [], start=1):
+        if not isinstance(product, dict):
+            continue
+        items.append({
+            "sku": str(product.get("asin") or product.get("sku") or ""),
+            "title": product.get("product_name") or product.get("title") or "Walmart find",
+            "brand": product.get("brand") or product.get("company_name") or "",
+            "price_display": product.get("price_display") or product.get("price") or "",
+            "current_price": product.get("current_price") or "",
+            "image_url": product.get("image_encoded_string") or product.get("image_url") or "",
+            "shop_url": product.get("attribution_link") or product.get("shop_url") or "",
+            "category": product.get("category") or "",
+            "rank": product.get("rank") or product.get("source_rank") or idx,
+            "badges": product.get("source_badges") or [],
+        })
+    return {
+        "slug": draft.get("source_collection_slug") or "",
+        "name": draft.get("title") or "Walmart finds",
+        "description": draft.get("description") or "",
+        "items": items,
+    }
 
 
 def walmart_product_context(collection: dict[str, Any], limit: int = 10) -> list[dict[str, str]]:
@@ -288,9 +341,14 @@ def save_walmart_collection_draft(
     status: str = "draft",
 ) -> dict[str, Any]:
     collection = get_walmart_collection(collection_slug)
-    if not collection:
+    existing_draft = get_draft(int(payload.get("draft_id"))) if payload.get("draft_id") else None
+    if collection:
+        products = adapt_walmart_products_for_collage(collection)
+    elif existing_draft and existing_draft.get("product_snapshot"):
+        collection = collection_from_draft_snapshot(existing_draft)
+        products = existing_draft.get("product_snapshot") or []
+    else:
         raise CollectionContentError("Walmart collection not found")
-    products = adapt_walmart_products_for_collage(collection)
     creator_id = _clean_text(payload.get("creator_id"), 120) or DEFAULT_CREATOR_ID
     title = _clean_text(payload.get("title"), 240) or collection.get("name") or "Walmart finds"
     description = _clean_text(payload.get("description"), 500) or collection.get("description") or ""
