@@ -321,6 +321,8 @@ def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_runs_status ON walmart_refresh_runs(status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_runs_source ON walmart_refresh_runs(source_type, window_end)")
+    _add_column_if_missing(conn, 'walmart_refresh_runs', "date_label TEXT")
+    _add_column_if_missing(conn, 'walmart_refresh_runs', "run_metadata_json TEXT DEFAULT '{}'")
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS walmart_products (
