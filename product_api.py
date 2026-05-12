@@ -176,15 +176,14 @@ class WalmartAPI:
 class CrawlbaseAPI:
     """Crawlbase API for Amazon product scraping.
 
-    Uses the JS-rendered endpoint per Amazon_Crawlbase_URLGenius_Spec:
-    - params: token, url, render=true
-    - timeout=60s
-    - retries with exponential backoff
+    Uses the lightweight JS-token shape that proved fast in legacy scripts:
+    - params: token, url, ajax_wait=true, page_wait=2000
+    - timeout=90s (Crawlbase JS responses average 4-10s but can spike)
+    - single attempt; prioritized batch pass retries pending rows on next run
     """
 
     BASE_URL = "https://api.crawlbase.com/"
-    TIMEOUT_SECONDS = 60
-    MAX_RETRIES = 3
+    TIMEOUT_SECONDS = 90
 
     def __init__(self):
         self.token = os.environ.get('CRAWLBASE_JS_TOKEN')
@@ -192,22 +191,20 @@ class CrawlbaseAPI:
     def _fetch_rendered_html(self, url: str) -> Optional[str]:
         if not self.token:
             return None
-        params = {'token': self.token, 'url': url, 'render': 'true'}
-        delay = 2
-        last_error: Optional[Exception] = None
-        for attempt in range(self.MAX_RETRIES):
-            try:
-                response = requests.get(self.BASE_URL, params=params, timeout=self.TIMEOUT_SECONDS)
-                print(f"Crawlbase API Response - Status: {response.status_code}, URL: {url}")
-                response.raise_for_status()
-                return response.text
-            except Exception as exc:
-                last_error = exc
-                if attempt < self.MAX_RETRIES - 1:
-                    time.sleep(delay)
-                    delay *= 2
-        logging.warning("[CRAWLBASE] Fetch failed after retries for %s: %s", url, last_error)
-        return None
+        params = {
+            'token': self.token,
+            'url': url,
+            'ajax_wait': 'true',
+            'page_wait': '2000',
+        }
+        try:
+            response = requests.get(self.BASE_URL, params=params, timeout=self.TIMEOUT_SECONDS)
+            print(f"Crawlbase API Response - Status: {response.status_code}, URL: {url}")
+            response.raise_for_status()
+            return response.text
+        except Exception as exc:
+            logging.warning("[CRAWLBASE] Fetch failed for %s: %s", url, exc)
+            return None
 
     def search_amazon(self, query: str, max_results: int = 3) -> List[Dict]:
         """Search Amazon products via Crawlbase"""

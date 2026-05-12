@@ -1837,6 +1837,33 @@ def admin_walmart_trends_bootstrap():
     }), status_code
 
 
+@app.route('/admin/amazon-trends/enrich', methods=['POST'])
+def admin_amazon_trends_enrich():
+    """Prioritized Amazon enrichment pass — decoupled from workbook import.
+
+    Body params (all optional):
+      limit (int, default 30) — max ASINs per run
+      max_workers (int, default 4) — concurrency
+    """
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from amazon_trends import AmazonTrendRefreshService
+
+    body = request.get_json(silent=True) or {}
+    try:
+        limit = max(1, min(200, int(body.get('limit', 30))))
+    except (TypeError, ValueError):
+        limit = 30
+    try:
+        max_workers = max(1, min(16, int(body.get('max_workers', 4))))
+    except (TypeError, ValueError):
+        max_workers = 4
+
+    counts = AmazonTrendRefreshService().enrich_pending(limit=limit, max_workers=max_workers)
+    return jsonify({'status': 'ok', 'counts': counts}), 200
+
+
 @app.route('/admin/walmart-trends/refresh', methods=['POST'])
 def admin_walmart_trends_refresh():
     """Run the recurring 7-day Impact API Walmart trend refresh."""

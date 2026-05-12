@@ -470,10 +470,108 @@ class TestRefreshServiceURLGeniusWiring(unittest.TestCase):
             self.assertEqual(coll["items"][0]["shop_url"], genius_url)
 
 
+class TestEnrichmentDecoupledFromBootstrap(unittest.TestCase):
+    """Bootstrap must not block on Crawlbase enrichment."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp.name, "test.db")
+        _setup_db(self.db_path)
+        import amazon_trends
+        self.at = amazon_trends
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        for k in ("CACHE_DB_PATH",):
+            os.environ.pop(k, None)
+
+    def test_bootstrap_does_not_call_enricher(self):
+        """If bootstrap called enrich_batch, slow Crawlbase would block import."""
+        svc = self.at.AmazonTrendRefreshService()
+        svc.enricher.enrich_batch = MagicMock(return_value={})
+        record = self.at.AmazonTrendRecord(
+            asin="B099", product_title="Fast Import",
+            amazon_link="https://amazon.com/dp/B099?tag=t-20",
+            source_list_type="2A", rank=1,
+        )
+        collections = [{
+            "slug": "fast-coll", "name": "Fast", "description": "",
+            "metadata": {}, "items": [{"sku": "B099", "item_count": 1,
+                "sale_amount": 0, "total_earnings": 0, "badges": [], "metadata": {}}],
+        }]
+        svc._process_records(1, [record], collections)
+        svc.enricher.enrich_batch.assert_not_called()
+
+
+class TestPendingPrioritization(unittest.TestCase):
+    """pending_asins_prioritized returns active-collection ASINs first."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp.name, "test.db")
+        _setup_db(self.db_path)
+        import amazon_trends
+        self.at = amazon_trends
+        self.store = amazon_trends.AmazonTrendStore()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        os.environ.pop("CACHE_DB_PATH", None)
+
+    def test_active_collection_asin_ranks_above_orphan(self):
+        # Both ASINs pending, only B_ACTIVE is in an active collection
+        for asin in ("B_ORPHAN", "B_ACTIVE"):
+            self.store.upsert_product(self.at.AmazonTrendRecord(
+                asin=asin, product_title=asin, amazon_link=f"https://amazon.com/dp/{asin}",
+                source_list_type="2A", rank=1,
+            ))
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "INSERT INTO walmart_collections (slug, name, source_type, retailer, is_active) "
+            "VALUES (?, ?, 'amazon_workbook_curated', 'amazon', 1)",
+            ("test-coll", "Test"),
+        )
+        conn.execute(
+            "INSERT INTO walmart_collection_items (collection_slug, sku, retailer) "
+            "VALUES (?, ?, 'amazon')",
+            ("test-coll", "B_ACTIVE"),
+        )
+        conn.commit()
+        conn.close()
+        result = self.store.pending_asins_prioritized(limit=10)
+        self.assertIn("B_ACTIVE", result)
+        self.assertIn("B_ORPHAN", result)
+        self.assertEqual(result[0], "B_ACTIVE")
+
+    def test_already_ok_with_image_is_excluded(self):
+        self.store.upsert_product(self.at.AmazonTrendRecord(
+            asin="B_DONE", product_title="Done", amazon_link="",
+            source_list_type="2A", rank=1,
+        ))
+        self.store.update_product_enrichment(
+            "B_DONE",
+            {"image_url": "https://x/img.jpg", "current_price": 9.99, "price_display": "$9.99"},
+            status="ok",
+        )
+        result = self.store.pending_asins_prioritized(limit=10)
+        self.assertNotIn("B_DONE", result)
+
+    def test_enrich_pending_returns_counts_with_queued(self):
+        self.store.upsert_product(self.at.AmazonTrendRecord(
+            asin="B_PEND", product_title="P", amazon_link="",
+            source_list_type="2A", rank=1,
+        ))
+        svc = self.at.AmazonTrendRefreshService()
+        svc.enricher.client.token = None  # force skip path
+        counts = svc.enrich_pending(limit=5, max_workers=2)
+        self.assertIn("queued", counts)
+        self.assertEqual(counts["queued"], 1)
+
+
 class TestCrawlbaseAmazonContract(unittest.TestCase):
     """Verify spec-compliant Crawlbase Amazon enrichment per Amazon_Crawlbase_URLGenius_Spec."""
 
-    def test_request_uses_render_true_and_60s_timeout(self):
+    def test_request_uses_lightweight_shape_and_90s_timeout(self):
         from product_api import CrawlbaseAPI
         api = CrawlbaseAPI()
         api.token = "fake-token"
@@ -493,13 +591,11 @@ class TestCrawlbaseAmazonContract(unittest.TestCase):
             api.get_amazon_product("B0TEST")
 
         self.assertEqual(captured["url"], "https://api.crawlbase.com/")
-        self.assertEqual(captured["params"]["render"], "true")
         self.assertEqual(captured["params"]["token"], "fake-token")
+        self.assertEqual(captured["params"]["ajax_wait"], "true")
+        self.assertEqual(captured["params"]["page_wait"], "2000")
         self.assertIn("/dp/B0TEST", captured["params"]["url"])
-        self.assertEqual(captured["timeout"], 60)
-        # Critically: no ajax_wait / page_wait (spec removed these)
-        self.assertNotIn("ajax_wait", captured["params"])
-        self.assertNotIn("page_wait", captured["params"])
+        self.assertEqual(captured["timeout"], 90)
 
     def test_parses_title_image_price_brand(self):
         from product_api import CrawlbaseAPI

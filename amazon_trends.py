@@ -12,6 +12,7 @@ import logging
 import os
 import zipfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -298,6 +299,40 @@ class AmazonTrendStore:
         finally:
             conn.close()
 
+    def pending_asins_prioritized(self, limit: int = 30) -> list[str]:
+        """ASINs needing enrichment, ordered by visibility priority.
+
+        Priority: active collection items first, then any row missing
+        image_url OR current_price, ordered by recency. Already-enriched
+        rows with an image are skipped.
+        """
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT p.asin
+                FROM amazon_trend_products p
+                LEFT JOIN (
+                    SELECT DISTINCT ci.sku AS asin
+                    FROM walmart_collection_items ci
+                    JOIN walmart_collections c ON c.slug = ci.collection_slug
+                    WHERE ci.retailer = 'amazon' AND c.is_active = 1
+                ) active ON active.asin = p.asin
+                WHERE COALESCE(p.enrichment_status, 'pending') != 'ok'
+                   OR p.image_url IS NULL OR p.image_url = ''
+                   OR p.current_price IS NULL
+                ORDER BY (active.asin IS NOT NULL) DESC,
+                         (p.image_url IS NULL OR p.image_url = '') DESC,
+                         (p.current_price IS NULL) DESC,
+                         p.updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [r[0] for r in rows]
+        finally:
+            conn.close()
+
     # --- amazon_product_performance_snapshots ---
 
     def add_snapshot(self, run_id: int, record: AmazonTrendRecord) -> None:
@@ -570,17 +605,37 @@ class AmazonProductEnricher:
             self.store.update_product_enrichment(asin, {}, "fallback", str(exc))
             return existing
 
-    def enrich_batch(self, asins: list[str]) -> dict[str, int]:
-        """Enrich a list of ASINs; return counts {ok, pending, fallback, skipped}."""
+    def enrich_batch(self, asins: list[str], max_workers: int = 4) -> dict[str, int]:
+        """Enrich a list of ASINs concurrently.
+
+        Uses a small ThreadPoolExecutor (default 4 workers) so a slow Crawlbase
+        response on one ASIN doesn't stall the rest. Each ASIN failure is
+        isolated. Returns counts {ok, pending, fallback, skipped}.
+        """
         counts: dict[str, int] = {"ok": 0, "pending": 0, "fallback": 0, "skipped": 0}
+        to_run: list[str] = []
         for asin in asins:
             existing = self.store.get_product(asin) or {}
             if existing.get("enrichment_status") == "ok" and existing.get("image_url"):
                 counts["skipped"] += 1
                 continue
-            result = self.enrich(asin)
-            status = (self.store.get_product(asin) or {}).get("enrichment_status") or "pending"
-            counts[status] = counts.get(status, 0) + 1
+            to_run.append(asin)
+        if not to_run:
+            return counts
+        logging.info(
+            "[AMAZON_TRENDS] enrichment batch: %d ASIN(s), max_workers=%d",
+            len(to_run), max_workers,
+        )
+        with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
+            futures = {pool.submit(self.enrich, asin): asin for asin in to_run}
+            for fut in as_completed(futures):
+                asin = futures[fut]
+                try:
+                    fut.result()
+                except Exception as exc:  # individual failures are non-fatal
+                    logging.warning("[AMAZON_TRENDS] enrich worker failed for %s: %s", asin, exc)
+                status = (self.store.get_product(asin) or {}).get("enrichment_status") or "pending"
+                counts[status] = counts.get(status, 0) + 1
         return counts
 
 
@@ -643,13 +698,13 @@ class AmazonTrendRefreshService:
                 diagnostics=diagnostics,
             )
 
-            # Optional enrichment pass — runs only when CRAWLBASE_JS_TOKEN is set.
-            # Safe to skip: existing workbook data is already stored; enrichment
-            # only backfills image_url / price_display / brand when available.
-            all_asins = list({r.asin for r in trend_records if r.asin})
-            enrich_counts = self.enricher.enrich_batch(all_asins)
-            if any(enrich_counts.values()):
-                logging.info("[AMAZON_TRENDS] enrichment pass: %s", enrich_counts)
+            # Workbook import is intentionally NOT blocked on Crawlbase scraping.
+            # New rows default to enrichment_status='pending' via the schema;
+            # call enrich_pending(...) separately for a prioritized backfill.
+            logging.info(
+                "[AMAZON_TRENDS] bootstrap done; enrichment is decoupled. "
+                "Run enrich_pending() to backfill image/price/brand."
+            )
 
             return result
         except Exception as exc:
@@ -717,3 +772,22 @@ class AmazonTrendRefreshService:
         status = "partial" if failures else "success"
         self.store.finish_run(run_id, status, counts, failures)
         return RefreshResult(run_id, status, counts, failures, diagnostics or {})
+
+    def enrich_pending(self, limit: int = 30, max_workers: int = 4) -> dict[str, int]:
+        """Prioritized post-import enrichment pass.
+
+        Selects ASINs that are missing image/price (or marked non-ok), prioritizing
+        items in active collections. Runs concurrently with a small worker pool.
+        Returns counts {ok, pending, fallback, skipped, queued}.
+        """
+        asins = self.store.pending_asins_prioritized(limit=limit)
+        logging.info(
+            "[AMAZON_TRENDS] enrich_pending: queued %d ASIN(s) (limit=%d, max_workers=%d)",
+            len(asins), limit, max_workers,
+        )
+        if not asins:
+            return {"ok": 0, "pending": 0, "fallback": 0, "skipped": 0, "queued": 0}
+        counts = self.enricher.enrich_batch(asins, max_workers=max_workers)
+        counts["queued"] = len(asins)
+        logging.info("[AMAZON_TRENDS] enrich_pending done: %s", counts)
+        return counts
