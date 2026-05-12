@@ -27,6 +27,7 @@ from product_api import ImpactAPI, URLGeniusAPI, WalmartAPI
 
 DB_PATH = db_schema.DB_PATH
 DEFAULT_WORKBOOK = Path("attached_assets/Walmart_May6th_Analysis.xlsx")
+ATTACHED_ASSETS_DIR = Path("attached_assets")
 SHEET_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 STALE_DOUBLE_ENCODED_WALMART_GOTO_ERROR = "stale double-encoded Walmart goto destination"
 
@@ -78,6 +79,33 @@ def parse_workbook_filename(path: "str | os.PathLike[str]") -> dict[str, str]:
     source = parts[0] if len(parts) >= 2 and parts[0] in ("Walmart", "Amazon") else "unknown"
     date_label = parts[1] if source != "unknown" and len(parts) >= 2 else ""
     return {"source": source, "date_label": date_label}
+
+
+def discover_workbooks(assets_dir: Path = ATTACHED_ASSETS_DIR) -> list[dict]:
+    """Scan assets_dir for .xlsx workbook files.
+
+    Returns a list of dicts sorted newest-modified first:
+      filename, path, source, date_label, modified_at (ISO), modified_display
+    """
+    if not assets_dir.is_dir():
+        return []
+    workbooks = []
+    for p in assets_dir.glob("*.xlsx"):
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        meta = parse_workbook_filename(p)
+        workbooks.append({
+            "filename": p.name,
+            "path": str(p),
+            "source": meta["source"],
+            "date_label": meta["date_label"],
+            "modified_at": datetime.fromtimestamp(mtime).strftime("%Y-%m-%dT%H:%M:%S"),
+            "modified_display": datetime.fromtimestamp(mtime).strftime("%b %-d, %Y"),
+        })
+    workbooks.sort(key=lambda w: w["modified_at"], reverse=True)
+    return workbooks
 
 
 def _connect() -> sqlite3.Connection:

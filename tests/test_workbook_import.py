@@ -1,7 +1,8 @@
-"""Phase 1 tests: Walmart workbook importer correctness.
+"""Phase 1 + workbook discovery tests.
 
 Covers:
 - parse_workbook_filename
+- discover_workbooks: scans directory, sorts newest-first, handles missing dir
 - WorkbookTrendParser: all_skus + summary_meta returned from parse()
 - _records_from_aggregated_sheet: brand + landing_page_url captured
 - _parse_summary_tab: multi-pair row format parsed correctly
@@ -368,6 +369,88 @@ class TestRealWorkbookIntegration(unittest.TestCase):
         self.assertGreater(diag["all_skus_count"], 100)
         self.assertEqual(diag["date_label"], "May6th")
         self.assertEqual(diag["source"], "Walmart")
+
+
+class TestDiscoverWorkbooks(unittest.TestCase):
+    def setUp(self):
+        import walmart_trends
+        self.wt = walmart_trends
+        self.tmp = tempfile.TemporaryDirectory()
+        self.assets = Path(self.tmp.name) / "assets"
+        self.assets.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _touch(self, name: str, mtime_offset: float = 0) -> Path:
+        p = self.assets / name
+        p.write_bytes(b"fake")
+        import time
+        t = time.time() + mtime_offset
+        import os
+        os.utime(p, (t, t))
+        return p
+
+    def test_empty_dir_returns_empty_list(self):
+        result = self.wt.discover_workbooks(self.assets)
+        self.assertEqual(result, [])
+
+    def test_missing_dir_returns_empty_list(self):
+        result = self.wt.discover_workbooks(Path(self.tmp.name) / "nonexistent")
+        self.assertEqual(result, [])
+
+    def test_non_xlsx_files_excluded(self):
+        self._touch("report.csv")
+        self._touch("notes.txt")
+        result = self.wt.discover_workbooks(self.assets)
+        self.assertEqual(result, [])
+
+    def test_xlsx_file_included_with_metadata(self):
+        self._touch("Walmart_May12_Analysis.xlsx")
+        result = self.wt.discover_workbooks(self.assets)
+        self.assertEqual(len(result), 1)
+        r = result[0]
+        self.assertEqual(r["filename"], "Walmart_May12_Analysis.xlsx")
+        self.assertEqual(r["source"], "Walmart")
+        self.assertEqual(r["date_label"], "May12")
+        self.assertIn("modified_at", r)
+        self.assertIn("modified_display", r)
+        self.assertTrue(r["path"].endswith("Walmart_May12_Analysis.xlsx"))
+
+    def test_sorted_newest_first(self):
+        # older file has mtime_offset=0, newer has +10s
+        self._touch("Walmart_Apr28_Analysis.xlsx", mtime_offset=0)
+        import time; time.sleep(0.02)
+        self._touch("Walmart_May12_Analysis.xlsx", mtime_offset=10)
+        result = self.wt.discover_workbooks(self.assets)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["date_label"], "May12")
+        self.assertEqual(result[1]["date_label"], "Apr28")
+
+    def test_unknown_source_still_included(self):
+        self._touch("my_export.xlsx")
+        result = self.wt.discover_workbooks(self.assets)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "unknown")
+        self.assertEqual(result[0]["date_label"], "")
+
+    def test_amazon_source_detected(self):
+        self._touch("Amazon_Summer2025_Analysis.xlsx")
+        result = self.wt.discover_workbooks(self.assets)
+        self.assertEqual(result[0]["source"], "Amazon")
+        self.assertEqual(result[0]["date_label"], "Summer2025")
+
+
+@unittest.skipUnless(REAL_WORKBOOK.exists(), "Real workbook not present")
+class TestDiscoverWorkbooksWithRealFile(unittest.TestCase):
+    def test_real_workbook_discovered(self):
+        import walmart_trends
+        results = walmart_trends.discover_workbooks()
+        paths = [r["path"] for r in results]
+        self.assertTrue(any("Walmart_May6th" in p for p in paths))
+        first = results[0]
+        self.assertIn("modified_at", first)
+        self.assertIn("modified_display", first)
 
 
 if __name__ == "__main__":
