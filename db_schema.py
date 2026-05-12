@@ -256,6 +256,7 @@ def init_schema() -> None:
 
         init_collection_content_drafts_schema(conn)
         init_walmart_trends_schema(conn)
+        init_amazon_trends_schema(conn)
 
         conn.commit()
     finally:
@@ -432,6 +433,70 @@ def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_collection_items_slug ON walmart_collection_items(collection_slug, display_order)")
+
+    # retailer = 'walmart' | 'amazon' — identifies product source for render/join logic.
+    # source_type on these tables records the ingest method, not the retailer.
+    _add_column_if_missing(conn, 'walmart_collections', "retailer TEXT DEFAULT 'walmart'")
+    _add_column_if_missing(conn, 'walmart_collection_items', "retailer TEXT DEFAULT 'walmart'")
+
+
+def init_amazon_trends_schema(conn: sqlite3.Connection) -> None:
+    """Create normalized tables for Amazon trend ingestion.
+
+    Kept separate from Walmart tables per architecture requirement.
+    Collections are stored in the shared walmart_collections / walmart_collection_items
+    tables (long-term rename target: trend_collections / trend_collection_items)
+    with retailer='amazon' discriminator. Amazon products are NOT stored in walmart_products.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS amazon_trend_products (
+            asin                TEXT PRIMARY KEY,
+            product_title       TEXT,
+            brand               TEXT,
+            category            TEXT,
+            amazon_link         TEXT,
+            image_url           TEXT,
+            current_price       REAL,
+            price_display       TEXT,
+            enrichment_status   TEXT DEFAULT 'pending',
+            first_seen_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_amazon_products_category ON amazon_trend_products(category)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS amazon_product_performance_snapshots (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            refresh_run_id      INTEGER,
+            asin                TEXT NOT NULL,
+            source_list_type    TEXT,
+            collection_name     TEXT,
+            clicks              INTEGER DEFAULT 0,
+            items_ordered       INTEGER DEFAULT 0,
+            items_shipped       INTEGER DEFAULT 0,
+            items_returned      INTEGER DEFAULT 0,
+            total_earnings      REAL DEFAULT 0,
+            rank                INTEGER,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(refresh_run_id, asin, source_list_type, collection_name)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_amazon_perf_asin ON amazon_product_performance_snapshots(asin)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_amazon_perf_run  ON amazon_product_performance_snapshots(refresh_run_id)")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS amazon_affiliate_links (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            asin            TEXT NOT NULL UNIQUE,
+            product_url     TEXT NOT NULL,
+            affiliate_url   TEXT NOT NULL,
+            status          TEXT DEFAULT 'workbook',
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_amazon_affiliate_asin ON amazon_affiliate_links(asin)")
 
 
 def seed_default_creator() -> None:
