@@ -20,6 +20,11 @@ from urllib.parse import parse_qs, urlparse
 
 import db_schema
 from product_api import CrawlbaseAPI, URLGeniusAPI
+from utils.amazon_creators import (
+    AmazonCreatorsAPI,
+    AmazonCreatorsAPIError,
+    AmazonCreatorsConfigError,
+)
 from walmart_trends import (
     RefreshResult,
     WalmartTrendStore,
@@ -394,6 +399,13 @@ class AmazonTrendStore:
             conn.close()
 
     def affiliate_link_for(self, asin: str) -> str:
+        """Return the best monetized URL for an ASIN.
+
+        Preference order:
+          1. An active or workbook-sourced row in amazon_affiliate_links.
+          2. The Creators-vended detail_page_url on amazon_trend_products
+             (kept verbatim per Amazon attribution rules).
+        """
         conn = _connect()
         try:
             row = conn.execute(
@@ -407,7 +419,13 @@ class AmazonTrendStore:
                 """,
                 (asin,),
             ).fetchone()
-            return row[0] if row else ""
+            if row and row[0]:
+                return row[0]
+            vended = conn.execute(
+                "SELECT detail_page_url FROM amazon_trend_products WHERE asin = ?",
+                (asin,),
+            ).fetchone()
+            return (vended[0] if vended and vended[0] else "") or ""
         finally:
             conn.close()
 
@@ -422,6 +440,8 @@ class AmazonTrendStore:
 
         Never overwrites a non-empty field with an empty value — callers pass
         whatever they have and COALESCE preserves the best-known value.
+        Persists the Creators API fields (availability_type, availability_message,
+        parent_asin, detail_page_url) when present.
         """
         conn = _connect()
         try:
@@ -429,15 +449,19 @@ class AmazonTrendStore:
                 """
                 UPDATE amazon_trend_products
                 SET
-                    image_url         = COALESCE(NULLIF(?, ''), image_url),
-                    current_price     = COALESCE(?, current_price),
-                    price_display     = COALESCE(NULLIF(?, ''), price_display),
-                    brand             = COALESCE(NULLIF(?, ''), brand),
-                    category          = COALESCE(NULLIF(?, ''), category),
-                    enrichment_status = ?,
-                    enrichment_error  = ?,
-                    last_verified_at  = CURRENT_TIMESTAMP,
-                    updated_at        = CURRENT_TIMESTAMP
+                    image_url            = COALESCE(NULLIF(?, ''), image_url),
+                    current_price        = COALESCE(?, current_price),
+                    price_display        = COALESCE(NULLIF(?, ''), price_display),
+                    brand                = COALESCE(NULLIF(?, ''), brand),
+                    category             = COALESCE(NULLIF(?, ''), category),
+                    availability_type    = COALESCE(NULLIF(?, ''), availability_type),
+                    availability_message = COALESCE(NULLIF(?, ''), availability_message),
+                    parent_asin          = COALESCE(NULLIF(?, ''), parent_asin),
+                    detail_page_url      = COALESCE(NULLIF(?, ''), detail_page_url),
+                    enrichment_status    = ?,
+                    enrichment_error     = ?,
+                    last_verified_at     = CURRENT_TIMESTAMP,
+                    updated_at           = CURRENT_TIMESTAMP
                 WHERE asin = ?
                 """,
                 (
@@ -446,6 +470,10 @@ class AmazonTrendStore:
                     data.get("price_display") or "",
                     data.get("brand") or "",
                     data.get("category") or "",
+                    data.get("availability_type") or "",
+                    data.get("availability_message") or "",
+                    data.get("parent_asin") or "",
+                    data.get("detail_page_url") or "",
                     status,
                     error,
                     asin,
@@ -567,52 +595,68 @@ class AmazonURLGeniusLinkService:
 
 
 class AmazonProductEnricher:
-    """Fetch and store display metadata (image, price, brand) for Amazon products.
+    """Fetch and store display metadata for Amazon products.
 
-    Uses CrawlbaseAPI.get_amazon_product(). If the token is absent or the API
-    returns no data, the existing row is preserved and enrichment_status is
-    set to 'pending' so a later pass can retry.
+    Primary: Amazon Creators API GetItems (batched up to 10 ASINs/call).
+    Fallback: Crawlbase JS-rendered PDP scrape, used only when Creators API
+    is not configured or returns no usable data (no image AND no price) for
+    a given ASIN.
+
+    The vended `detailPageURL` from Creators is stored verbatim in
+    `detail_page_url` — Amazon's docs warn that altering returned URL
+    parameters can break affiliate attribution.
     """
 
-    def __init__(self, store: AmazonTrendStore):
+    def __init__(
+        self,
+        store: AmazonTrendStore,
+        creators: AmazonCreatorsAPI | None = None,
+        fallback: CrawlbaseAPI | None = None,
+    ):
         self.store = store
-        self.client = CrawlbaseAPI()
+        try:
+            self.creators = creators or AmazonCreatorsAPI()
+        except AmazonCreatorsConfigError as exc:
+            logging.warning("[AMAZON_TRENDS] Creators API config invalid: %s", exc)
+            self.creators = None  # type: ignore[assignment]
+        self.fallback = fallback or CrawlbaseAPI()
+        # Back-compat alias — earlier tests/callers referenced `self.client`
+        # when Crawlbase was the primary hydrator.
+        self.client = self.fallback
+
+    # ----- public API -----
 
     def enrich(self, asin: str) -> dict[str, Any]:
-        """Enrich one ASIN. Returns the final product dict (may be unchanged)."""
+        """Enrich one ASIN. Routes through Creators first, then Crawlbase."""
         existing = self.store.get_product(asin) or {}
         if existing.get("enrichment_status") == "ok" and existing.get("image_url"):
             return existing
-        if not self.client.token:
-            return existing  # no key — leave enrichment_status as 'pending', no write
-        try:
-            item = self.client.get_amazon_product(asin) or {}
-            if not item:
-                self.store.update_product_enrichment(asin, {}, "pending", "Crawlbase returned no data")
-                return existing
-            price_value = _to_float(item.get("current_price") or item.get("price"))
-            data = {
-                "image_url": item.get("image_url") or item.get("imageUrl") or item.get("image") or "",
-                "current_price": price_value,
-                "price_display": _price_display(price_value) if price_value else (item.get("price_display") or ""),
-                "brand": item.get("brand") or "",
-                "category": item.get("category") or "",
-            }
-            self.store.update_product_enrichment(asin, data, "ok")
-            return {**existing, **{k: v for k, v in data.items() if v not in (None, "")}}
-        except Exception as exc:
-            logging.warning("[AMAZON_TRENDS] enrichment failed for %s: %s", asin, exc)
-            self.store.update_product_enrichment(asin, {}, "fallback", str(exc))
-            return existing
+        # Try Creators API first.
+        if self.creators and self.creators.configured:
+            try:
+                items = self.creators.get_items([asin])
+            except (AmazonCreatorsAPIError, AmazonCreatorsConfigError) as exc:
+                logging.warning("[AMAZON_TRENDS] Creators API single-fetch failed for %s: %s", asin, exc)
+                items = {}
+            parsed = items.get(asin)
+            if parsed and self._has_critical_fields(parsed):
+                self.store.update_product_enrichment(asin, parsed, "ok")
+                return {**existing, **{k: v for k, v in parsed.items() if v not in (None, "")}}
+        # Fallback to Crawlbase.
+        return self._enrich_via_crawlbase(asin, existing)
 
     def enrich_batch(self, asins: list[str], max_workers: int = 4) -> dict[str, int]:
-        """Enrich a list of ASINs concurrently.
+        """Hydrate a list of ASINs.
 
-        Uses a small ThreadPoolExecutor (default 4 workers) so a slow Crawlbase
-        response on one ASIN doesn't stall the rest. Each ASIN failure is
-        isolated. Returns counts {ok, pending, fallback, skipped}.
+        Primary path is Creators API GetItems in batches of 10. Any ASIN that
+        is missing from the Creators response OR lacks critical fields (no
+        image AND no price) is routed to Crawlbase concurrently.
+        Returns counts {ok, pending, fallback, skipped, creators, crawlbase}.
         """
-        counts: dict[str, int] = {"ok": 0, "pending": 0, "fallback": 0, "skipped": 0}
+        counts: dict[str, int] = {
+            "ok": 0, "pending": 0, "fallback": 0, "skipped": 0,
+            "creators": 0, "crawlbase": 0,
+        }
         to_run: list[str] = []
         for asin in asins:
             existing = self.store.get_product(asin) or {}
@@ -626,17 +670,102 @@ class AmazonProductEnricher:
             "[AMAZON_TRENDS] enrichment batch: %d ASIN(s), max_workers=%d",
             len(to_run), max_workers,
         )
-        with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
-            futures = {pool.submit(self.enrich, asin): asin for asin in to_run}
-            for fut in as_completed(futures):
-                asin = futures[fut]
+
+        # Phase 1 — Creators API (primary).
+        creators_results: dict[str, dict[str, Any]] = {}
+        if self.creators and self.creators.configured:
+            try:
+                creators_results = self.creators.get_items(to_run)
+            except AmazonCreatorsAPIError as exc:
+                logging.warning("[AMAZON_TRENDS] Creators API batch failed: %s", exc)
+                creators_results = {}
+        else:
+            logging.info(
+                "[AMAZON_TRENDS] Creators API not configured — falling back to Crawlbase for all ASINs"
+            )
+
+        fallback_asins: list[str] = []
+        for asin in to_run:
+            parsed = creators_results.get(asin)
+            if parsed and self._has_critical_fields(parsed):
                 try:
-                    fut.result()
-                except Exception as exc:  # individual failures are non-fatal
-                    logging.warning("[AMAZON_TRENDS] enrich worker failed for %s: %s", asin, exc)
-                status = (self.store.get_product(asin) or {}).get("enrichment_status") or "pending"
-                counts[status] = counts.get(status, 0) + 1
+                    self.store.update_product_enrichment(asin, parsed, "ok")
+                    counts["creators"] += 1
+                except Exception as exc:
+                    logging.warning("[AMAZON_TRENDS] persist failed for %s: %s", asin, exc)
+                    fallback_asins.append(asin)
+            else:
+                fallback_asins.append(asin)
+
+        # Phase 2 — Crawlbase fallback (concurrent, isolated failures).
+        if fallback_asins:
+            logging.info(
+                "[AMAZON_TRENDS] Crawlbase fallback for %d ASIN(s) missing critical fields",
+                len(fallback_asins),
+            )
+            with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
+                futures = {
+                    pool.submit(self._enrich_via_crawlbase, asin, None): asin
+                    for asin in fallback_asins
+                }
+                for fut in as_completed(futures):
+                    asin = futures[fut]
+                    try:
+                        fut.result()
+                    except Exception as exc:
+                        logging.warning(
+                            "[AMAZON_TRENDS] crawlbase worker failed for %s: %s", asin, exc
+                        )
+                    status = (self.store.get_product(asin) or {}).get("enrichment_status") or "pending"
+                    if status == "ok":
+                        counts["crawlbase"] += 1
+
+        # Recompute final status counts from DB to keep them accurate.
+        for asin in to_run:
+            status = (self.store.get_product(asin) or {}).get("enrichment_status") or "pending"
+            if status not in counts:
+                counts[status] = 0
+            counts[status] += 1
         return counts
+
+    # ----- internals -----
+
+    @staticmethod
+    def _has_critical_fields(parsed: dict[str, Any]) -> bool:
+        """A Creators item is usable if it has at least an image OR a price."""
+        return bool(parsed.get("image_url")) or parsed.get("current_price") is not None
+
+    def _enrich_via_crawlbase(
+        self, asin: str, existing: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        existing = existing if existing is not None else (self.store.get_product(asin) or {})
+        if not self.fallback.token:
+            # Neither primary nor fallback available; mark pending without write.
+            self.store.update_product_enrichment(
+                asin, {}, "pending", "Creators API unavailable and CRAWLBASE_JS_TOKEN not set"
+            )
+            return existing
+        try:
+            item = self.fallback.get_amazon_product(asin) or {}
+            if not item:
+                self.store.update_product_enrichment(asin, {}, "pending", "Crawlbase returned no data")
+                return existing
+            price_value = _to_float(item.get("current_price") or item.get("price"))
+            data = {
+                "image_url": item.get("image_url") or item.get("imageUrl") or item.get("image") or "",
+                "current_price": price_value,
+                "price_display": _price_display(price_value)
+                    if price_value
+                    else (item.get("price_display") or ""),
+                "brand": item.get("brand") or "",
+                "category": item.get("category") or "",
+            }
+            self.store.update_product_enrichment(asin, data, "ok")
+            return {**existing, **{k: v for k, v in data.items() if v not in (None, "")}}
+        except Exception as exc:
+            logging.warning("[AMAZON_TRENDS] crawlbase fallback failed for %s: %s", asin, exc)
+            self.store.update_product_enrichment(asin, {}, "fallback", str(exc))
+            return existing
 
 
 class AmazonTrendRefreshService:
