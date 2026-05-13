@@ -502,6 +502,12 @@ def init_amazon_trends_schema(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, 'amazon_trend_products', "enrichment_error TEXT")
     _add_column_if_missing(conn, 'amazon_trend_products', "last_verified_at TIMESTAMP")
 
+    # Creators API hydration columns (idempotent).
+    _add_column_if_missing(conn, 'amazon_trend_products', "availability_type TEXT")
+    _add_column_if_missing(conn, 'amazon_trend_products', "availability_message TEXT")
+    _add_column_if_missing(conn, 'amazon_trend_products', "parent_asin TEXT")
+    _add_column_if_missing(conn, 'amazon_trend_products', "detail_page_url TEXT")
+
 
 def seed_default_creator() -> None:
     """Insert the default Steph row if creators is empty. Idempotent."""
