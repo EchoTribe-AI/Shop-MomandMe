@@ -24,6 +24,7 @@ from utils.amazon_creators import (
     AmazonCreatorsAPI,
     AmazonCreatorsAPIError,
     AmazonCreatorsConfigError,
+    AmazonCreatorsFatalError,
 )
 from walmart_trends import (
     RefreshResult,
@@ -635,6 +636,17 @@ class AmazonProductEnricher:
         if self.creators and self.creators.configured:
             try:
                 items = self.creators.get_items([asin])
+            except AmazonCreatorsFatalError as exc:
+                # Don't silently fall through to Crawlbase on a misconfig —
+                # mark this ASIN so the operator sees the real reason.
+                logging.error(
+                    "[AMAZON_TRENDS] Creators API fatal for %s — reason=%s message=%s",
+                    asin, exc.reason, exc.message,
+                )
+                self.store.update_product_enrichment(
+                    asin, {}, "fallback", f"creators_fatal:{exc.reason}"
+                )
+                return existing
             except (AmazonCreatorsAPIError, AmazonCreatorsConfigError) as exc:
                 logging.warning("[AMAZON_TRENDS] Creators API single-fetch failed for %s: %s", asin, exc)
                 items = {}
@@ -676,6 +688,19 @@ class AmazonProductEnricher:
         if self.creators and self.creators.configured:
             try:
                 creators_results = self.creators.get_items(to_run)
+            except AmazonCreatorsFatalError as exc:
+                # Non-retryable misconfiguration (bad partnerTag, ineligible
+                # associate, validation error). Stop the run rather than fall
+                # back to Crawlbase for every ASIN — fixing the config is the
+                # only correct action.
+                logging.error(
+                    "[AMAZON_TRENDS] Creators API fatal error — aborting enrichment run. "
+                    "reason=%s status=%s message=%s",
+                    exc.reason, exc.http_status, exc.message,
+                )
+                counts["fatal"] = counts.get("fatal", 0) + 1
+                counts["fatal_reason"] = exc.reason  # type: ignore[assignment]
+                return counts
             except AmazonCreatorsAPIError as exc:
                 logging.warning("[AMAZON_TRENDS] Creators API batch failed: %s", exc)
                 creators_results = {}

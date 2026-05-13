@@ -29,6 +29,44 @@ MAX_BATCH = 10
 REQUEST_TIMEOUT = 30
 TOKEN_REFRESH_SKEW = 60  # refresh this many seconds before expiry
 
+# Rate-limit guardrails for new-account TPS/TPD floor.
+# Amazon's documented new-account allocation is 1 TPS / 8640 TPD. We pace at
+# slightly above 1s between calls and cap total per-run batches well under
+# the daily floor. Tunable via env without code changes.
+MIN_REQUEST_INTERVAL_SEC = float(
+    os.environ.get("AMAZON_CREATORS_MIN_INTERVAL_SEC", "1.05")
+)
+MAX_BATCHES_PER_RUN = int(
+    os.environ.get("AMAZON_CREATORS_MAX_BATCHES_PER_RUN", "200")
+)
+MAX_RETRIES_ON_THROTTLE = int(
+    os.environ.get("AMAZON_CREATORS_MAX_THROTTLE_RETRIES", "3")
+)
+# Backoff schedule (seconds) when the response body omits retryAfterSeconds.
+_DEFAULT_BACKOFF = (2.0, 4.0, 8.0)
+
+
+# Non-retryable client-side error reasons. If Amazon returns one of these, the
+# request will never succeed without a config change — fail loud, don't retry.
+_NON_RETRYABLE_REASONS = frozenset(
+    {
+        "InvalidPartnerTag",
+        "InvalidAssociate",
+        "FieldValidationFailed",
+        "UnknownOperation",
+        "CannotParse",
+        "AssociateNotEligible",
+        "AuthorizationFailed",
+        "InvalidToken",
+        "InvalidIssuer",
+        "MissingClaim",
+        "MissingKeyId",
+        "UnsupportedClient",
+        "InvalidClient",
+        "MissingCredential",
+    }
+)
+
 # Cognito (v2.x) token endpoints, keyed by leading version digit-pair.
 _V2_TOKEN_ENDPOINTS = {
     "2.1": "https://creatorsapi.auth.us-east-1.amazoncognito.com/oauth2/token",
@@ -49,7 +87,44 @@ class AmazonCreatorsConfigError(RuntimeError):
 
 
 class AmazonCreatorsAPIError(RuntimeError):
-    """Raised on auth or API failures."""
+    """Raised on transient/retryable API failures."""
+
+
+class AmazonCreatorsFatalError(AmazonCreatorsAPIError):
+    """Raised on non-retryable client-side errors (bad tag, ineligible, etc).
+
+    When this fires, retrying with the same input/config will keep failing.
+    Callers should stop the run and surface the reason to the operator.
+    """
+
+    def __init__(self, reason: str, message: str, http_status: int = 0):
+        super().__init__(f"{reason}: {message}")
+        self.reason = reason
+        self.message = message
+        self.http_status = http_status
+
+
+def _parse_error_body(text: str) -> tuple[str, str, str, int | None]:
+    """Return (type, reason, message, retry_after_seconds) from an error body.
+
+    Returns empty strings / None if the body is not parseable. Safe for any
+    HTTP status code.
+    """
+    try:
+        payload = json.loads(text) if text else {}
+    except (ValueError, TypeError):
+        return "", "", text[:300], None
+    if not isinstance(payload, dict):
+        return "", "", text[:300], None
+    err_type = str(payload.get("type") or "")
+    reason = str(payload.get("reason") or "")
+    message = str(payload.get("message") or payload.get("error_description") or "")
+    retry_after = payload.get("retryAfterSeconds")
+    try:
+        retry_after_i = int(retry_after) if retry_after is not None else None
+    except (TypeError, ValueError):
+        retry_after_i = None
+    return err_type, reason, message, retry_after_i
 
 
 def detect_credential_family(version: str) -> str:
@@ -115,6 +190,10 @@ class AmazonCreatorsAPI:
         self._token: str = ""
         self._token_expires_at: float = 0.0
         self._lock = threading.Lock()
+        # Throttle pacing — tracks last successful or attempted call time so
+        # we never burst above the new-account 1 TPS floor.
+        self._last_request_at: float = 0.0
+        self._pace_lock = threading.Lock()
 
     # ----- configuration / readiness -----
 
@@ -222,31 +301,103 @@ class AmazonCreatorsAPI:
         asins: list[str],
         resources: tuple[str, ...] | None = None,
     ) -> dict[str, dict[str, Any]]:
-        """Hydrate ASINs via GetItems.
+        """Hydrate ASINs via GetItems with TPS pacing + throttle retry.
 
-        Returns a dict keyed by ASIN; missing ASINs are simply absent.
-        Raises AmazonCreatorsAPIError on transport/auth failure, but per-batch
-        errors that return a partial response are logged and the rest of the
-        batches continue.
+        - Batches are <=10 ASINs per request (one transaction each).
+        - Calls are paced at >=MIN_REQUEST_INTERVAL_SEC apart (default 1.05s)
+          to respect the new-account 1 TPS floor.
+        - On 429 ThrottleException or 5xx, retries with the body-provided
+          `retryAfterSeconds` (or exponential backoff if absent), up to
+          MAX_RETRIES_ON_THROTTLE attempts per batch.
+        - On non-retryable client errors (bad tag, ineligible, validation),
+          raises AmazonCreatorsFatalError immediately so the caller stops
+          burning the daily TPD budget on doomed retries.
+        - Caps total batches per run at MAX_BATCHES_PER_RUN to protect TPD.
+
+        Returns a dict keyed by ASIN. Missing ASINs are simply absent
+        (404 ResourceNotFoundException is treated as "no data").
         """
         if not self.configured:
             raise AmazonCreatorsConfigError(
                 f"Creators API not configured. Missing: {', '.join(self.missing_config())}"
             )
-        unique = [a for a in dict.fromkeys(a.strip() for a in asins if a and a.strip())]
+        unique = list(dict.fromkeys(a.strip() for a in asins if a and a.strip()))
         out: dict[str, dict[str, Any]] = {}
+        batch_count = 0
         for start in range(0, len(unique), MAX_BATCH):
+            if batch_count >= MAX_BATCHES_PER_RUN:
+                LOG.warning(
+                    "[CREATORS_API] Reached MAX_BATCHES_PER_RUN=%d; stopping to protect TPD budget. "
+                    "Remaining ASINs will be picked up on the next enrich_pending() run.",
+                    MAX_BATCHES_PER_RUN,
+                )
+                break
             batch = unique[start : start + MAX_BATCH]
+            batch_count += 1
             try:
-                items = self._get_items_batch(batch, resources or self.DEFAULT_RESOURCES)
+                items = self._get_items_batch_with_retry(
+                    batch, resources or self.DEFAULT_RESOURCES
+                )
+            except AmazonCreatorsFatalError:
+                # Non-retryable — bubble up so caller stops the whole run.
+                raise
             except AmazonCreatorsAPIError as exc:
-                LOG.warning("[CREATORS_API] Batch failed (%d ASINs): %s", len(batch), exc)
+                LOG.warning(
+                    "[CREATORS_API] Batch failed after retries (%d ASINs): %s",
+                    len(batch), exc,
+                )
                 continue
             for raw in items:
                 parsed = parse_item(raw)
                 if parsed and parsed.get("asin"):
                     out[parsed["asin"]] = parsed
         return out
+
+    # ----- pacing + retry -----
+
+    def _wait_for_pacing(self) -> None:
+        with self._pace_lock:
+            now = time.monotonic()
+            elapsed = now - self._last_request_at
+            if elapsed < MIN_REQUEST_INTERVAL_SEC and self._last_request_at > 0:
+                time.sleep(MIN_REQUEST_INTERVAL_SEC - elapsed)
+            self._last_request_at = time.monotonic()
+
+    def _get_items_batch_with_retry(
+        self, batch: list[str], resources: tuple[str, ...]
+    ) -> list[dict[str, Any]]:
+        last_exc: Exception | None = None
+        token_refreshed_once = False
+        for attempt in range(MAX_RETRIES_ON_THROTTLE + 1):
+            self._wait_for_pacing()
+            try:
+                return self._get_items_batch(batch, resources)
+            except _RetryableAuthError:
+                # Token expired between cache check and call — refresh once.
+                if token_refreshed_once:
+                    raise
+                token_refreshed_once = True
+                with self._lock:
+                    self._token = ""
+                    self._token_expires_at = 0.0
+                LOG.info("[CREATORS_API] Token rejected as expired; refreshing once and retrying")
+                continue
+            except _ThrottleRetryable as exc:
+                last_exc = exc
+                if attempt >= MAX_RETRIES_ON_THROTTLE:
+                    break
+                wait = exc.retry_after if exc.retry_after else _DEFAULT_BACKOFF[
+                    min(attempt, len(_DEFAULT_BACKOFF) - 1)
+                ]
+                LOG.warning(
+                    "[CREATORS_API] Throttled (attempt %d/%d): waiting %.1fs before retry",
+                    attempt + 1, MAX_RETRIES_ON_THROTTLE + 1, wait,
+                )
+                time.sleep(wait)
+                continue
+        raise AmazonCreatorsAPIError(
+            f"Throttled after {MAX_RETRIES_ON_THROTTLE + 1} attempts: {last_exc}"
+        )
 
     def _get_items_batch(
         self, batch: list[str], resources: tuple[str, ...]
@@ -274,18 +425,59 @@ class AmazonCreatorsAPI:
             data=json.dumps(body),
             timeout=REQUEST_TIMEOUT,
         )
-        if resp.status_code != 200:
-            raise AmazonCreatorsAPIError(
-                f"GetItems HTTP {resp.status_code}: {resp.text[:300]}"
+        if resp.status_code == 200:
+            try:
+                payload = resp.json()
+            except ValueError as exc:
+                raise AmazonCreatorsAPIError(f"GetItems response not JSON: {exc}") from exc
+            items = (payload.get("itemsResult") or {}).get("items") or []
+            return items if isinstance(items, list) else []
+
+        # Non-200: parse structured error and route by type/reason.
+        err_type, reason, message, retry_after = _parse_error_body(resp.text)
+        status = resp.status_code
+
+        # 404 ResourceNotFoundException — invalid ASIN(s). Not an error from
+        # the caller's perspective; behave as "no data for those ASINs".
+        if status == 404 and err_type == "ResourceNotFoundException":
+            LOG.info(
+                "[CREATORS_API] ResourceNotFoundException for batch (asins=%s): %s",
+                batch, message,
             )
-        try:
-            payload = resp.json()
-        except ValueError as exc:
-            raise AmazonCreatorsAPIError(f"GetItems response not JSON: {exc}") from exc
-        items = (payload.get("itemsResult") or {}).get("items") or []
-        if not isinstance(items, list):
             return []
-        return items
+
+        # 401 TokenExpired — bubble a typed retryable so the outer loop refreshes once.
+        if status == 401 and reason == "TokenExpired":
+            raise _RetryableAuthError(message or "token expired")
+
+        # Non-retryable client errors — stop the run immediately.
+        if reason in _NON_RETRYABLE_REASONS:
+            raise AmazonCreatorsFatalError(reason, message, status)
+
+        # 429 throttle or 5xx — retryable.
+        if status == 429 or status >= 500:
+            raise _ThrottleRetryable(
+                f"HTTP {status} {err_type or 'error'}: {message or resp.text[:200]}",
+                retry_after=retry_after,
+            )
+
+        # Anything else — treat as a generic non-retryable failure so we don't
+        # silently burn TPD on something Amazon explicitly rejected.
+        raise AmazonCreatorsFatalError(
+            reason or err_type or "UnknownError",
+            message or resp.text[:300],
+            status,
+        )
+
+
+class _ThrottleRetryable(AmazonCreatorsAPIError):
+    def __init__(self, msg: str, retry_after: int | None = None):
+        super().__init__(msg)
+        self.retry_after = retry_after
+
+
+class _RetryableAuthError(AmazonCreatorsAPIError):
+    """Internal — signals a one-shot token refresh + retry."""
 
 
 # ---------- response normalization ----------

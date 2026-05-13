@@ -1,6 +1,7 @@
 """Unit tests for the Amazon Creators API client + enricher rewire."""
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -8,11 +9,14 @@ from unittest.mock import MagicMock, patch
 
 from utils.amazon_creators import (
     AmazonCreatorsAPI,
+    AmazonCreatorsAPIError,
     AmazonCreatorsConfigError,
+    AmazonCreatorsFatalError,
     detect_credential_family,
     load_config,
     parse_item,
 )
+import utils.amazon_creators as creators_mod
 
 
 # --- response normalization ---
@@ -162,8 +166,153 @@ class GetItemsHttpTests(unittest.TestCase):
         mock_post.return_value = MagicMock(
             status_code=200, json=lambda: {"itemsResult": {"items": []}}
         )
-        self.client.get_items([f"A{i:02d}" for i in range(23)])
+        # Disable pacing for this test so it runs fast.
+        with patch.object(creators_mod, "MIN_REQUEST_INTERVAL_SEC", 0.0):
+            self.client.get_items([f"A{i:02d}" for i in range(23)])
         self.assertEqual(mock_post.call_count, 3)  # 10 + 10 + 3
+
+
+class RateLimitGuardrailTests(unittest.TestCase):
+    def setUp(self):
+        self.client = AmazonCreatorsAPI(
+            {
+                "client_id": "id", "client_secret": "secret", "version": "3.1",
+                "partner_tag": "tag-20", "marketplace": "www.amazon.com",
+            }
+        )
+        self.client._token = "fake-token"
+        self.client._token_expires_at = 9999999999.0
+
+    @patch("utils.amazon_creators.time.sleep")
+    @patch("utils.amazon_creators.requests.post")
+    def test_pacing_enforced_between_batches(self, mock_post, mock_sleep):
+        mock_post.return_value = MagicMock(
+            status_code=200, json=lambda: {"itemsResult": {"items": []}}
+        )
+        with patch.object(creators_mod, "MIN_REQUEST_INTERVAL_SEC", 1.05):
+            self.client.get_items([f"A{i:02d}" for i in range(15)])
+        # 2 batches → at least one paced sleep call before batch 2.
+        sleep_durations = [c.args[0] for c in mock_sleep.call_args_list if c.args]
+        self.assertTrue(any(0.5 < d <= 1.05 for d in sleep_durations),
+                        f"Expected a pacing sleep ~1s, got {sleep_durations}")
+
+    @patch("utils.amazon_creators.time.sleep")
+    @patch("utils.amazon_creators.requests.post")
+    def test_throttle_429_retries_then_succeeds(self, mock_post, mock_sleep):
+        ok = MagicMock(status_code=200, json=lambda: {
+            "itemsResult": {"items": [{"asin": "B0X"}]}
+        })
+        throttled = MagicMock(
+            status_code=429,
+            text=json.dumps({
+                "type": "ThrottleException",
+                "message": "rate limited",
+                "retryAfterSeconds": 2,
+            }),
+        )
+        mock_post.side_effect = [throttled, throttled, ok]
+        with patch.object(creators_mod, "MIN_REQUEST_INTERVAL_SEC", 0.0):
+            out = self.client.get_items(["B0X"])
+        self.assertIn("B0X", out)
+        self.assertEqual(mock_post.call_count, 3)
+        # The retry-after value (2) should be honored.
+        self.assertIn(2, [c.args[0] for c in mock_sleep.call_args_list if c.args])
+
+    @patch("utils.amazon_creators.time.sleep")
+    @patch("utils.amazon_creators.requests.post")
+    def test_throttle_429_gives_up_after_max_retries(self, mock_post, mock_sleep):
+        throttled = MagicMock(
+            status_code=429,
+            text=json.dumps({"type": "ThrottleException", "message": "x"}),
+        )
+        mock_post.return_value = throttled
+        with patch.object(creators_mod, "MIN_REQUEST_INTERVAL_SEC", 0.0):
+            with patch.object(creators_mod, "MAX_RETRIES_ON_THROTTLE", 2):
+                out = self.client.get_items(["B0X"])
+        self.assertEqual(out, {})
+        # initial + 2 retries = 3
+        self.assertEqual(mock_post.call_count, 3)
+
+    @patch("utils.amazon_creators.time.sleep")
+    @patch("utils.amazon_creators.requests.post")
+    def test_invalid_partner_tag_raises_fatal_and_stops(self, mock_post, mock_sleep):
+        mock_post.return_value = MagicMock(
+            status_code=400,
+            text=json.dumps({
+                "type": "ValidationException",
+                "message": "Partner tag in the request is invalid",
+                "reason": "InvalidPartnerTag",
+            }),
+        )
+        with patch.object(creators_mod, "MIN_REQUEST_INTERVAL_SEC", 0.0):
+            with self.assertRaises(AmazonCreatorsFatalError) as cm:
+                self.client.get_items(["B0X"])
+        self.assertEqual(cm.exception.reason, "InvalidPartnerTag")
+        self.assertEqual(mock_post.call_count, 1)  # no retries on fatal
+
+    @patch("utils.amazon_creators.time.sleep")
+    @patch("utils.amazon_creators.requests.post")
+    def test_associate_not_eligible_raises_fatal(self, mock_post, mock_sleep):
+        mock_post.return_value = MagicMock(
+            status_code=403,
+            text=json.dumps({
+                "type": "AccessDeniedException",
+                "message": "ineligible",
+                "reason": "AssociateNotEligible",
+            }),
+        )
+        with patch.object(creators_mod, "MIN_REQUEST_INTERVAL_SEC", 0.0):
+            with self.assertRaises(AmazonCreatorsFatalError) as cm:
+                self.client.get_items(["B0X"])
+        self.assertEqual(cm.exception.reason, "AssociateNotEligible")
+
+    @patch("utils.amazon_creators.time.sleep")
+    @patch("utils.amazon_creators.requests.post")
+    def test_resource_not_found_returns_empty_no_raise(self, mock_post, mock_sleep):
+        mock_post.return_value = MagicMock(
+            status_code=404,
+            text=json.dumps({
+                "type": "ResourceNotFoundException",
+                "message": "No items found",
+                "resourceType": "Item",
+                "resourceId": "B0BAD",
+            }),
+        )
+        with patch.object(creators_mod, "MIN_REQUEST_INTERVAL_SEC", 0.0):
+            out = self.client.get_items(["B0BAD"])
+        self.assertEqual(out, {})
+
+    @patch("utils.amazon_creators.time.sleep")
+    @patch("utils.amazon_creators.requests.post")
+    def test_token_expired_refreshes_once_then_succeeds(self, mock_post, mock_sleep):
+        expired = MagicMock(
+            status_code=401,
+            text=json.dumps({
+                "type": "UnauthorizedException",
+                "message": "expired",
+                "reason": "TokenExpired",
+            }),
+        )
+        ok = MagicMock(status_code=200, json=lambda: {"itemsResult": {"items": [{"asin": "B0X"}]}})
+        mock_post.side_effect = [expired, ok]
+        # Stub _fetch_token to avoid hitting real auth endpoint.
+        self.client._fetch_token = MagicMock(return_value=("new-token", 3600))
+        with patch.object(creators_mod, "MIN_REQUEST_INTERVAL_SEC", 0.0):
+            out = self.client.get_items(["B0X"])
+        self.assertIn("B0X", out)
+        self.assertEqual(mock_post.call_count, 2)
+
+    @patch("utils.amazon_creators.time.sleep")
+    @patch("utils.amazon_creators.requests.post")
+    def test_max_batches_per_run_caps_tpd(self, mock_post, mock_sleep):
+        mock_post.return_value = MagicMock(
+            status_code=200, json=lambda: {"itemsResult": {"items": []}}
+        )
+        with patch.object(creators_mod, "MIN_REQUEST_INTERVAL_SEC", 0.0):
+            with patch.object(creators_mod, "MAX_BATCHES_PER_RUN", 2):
+                # 35 ASINs → 4 batches in principle, but cap stops at 2.
+                self.client.get_items([f"A{i:02d}" for i in range(35)])
+        self.assertEqual(mock_post.call_count, 2)
 
 
 class ConfigLoadingTests(unittest.TestCase):
@@ -253,6 +402,24 @@ class EnricherRoutingTests(unittest.TestCase):
         a2 = self.store.get_product("A2")
         self.assertEqual(a2["price_display"], "$12.50")
         self.assertEqual(a2["image_url"], "https://img/a2.jpg")
+
+    def test_fatal_error_aborts_run_no_crawlbase_fallback(self):
+        creators = MagicMock()
+        creators.configured = True
+        creators.get_items.side_effect = AmazonCreatorsFatalError(
+            "InvalidPartnerTag", "bad tag", 400
+        )
+        fallback = MagicMock()
+        fallback.token = "stub"
+        enricher = self.amazon_trends.AmazonProductEnricher(
+            self.store, creators=creators, fallback=fallback
+        )
+        counts = enricher.enrich_batch(["A1", "A2"], max_workers=1)
+        self.assertEqual(counts.get("fatal"), 1)
+        self.assertEqual(counts.get("fatal_reason"), "InvalidPartnerTag")
+        # Crawlbase should NOT have been called — fixing the config is the
+        # only correct action when the partner tag is wrong.
+        fallback.get_amazon_product.assert_not_called()
 
     def test_creators_unconfigured_falls_back_for_all(self):
         creators = MagicMock()
