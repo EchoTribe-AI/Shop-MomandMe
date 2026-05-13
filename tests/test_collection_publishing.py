@@ -172,6 +172,44 @@ class CollectionPublishingTestCase(unittest.TestCase):
         all_rows = self.client.get("/archer/collages?status=all").get_json()["collages"]
         self.assertEqual({row["slug"] for row in all_rows}, {"draft-row", "published-row"})
 
+    def test_amazon_only_draft_publishes_with_amazon_cta(self):
+        amazon_product = {
+            "asin": "B0CXAMZN01",
+            "product_name": "Amazon Find",
+            "network": "amazon",
+            "retailer": "Amazon",
+            "attribution_link": "https://www.amazon.com/dp/B0CXAMZN01?tag=mommymedeals-20",
+            "image_encoded_string": "https://i.example/amzn.jpg",
+        }
+        with patch("product_api.ArcherAPI.generate_link") as generate:
+            resp = self._save("amazon-only", status="published", products=[amazon_product])
+        self.assertEqual(resp.status_code, 200)
+        generate.assert_not_called()
+        page = self.client.get("/shop/amazon-only")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn("Shop Amazon →", html)
+        self.assertNotIn("Shop Walmart →", html)
+
+    def test_walmart_only_draft_publishes_with_walmart_cta(self):
+        walmart_product = {
+            "asin": "5454929532",
+            "product_name": "Walmart Find",
+            "network": "walmart",
+            "retailer": "Walmart",
+            "attribution_link": "https://goto.walmart.com/c/3590891/1398372/16662?u=wm",
+            "image_encoded_string": "https://i.example/wm.jpg",
+        }
+        with patch("product_api.ArcherAPI.generate_link") as generate:
+            resp = self._save("walmart-only", status="published", products=[walmart_product])
+        self.assertEqual(resp.status_code, 200)
+        generate.assert_not_called()
+        page = self.client.get("/shop/walmart-only")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn("Shop Walmart →", html)
+        self.assertNotIn("Shop Amazon →", html)
+
     def test_shop_visibility_for_draft_and_published(self):
         self._save("visibility-draft", status="draft")
         self.assertEqual(self.client.get("/shop/visibility-draft").status_code, 404)

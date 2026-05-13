@@ -45,6 +45,18 @@
     .state-value a { color:var(--accent); text-decoration:none; }
     .fine { color:var(--muted); font-size:12px; line-height:1.45; margin-top:10px; }
     .top-alert { margin-top:14px; padding:11px 12px; border-radius:14px; background:#fff3e0; color:#a45700; font-size:13px; font-weight:800; line-height:1.4; }
+    .add-product-row { display:flex; gap:6px; align-items:center; margin:8px 0 10px; }
+    .add-product-row input { flex:1; padding:8px 10px; font-size:12px; border-radius:10px; }
+    .add-product-row button { padding:8px 10px; font-size:12px; border-radius:10px; }
+    .product-controls { display:flex; flex-direction:column; gap:4px; align-items:center; }
+    .product-ctl-btn { background:#fff; color:#1a1a17; border:1px solid var(--line); border-radius:8px; padding:3px 7px; font-size:11px; font-weight:800; cursor:pointer; min-width:26px; line-height:1; }
+    .product-ctl-btn:hover { background:#fff8f6; border-color:var(--accent); color:var(--accent); }
+    .product-ctl-btn.danger:hover { background:#fff0ed; border-color:#a02828; color:#a02828; }
+    .product-ctl-btn:disabled { opacity:.4; cursor:not-allowed; }
+    .product-row-with-ctl { display:grid; grid-template-columns:64px minmax(0,1fr) 36px; gap:10px; align-items:center; padding:8px; border:1px solid var(--line); border-radius:16px; background:#fffdfb; }
+    .trending-note { font-size:11px; color:var(--muted); margin:6px 0 4px; font-style:italic; }
+    .pricing-status { display:none; margin-top:8px; font-size:12px; color:var(--green); font-weight:800; }
+    .pricing-status.err { color:#a02828; }
   </style>
 </head>
 <body>
@@ -69,17 +81,15 @@
         {% if product_count and product_count > products|length %}
         <p class="fine">Showing {{ products|length }} of {{ product_count }} products here. The saved preview and published page preserve the full collection.</p>
         {% endif %}
-        <div class="products">
-          {% for product in products %}
-          <div class="product">
-            {% if product['image_url'] %}<img src="{{ product['image_url'] }}" alt="{{ product['title'] }}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'ph',textContent:'Image soon'}))">{% else %}<div class="ph">Image soon</div>{% endif %}
-            <div>
-              <div class="p-name">{{ product['title'] }}</div>
-              <div class="p-meta">{{ product['brand'] or 'Walmart' }} · {{ product['price_display'] or 'See price at Walmart' }}</div>
-            </div>
-          </div>
-          {% endfor %}
+        {% set _trending_slug = (collection['slug'] in ['top-sellers', 'amazon-top-picks']) %}
+        {% if _trending_slug %}
+        <div class="trending-note">Trending order is preserved for this collection — reorder is disabled, but you can still add or remove items.</div>
+        {% endif %}
+        <div class="add-product-row">
+          <input id="newAsinInput" placeholder="Add by ASIN (e.g. B0CXXXXXX)" maxlength="20">
+          <button class="ghost" type="button" onclick="addProductByAsin()">+ Add</button>
         </div>
+        <div id="productList" class="products" data-trending="{{ '1' if _trending_slug else '0' }}"></div>
         <p class="fine">Product links are copied from the existing Walmart Trending shop_url values. This flow does not generate new Impact or URLGenius links.</p>
       </aside>
 
@@ -145,8 +155,10 @@
           <button class="secondary" onclick="saveDraft()" type="button">Save draft</button>
           <button class="ghost" onclick="previewPage()" type="button">Preview landing page</button>
           <button class="secondary" onclick="publishPage()" type="button">Publish page</button>
+          <button id="refreshPricingBtn" class="ghost" onclick="refreshPricing()" type="button">Update pricing</button>
           <a class="btn ghost" id="insightsLink" href="/insights?creator_id={{ creator_id }}" style="display:none;">View in Insights</a>
         </div>
+        <div id="pricingStatus" class="pricing-status"></div>
         <div id="status" class="status"></div>
         <div class="workflow-state" aria-label="Walmart collection publishing status">
           <div class="state-row">
@@ -478,8 +490,181 @@
         setStatus('Social post copied.');
       }
     }
+    // --- Product list management (Issue 2) ---
+    // Seed from server-rendered products if no draft exists yet.
+    const initialProducts = (existingDraft && existingDraft.product_snapshot && existingDraft.product_snapshot.length)
+      ? existingDraft.product_snapshot
+      : ({{ products|tojson }} || []).map(function(p, idx) {
+          return {
+            asin: p.sku || p.asin || '',
+            product_name: p.title || p.product_name || '',
+            brand: p.brand || '',
+            company_name: p.brand || '',
+            price: p.price_display || p.current_price || '',
+            current_price: p.current_price || '',
+            price_display: p.price_display || '',
+            image_encoded_string: p.image_url || '',
+            attribution_link: p.shop_url || '',
+            retailer: 'Walmart',
+            retailer_name: 'Walmart',
+            network: 'walmart',
+            source_rank: p.rank || idx + 1,
+            rank: p.rank || idx + 1,
+          };
+        });
+    let productsState = Array.isArray(initialProducts) ? initialProducts.slice() : [];
+
+    function _retailerOf(p) {
+      const r = String(p.retailer || p.retailer_name || p.network || '').toLowerCase();
+      if (r === 'walmart' || r === 'amazon') return r;
+      return '';
+    }
+
+    function renderProductList() {
+      const wrap = document.getElementById('productList');
+      if (!wrap) return;
+      const trending = wrap.getAttribute('data-trending') === '1';
+      wrap.innerHTML = '';
+      productsState.forEach((p, idx) => {
+        const row = document.createElement('div');
+        row.className = 'product-row-with-ctl';
+        const retailer = _retailerOf(p);
+        const retailerLabel = retailer === 'amazon' ? 'Amazon' : (retailer === 'walmart' ? 'Walmart' : '');
+        const priceText = p.price_display || p.price || p.current_price || (retailerLabel ? ('See price at ' + retailerLabel) : 'See price');
+        const img = (p.image_encoded_string || p.image_url || '');
+        const imgHtml = img
+          ? `<img src="${img}" alt="" style="width:64px;height:64px;border-radius:12px;object-fit:cover;background:#f6f3ef;">`
+          : `<div class="ph">Image soon</div>`;
+        const name = (p.product_name || p.title || p.asin || 'Product').replace(/</g, '&lt;');
+        const brand = (p.brand || p.company_name || retailerLabel || '').replace(/</g, '&lt;');
+        row.innerHTML = `
+          ${imgHtml}
+          <div>
+            <div class="p-name">${name}</div>
+            <div class="p-meta">${brand}${retailerLabel ? ' · ' + retailerLabel : ''} · ${priceText}</div>
+          </div>
+          <div class="product-controls">
+            <button class="product-ctl-btn" type="button" title="Move up" data-act="up" data-idx="${idx}" ${trending || idx === 0 ? 'disabled' : ''}>↑</button>
+            <button class="product-ctl-btn" type="button" title="Move down" data-act="down" data-idx="${idx}" ${trending || idx === productsState.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="product-ctl-btn danger" type="button" title="Remove" data-act="remove" data-idx="${idx}">×</button>
+          </div>
+        `;
+        wrap.appendChild(row);
+      });
+      wrap.querySelectorAll('button[data-act]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const act = btn.getAttribute('data-act');
+          const i = parseInt(btn.getAttribute('data-idx'), 10);
+          if (Number.isNaN(i)) return;
+          if (act === 'remove') {
+            productsState.splice(i, 1);
+          } else if (act === 'up' && i > 0) {
+            const tmp = productsState[i - 1];
+            productsState[i - 1] = productsState[i];
+            productsState[i] = tmp;
+          } else if (act === 'down' && i < productsState.length - 1) {
+            const tmp = productsState[i + 1];
+            productsState[i + 1] = productsState[i];
+            productsState[i] = tmp;
+          }
+          renderProductList();
+          schedulePersistProducts();
+        });
+      });
+    }
+
+    let _persistTimer = null;
+    function schedulePersistProducts() {
+      // Only persist if we have a draft id; otherwise saveDraft() is the trigger.
+      if (!draftId) return;
+      if (_persistTimer) clearTimeout(_persistTimer);
+      _persistTimer = setTimeout(persistProducts, 600);
+    }
+
+    async function persistProducts() {
+      if (!draftId) return;
+      try {
+        const res = await fetch(`/api/walmart/collections/${collectionSlug}/drafts/${draftId}/products`, {
+          method: 'POST',
+          headers: authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({ products: productsState }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+      } catch (err) {
+        setStatus(`Product save failed: ${err.message}`, true);
+      }
+    }
+
+    async function addProductByAsin() {
+      const input = document.getElementById('newAsinInput');
+      const asin = (input.value || '').trim().toUpperCase();
+      if (!asin) return setStatus('Enter an ASIN to add.', true);
+      // Save the draft first if we don't have an id.
+      if (!draftId) {
+        const saved = await saveDraft();
+        if (!saved) return;
+      }
+      try {
+        const res = await fetch(`/api/walmart/collections/${collectionSlug}/drafts/${draftId}/add-product`, {
+          method: 'POST',
+          headers: authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({ asin }),
+        });
+        const data = await res.json();
+        if (res.status === 409) {
+          setStatus(data.message || 'ASIN already in collection', true);
+          return;
+        }
+        if (!res.ok || data.error) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+        productsState = data.products || productsState;
+        renderProductList();
+        input.value = '';
+        setStatus(`Added ${asin}.`);
+      } catch (err) {
+        setStatus(`Add failed: ${err.message}`, true);
+      }
+    }
+
+    async function refreshPricing() {
+      const btn = document.getElementById('refreshPricingBtn');
+      const statusEl = document.getElementById('pricingStatus');
+      if (!draftId) {
+        const saved = await saveDraft();
+        if (!saved) return;
+      }
+      btn.disabled = true;
+      const oldText = btn.textContent;
+      btn.textContent = 'Updating…';
+      statusEl.style.display = 'none';
+      try {
+        const res = await fetch(`/api/walmart/collections/${collectionSlug}/drafts/${draftId}/refresh-pricing`, {
+          method: 'POST', headers: authHeaders(),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        productsState = data.products || productsState;
+        renderProductList();
+        const total = (productsState || []).length;
+        const checkedAt = (data.last_checked_at || '').replace(' ', ' ').slice(-8, -3);
+        statusEl.className = 'pricing-status';
+        statusEl.style.display = 'block';
+        statusEl.textContent = `Updated ${data.updated} of ${total} (last checked: ${checkedAt})${data.failed ? ` · ${data.failed} failed` : ''}.`;
+      } catch (err) {
+        statusEl.className = 'pricing-status err';
+        statusEl.style.display = 'block';
+        statusEl.textContent = `Pricing update failed: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+      }
+    }
+
     switchVoiceTab('record');
     initializeExistingDraft();
+    renderProductList();
   </script>
 </body>
 </html>

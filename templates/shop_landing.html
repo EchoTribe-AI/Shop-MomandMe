@@ -92,6 +92,9 @@
 
   .pc-body { padding: 10px 12px 12px; }
   .pc-social-proof { display: inline-flex; align-items: center; width: fit-content; max-width: 100%; margin-bottom: 7px; padding: 4px 8px; border-radius: 999px; background: #fff7d6; color: #7a4a00; font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: 0.1px; }
+  .pc-retailer-badge { display:inline-flex; align-items:center; width:fit-content; margin-bottom:6px; padding:4px 8px; border-radius:999px; font-size:10px; font-weight:800; line-height:1; letter-spacing:.02em; }
+  .pc-retailer-walmart { color:#e65100; background:#ffe9df; }
+  .pc-retailer-amazon { color:#b35900; background:#fff4e0; }
   .pc-brand { font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: rgba(0,0,0,0.35); margin-bottom: 3px; }
   .pc-name { font-size: 12px; font-weight: 500; color: #1a1a17; line-height: 1.4; margin-bottom: 6px; }
   .pc-price-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-bottom: 8px; }
@@ -197,10 +200,14 @@ fbq('track', 'PageView');
         {% set product_network = (product.network or '')|lower %}
         {% set is_walmart_product = product_network == 'walmart' or product_retailer == 'walmart' %}
         {% set is_amazon_product = product_network == 'amazon' or product_retailer == 'amazon' %}
-        {% set is_walmart_trend_page = is_walmart_product or ('walmart_trend' in (collage.campaign_types or '')) %}
-        {% if is_walmart_trend_page %}
+        {% set retailer_display = 'Walmart' if is_walmart_product else ('Amazon' if is_amazon_product else '') %}
+        {% set is_trend_page = is_walmart_product or is_amazon_product or ('walmart_trend' in (collage.campaign_types or '')) or ('amazon_trend' in (collage.campaign_types or '')) %}
+        {% if is_trend_page %}
           {% set proof_rank = product.source_rank or product.rank or loop.index %}
           <div class="pc-social-proof">{% if proof_rank and loop.index <= 10 %}#{{ proof_rank }} most purchased{% else %}Popular pick{% endif %}</div>
+        {% endif %}
+        {% if retailer_display %}
+          <div class="pc-retailer-badge pc-retailer-{{ 'amazon' if is_amazon_product else 'walmart' }}">{{ retailer_display }}</div>
         {% endif %}
         <div class="pc-brand">{{ product.company_name or product.brand or '' }}</div>
         <div class="pc-name">{{ product.product_name or product.name or '' }}</div>
@@ -218,8 +225,8 @@ fbq('track', 'PageView');
             {% else %}
             <span class="pc-price">{{ price_text }}</span>
             {% endif %}
-          {% elif is_walmart_product %}
-            <span class="pc-price">See price at Walmart</span>
+          {% elif retailer_display %}
+            <span class="pc-price">See price at {{ retailer_display }}</span>
           {% endif %}
           {% if product.deal and product.deal.get('final_discount_%') %}
           <span class="pc-deal">{{ product.deal['final_discount_%'] }} off</span>
@@ -232,20 +239,17 @@ fbq('track', 'PageView');
           {% if product.review_count %}<span class="pc-detail">{{ product.review_count }} reviews</span>{% endif %}
         </div>
         {% endif %}
-        {% if collage.direct_to_amazon %}
+        {% set shop_label = ('Shop Walmart →' if is_walmart_product else ('Shop Amazon →' if (is_amazon_product or collage.direct_to_amazon) else 'Shop Now →')) %}
+        {% if collage.direct_to_amazon and not is_walmart_product %}
         <a class="shop-btn"
            href="https://www.amazon.com/dp/{{ product.asin }}?tag=mommymedeals-20"
            onclick="trackClick('{{ product.asin }}', '{{ product.attribution_link or '' }}')"
-           target="_blank" rel="noopener">
-          {% if is_walmart_product %}Shop Walmart →{% elif is_amazon_product or collage.direct_to_amazon %}Shop Amazon →{% else %}Shop Now →{% endif %}
-        </a>
+           target="_blank" rel="noopener">{{ shop_label }}</a>
         {% else %}
         <a class="shop-btn"
-           href="{{ product.attribution_link or 'https://www.amazon.com/dp/' + product.asin }}"
+           href="{{ product.attribution_link or ('https://www.walmart.com/ip/' + product.asin if is_walmart_product else 'https://www.amazon.com/dp/' + product.asin) }}"
            onclick="trackClick('{{ product.asin }}', '{{ product.attribution_link or '' }}')"
-           target="_blank" rel="noopener">
-          {% if is_walmart_product %}Shop Walmart →{% elif is_amazon_product %}Shop Amazon →{% else %}Shop Now →{% endif %}
-        </a>
+           target="_blank" rel="noopener">{{ shop_label }}</a>
         {% endif %}
       </div>
     </div>
