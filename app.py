@@ -1788,7 +1788,10 @@ def _validate_workbook_path(raw: str) -> tuple[str | None, str | None]:
 
 @app.route('/admin/walmart-trends/bootstrap', methods=['POST'])
 def admin_walmart_trends_bootstrap():
-    """Seed Walmart trends from a workbook in attached_assets/.
+    """Seed product trends from a workbook in attached_assets/.
+
+    Supports both Walmart_*.xlsx and Amazon_*.xlsx workbooks.
+    Routes to the appropriate ingestion service based on filename prefix.
 
     JSON body: {"workbook": "attached_assets/Walmart_May12_Analysis.xlsx"}
     Omit 'workbook' to use the newest discovered workbook.
@@ -1796,7 +1799,10 @@ def admin_walmart_trends_bootstrap():
     guard = _require_walmart_trends_admin()
     if guard:
         return guard
-    from walmart_trends import DEFAULT_WORKBOOK, RefreshAlreadyRunning, WalmartTrendRefreshService, discover_workbooks
+    from walmart_trends import (
+        DEFAULT_WORKBOOK, RefreshAlreadyRunning, WalmartTrendRefreshService,
+        discover_workbooks, parse_workbook_filename,
+    )
 
     body = request.get_json(silent=True) or {}
     raw_path = body.get('workbook')
@@ -1810,17 +1816,52 @@ def admin_walmart_trends_bootstrap():
     if err:
         return jsonify({'error': err}), 400
 
+    file_meta = parse_workbook_filename(workbook)
+    source = file_meta.get("source", "unknown")
+
     try:
-        result = WalmartTrendRefreshService().bootstrap_from_workbook(workbook)
+        if source == "Amazon":
+            from amazon_trends import AmazonTrendRefreshService
+            result = AmazonTrendRefreshService().bootstrap_from_workbook(workbook)
+        else:
+            result = WalmartTrendRefreshService().bootstrap_from_workbook(workbook)
     except RefreshAlreadyRunning as exc:
         return jsonify({'status': 'locked', 'error': str(exc)}), 409
     status_code = 200 if result.status in {'success', 'partial'} else 500
     return jsonify({
         'run_id': result.run_id,
         'status': result.status,
+        'source': source,
         'counts': result.counts,
         'failures': result.failures,
     }), status_code
+
+
+@app.route('/admin/amazon-trends/enrich', methods=['POST'])
+def admin_amazon_trends_enrich():
+    """Prioritized Amazon enrichment pass — decoupled from workbook import.
+
+    Body params (all optional):
+      limit (int, default 30) — max ASINs per run
+      max_workers (int, default 4) — concurrency
+    """
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
+    from amazon_trends import AmazonTrendRefreshService
+
+    body = request.get_json(silent=True) or {}
+    try:
+        limit = max(1, min(200, int(body.get('limit', 30))))
+    except (TypeError, ValueError):
+        limit = 30
+    try:
+        max_workers = max(1, min(16, int(body.get('max_workers', 4))))
+    except (TypeError, ValueError):
+        max_workers = 4
+
+    counts = AmazonTrendRefreshService().enrich_pending(limit=limit, max_workers=max_workers)
+    return jsonify({'status': 'ok', 'counts': counts}), 200
 
 
 @app.route('/admin/walmart-trends/refresh', methods=['POST'])

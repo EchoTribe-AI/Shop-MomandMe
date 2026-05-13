@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>What's Trending Now | Walmart Finds</title>
-  <meta name="description" content="Fresh Walmart finds people are grabbing right now.">
+  <title>What's Trending Now | Top Finds</title>
+  <meta name="description" content="Fresh finds from Walmart and Amazon people are grabbing right now.">
   <style>
-    :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; }
+    :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; --amazon:#ff9900; --amazon-soft:#fff4e0; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:linear-gradient(180deg, var(--bg), #fff 42%); }
     .page { max-width: 520px; margin:0 auto; padding-bottom: 34px; }
@@ -32,6 +32,13 @@
     .public-shop-nav { margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .public-shop-link { color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; text-decoration:none; }
     .public-shop-link.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    /* Retailer filter tabs */
+    .retailer-tabs { margin-top:10px; display:flex; gap:6px; align-items:center; }
+    .retailer-tab { padding:6px 12px; border-radius:999px; border:1px solid var(--line); background:#fff; color:var(--muted); font-size:11px; font-weight:800; cursor:pointer; transition:background .15s,color .15s,border-color .15s; }
+    .retailer-tab[aria-pressed="true"] { background:var(--ink); color:#fff; border-color:var(--ink); }
+    .retailer-tab.tab-walmart[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); }
+    .retailer-tab.tab-amazon[aria-pressed="true"] { background:var(--amazon); border-color:var(--amazon); color:#1a1a17; }
+    .section[data-retailer-hidden="true"] { display:none; }
     .empty { margin: 22px 18px; padding: 18px; border:1px dashed var(--line); border-radius:20px; background:#fff; color:var(--muted); line-height:1.45; }
     .section { padding: 18px 0 4px; }
     .section-head { padding: 0 18px 10px; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; }
@@ -50,12 +57,17 @@
     .body { padding: 11px 11px 12px; }
     .badges { min-height: 23px; display:flex; gap:5px; flex-wrap:wrap; margin-bottom:7px; }
     .badge { font-size:10px; line-height:1; font-weight:800; color:var(--green); background:#e8f6ef; border-radius:999px; padding:6px 7px; }
+    .badge-retailer { font-size:10px; line-height:1; font-weight:800; border-radius:999px; padding:6px 7px; }
+    .badge-retailer-walmart { color:var(--accent); background:var(--soft); }
+    .badge-retailer-amazon { color:#b35900; background:var(--amazon-soft); }
     .name { min-height: 45px; font-size:13px; font-weight:750; line-height:1.25; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
     .brand { margin-bottom:4px; color:var(--muted); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .meta { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .price { font-size:15px; font-weight:900; color:var(--accent); }
+    .price-amazon { color:var(--amazon); }
     .detail-note { color:var(--muted); font-size:10px; white-space:nowrap; }
     .cta { margin-top:10px; display:block; text-align:center; text-decoration:none; color:#fff; background:var(--accent); border-radius:12px; padding:10px 8px; font-size:12px; font-weight:850; box-shadow:0 7px 16px rgba(232,93,38,.22); }
+    .cta-amazon { background:var(--amazon); color:#1a1a17; box-shadow:0 7px 16px rgba(255,153,0,.22); }
     .fine { padding: 8px 18px 0; color:rgba(26,26,23,.42); font-size:10px; line-height:1.45; text-align:center; }
     @media (min-width: 560px) { .page { border-left:1px solid var(--line); border-right:1px solid var(--line); min-height:100vh; } }
   </style>
@@ -63,11 +75,16 @@
 <body>
   <main class="page">
     <header class="hero">
-      <div class="eyebrow">🔥 Walmart finds</div>
+      <div class="eyebrow">🔥 Top finds</div>
       <h1>What’s Trending Now</h1>
-      <p class="subhead">Fresh Walmart finds people are grabbing right now — from backyard upgrades to home refreshes, kids’ favorites, and everyday deals worth checking before they’re gone.</p>
+      <p class="subhead">Fresh finds from Walmart and Amazon people are grabbing right now — home upgrades, kids’ picks, everyday deals, and more.</p>
       <div class="refreshed">Updated: {{ data['last_refreshed'] or 'Today' }}</div>
       {% include 'partials/public_shop_nav.html' %}
+      <div class="retailer-tabs" role="group" aria-label="Filter by retailer">
+        <button class="retailer-tab tab-all" aria-pressed="true" onclick="filterRetailer('all', this)">All</button>
+        <button class="retailer-tab tab-walmart" aria-pressed="false" onclick="filterRetailer('walmart', this)">Walmart</button>
+        <button class="retailer-tab tab-amazon" aria-pressed="false" onclick="filterRetailer('amazon', this)">Amazon</button>
+      </div>
       {% if admin_mode %}
         <div class="admin-bar">
           <div class="admin-note">Admin workflow: choose a section, create a collection draft, preview it, then publish to the public shop.</div>
@@ -114,10 +131,11 @@
     } %}
 
     {% for collection in data['collections'] %}
+      {% set collection_retailer = collection.get('retailer', 'walmart') %}
       {% set display_title = 'Trending Now' if loop.first else collection['name'] %}
-      {% set display_description = 'Popular Walmart finds shoppers are checking out right now.' if loop.first else collection_descriptions.get(collection['name'], 'Fresh Walmart finds worth checking out right now.') %}
+      {% set display_description = ('Popular finds shoppers are checking out right now.' if loop.first else collection_descriptions.get(collection['name'], 'Fresh finds worth checking out right now.')) %}
       {% set is_top_collection = loop.first %}
-      <section class="section {% if collection['slug'] == 'top-sellers' %}top-sellers{% endif %}">
+      <section class="section {% if collection['slug'] == 'top-sellers' %}top-sellers{% endif %}" data-retailer="{{ collection_retailer }}">
         <div class="section-head">
           <div>
             <h2>{{ display_title }}</h2>
@@ -149,7 +167,10 @@
                   {% set top_display.count = top_display.count + 1 %}
                   {% if family_key %}{% set _ = top_display.seen_families.append(family_key) %}{% endif %}
                 {% endif %}
-                <article class="card">
+                {% set item_retailer = product.get('retailer', 'walmart') %}
+                {% set is_amazon = item_retailer == 'amazon' %}
+                {% set retailer_label = 'Amazon' if is_amazon else 'Walmart' %}
+                <article class="card" data-item-retailer="{{ item_retailer }}">
                   <div class="image-wrap">
                     {% set image_url = (product['image_url'] or '')|trim %}
                     {% set image_lower = image_url|lower %}
@@ -162,17 +183,21 @@
                   </div>
                   <div class="body">
                     <div class="badges">
+                      <span class="badge-retailer {% if is_amazon %}badge-retailer-amazon{% else %}badge-retailer-walmart{% endif %}">{{ retailer_label }}</span>
                       {% set has_top_units = 'Top by Units' in product['badges'] %}
                       {% set has_top_earnings = 'Top by Earnings' in product['badges'] %}
-                      {% if is_top_collection and top_display.count <= 10 %}<span class="badge">#{{ top_display.count }} most purchased</span>{% endif %}
+                      {% set has_top_clicks = 'Top by Clicks' in product['badges'] %}
+                      {% if is_top_collection and top_display.count <= 10 %}<span class="badge">#{{ top_display.count }} trending</span>{% endif %}
                       {% if has_top_units and has_top_earnings %}
                         <span class="badge">Hot Find</span>
                       {% elif has_top_units %}
                         <span class="badge">Popular Pick</span>
                       {% elif has_top_earnings %}
                         <span class="badge">Trending Deal</span>
+                      {% elif has_top_clicks %}
+                        <span class="badge">Top by Clicks</span>
                       {% elif not is_top_collection %}
-                        {% for badge in product['badges'] if badge not in ['Top by Units', 'Top by Earnings'] %}<span class="badge">{{ badge }}</span>{% endfor %}
+                        {% for badge in product['badges'] if badge not in ['Top by Units', 'Top by Earnings', 'Top by Clicks'] %}<span class="badge">{{ badge }}</span>{% endfor %}
                       {% endif %}
                     </div>
                     {% if product['brand'] %}<div class="brand">{{ product['brand'] }}</div>{% endif %}
@@ -181,9 +206,9 @@
                       {% set price_text = (product['price_display'] or '')|trim %}
                       {% set price_lower = price_text|lower %}
                       {% set missing_price = not price_text or price_lower == 'shop deal' or price_text in ['0', '0.0', '0.00', '$0', '$0.0', '$0.00'] %}
-                      <div class="price">{{ 'See price at Walmart' if missing_price else price_text }}</div>
+                      <div class="price {% if is_amazon %}price-amazon{% endif %}">{{ ('See price at ' ~ retailer_label) if missing_price else price_text }}</div>
                     </div>
-                    <a class="cta" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Shop at Walmart</a>
+                    <a class="cta {% if is_amazon %}cta-amazon{% endif %}" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Shop {{ retailer_label }}</a>
                   </div>
                 </article>
               {% endif %}
@@ -195,8 +220,18 @@
       </section>
     {% endfor %}
 
-    <p class="fine">As an affiliate, we may earn from qualifying purchases. Product details can change at Walmart.</p>
+    <p class="fine">As an affiliate, we may earn from qualifying purchases. Product details, prices, and availability can change at Walmart and Amazon.</p>
   </main>
+  <script>
+    function filterRetailer(retailer, btn) {
+      document.querySelectorAll('.retailer-tab').forEach(t => t.setAttribute('aria-pressed', 'false'));
+      btn.setAttribute('aria-pressed', 'true');
+      document.querySelectorAll('.section[data-retailer]').forEach(section => {
+        const r = section.getAttribute('data-retailer') || 'walmart';
+        section.setAttribute('data-retailer-hidden', retailer !== 'all' && r !== retailer ? 'true' : 'false');
+      });
+    }
+  </script>
   {% if admin_mode and workbooks %}
   <script>
     async function runWorkbookImport() {

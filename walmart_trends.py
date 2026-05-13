@@ -357,6 +357,22 @@ class WorkbookTrendParser:
             idx = idx * 26 + (ord(char) - ord("A") + 1)
         return max(idx - 1, 0)
 
+    @staticmethod
+    def _find_header_row_index(raw_rows: list[list[str]], key_col: str) -> int:
+        """Return the index of the first row containing key_col as an exact cell value.
+
+        Comparison is strip+case-insensitive. Used by subclasses whose sheets prepend a
+        title row and/or blank rows before the actual column headers. Falls back to 0
+        (treat first row as headers) when key_col is empty or not found.
+        """
+        if not key_col:
+            return 0
+        needle = key_col.strip().lower()
+        for i, row in enumerate(raw_rows):
+            if any(cell.strip().lower() == needle for cell in row):
+                return i
+        return 0
+
     def _validate(self, rows_by_sheet: dict[str, list[dict[str, str]]]) -> None:
         missing_sheets = [name for name in self.REQUIRED_SHEETS if name not in rows_by_sheet]
         if missing_sheets:
@@ -1027,17 +1043,28 @@ class WalmartTrendStore:
         finally:
             conn.close()
 
-    def replace_collections(self, run_id: int, source_type: str, collections: list[dict[str, Any]]) -> None:
+    def replace_collections(
+        self,
+        run_id: int,
+        source_type: str,
+        collections: list[dict[str, Any]],
+        retailer: str = "walmart",
+    ) -> None:
         conn = _connect()
         try:
-            conn.execute("UPDATE walmart_collections SET is_active = 0 WHERE is_active = 1")
+            # Scope deactivation to this retailer only — never wipe cross-retailer collections.
+            conn.execute(
+                "UPDATE walmart_collections SET is_active = 0 WHERE is_active = 1 AND (retailer = ? OR retailer IS NULL)",
+                (retailer,),
+            )
             for order, collection in enumerate(collections, start=1):
                 slug = collection["slug"]
                 conn.execute(
                     """
                     INSERT INTO walmart_collections
-                    (slug, name, description, source_type, refresh_run_id, display_order, is_active, metadata_json, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+                    (slug, name, description, source_type, refresh_run_id, display_order,
+                     is_active, metadata_json, retailer, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(slug) DO UPDATE SET
                         name = excluded.name,
                         description = excluded.description,
@@ -1046,11 +1073,12 @@ class WalmartTrendStore:
                         display_order = excluded.display_order,
                         is_active = 1,
                         metadata_json = excluded.metadata_json,
+                        retailer = excluded.retailer,
                         updated_at = CURRENT_TIMESTAMP
                     """,
                     (
                         slug, collection["name"], collection.get("description", ""), source_type,
-                        run_id, order, json.dumps(collection.get("metadata", {})),
+                        run_id, order, json.dumps(collection.get("metadata", {})), retailer,
                     ),
                 )
                 conn.execute("DELETE FROM walmart_collection_items WHERE collection_slug = ?", (slug,))
@@ -1059,13 +1087,14 @@ class WalmartTrendStore:
                         """
                         INSERT OR REPLACE INTO walmart_collection_items
                         (collection_slug, sku, refresh_run_id, display_order, item_count,
-                         sale_amount, total_earnings, badges_json, metadata_json, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                         sale_amount, total_earnings, badges_json, metadata_json, retailer, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                         """,
                         (
                             slug, item["sku"], run_id, item_order, item.get("item_count", 0),
                             item.get("sale_amount", 0.0), item.get("total_earnings", 0.0),
                             json.dumps(item.get("badges", [])), json.dumps(item.get("metadata", {})),
+                            retailer,
                         ),
                     )
             conn.commit()
@@ -1120,67 +1149,34 @@ class WalmartTrendStore:
             ).fetchall()
             collections = []
             for collection in collection_rows:
+                cd = dict(collection)
+                collection_retailer = cd.get("retailer") or "walmart"
                 item_rows = conn.execute(
                     """
-                    SELECT ci.*, p.*
-                    FROM walmart_collection_items ci
-                    JOIN walmart_products p ON p.sku = ci.sku
-                    WHERE ci.collection_slug = ?
-                    ORDER BY ci.display_order ASC
+                    SELECT *
+                    FROM walmart_collection_items
+                    WHERE collection_slug = ?
+                    ORDER BY display_order ASC
                     """,
-                    (collection["slug"],),
+                    (cd["slug"],),
                 ).fetchall()
                 items = []
                 for row in item_rows:
-                    rd = dict(row)
-                    affiliate = conn.execute(
-                        """
-                        SELECT impact_url
-                        FROM walmart_affiliate_links
-                        WHERE sku = ? AND status IN ('active', 'fallback', 'workbook')
-                        ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'fallback' THEN 1 ELSE 2 END,
-                                 updated_at DESC, id DESC
-                        LIMIT 1
-                        """,
-                        (rd["sku"],),
-                    ).fetchone()
-                    impact_url = affiliate["impact_url"] if affiliate else ""
-                    genius = None
-                    if impact_url:
-                        genius = conn.execute(
-                            """
-                            SELECT genius_url
-                            FROM walmart_urlgenius_links
-                            WHERE destination_url = ? AND status IN ('active', 'fallback')
-                            ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
-                            LIMIT 1
-                            """,
-                            (impact_url,),
-                        ).fetchone()
-                    genius_url = genius["genius_url"] if genius else ""
-                    badges = json.loads(rd.get("badges_json") or "[]")
-                    items.append({
-                        "sku": rd["sku"],
-                        "title": rd.get("product_title") or rd.get("item_name") or "Walmart find",
-                        "brand": rd.get("brand") or "",
-                        "category": rd.get("category_list") or rd.get("taxonomy") or "",
-                        "image_url": rd.get("image_url") or "",
-                        "price_display": rd.get("price_display") or _price_display(rd.get("current_price")),
-                        "availability": rd.get("availability") or "",
-                        "rating": rd.get("rating"),
-                        "review_count": rd.get("review_count"),
-                        "item_count": rd.get("item_count") or 0,
-                        "sale_amount": rd.get("sale_amount") or 0,
-                        "total_earnings": rd.get("total_earnings") or 0,
-                        "badges": badges,
-                        "shop_url": genius_url or impact_url or rd.get("canonical_url") or f"https://www.walmart.com/ip/{rd['sku']}",
-                    })
+                    ci = dict(row)
+                    item_retailer = ci.get("retailer") or "walmart"
+                    if item_retailer == "amazon":
+                        built = self._build_amazon_item(conn, ci)
+                    else:
+                        built = self._build_walmart_item(conn, ci)
+                    if built:
+                        items.append(built)
                 collections.append({
-                    "slug": collection["slug"],
-                    "name": collection["name"],
-                    "description": collection["description"] or "",
+                    "slug": cd["slug"],
+                    "name": cd["name"],
+                    "description": cd.get("description") or "",
+                    "retailer": collection_retailer,
                     "items": items,
-                    "metadata": json.loads(collection["metadata_json"] or "{}"),
+                    "metadata": json.loads(cd.get("metadata_json") or "{}"),
                 })
             return {
                 "last_run": dict(run) if run else None,
@@ -1189,6 +1185,110 @@ class WalmartTrendStore:
             }
         finally:
             conn.close()
+
+    def _build_walmart_item(self, conn: sqlite3.Connection, ci: dict[str, Any]) -> dict[str, Any] | None:
+        sku = ci.get("sku") or ""
+        product = conn.execute(
+            "SELECT * FROM walmart_products WHERE sku = ?", (sku,)
+        ).fetchone()
+        if not product:
+            return None
+        rd = dict(product)
+        affiliate = conn.execute(
+            """
+            SELECT impact_url
+            FROM walmart_affiliate_links
+            WHERE sku = ? AND status IN ('active', 'fallback', 'workbook')
+            ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'fallback' THEN 1 ELSE 2 END,
+                     updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (sku,),
+        ).fetchone()
+        impact_url = affiliate["impact_url"] if affiliate else ""
+        genius = None
+        if impact_url:
+            genius = conn.execute(
+                """
+                SELECT genius_url
+                FROM walmart_urlgenius_links
+                WHERE destination_url = ? AND status IN ('active', 'fallback')
+                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                LIMIT 1
+                """,
+                (impact_url,),
+            ).fetchone()
+        genius_url = genius["genius_url"] if genius else ""
+        badges = json.loads(ci.get("badges_json") or "[]")
+        return {
+            "sku": sku,
+            "retailer": "walmart",
+            "title": rd.get("product_title") or rd.get("item_name") or "Walmart find",
+            "brand": rd.get("brand") or "",
+            "category": rd.get("category_list") or rd.get("taxonomy") or "",
+            "image_url": rd.get("image_url") or "",
+            "price_display": rd.get("price_display") or _price_display(rd.get("current_price")),
+            "availability": rd.get("availability") or "",
+            "rating": rd.get("rating"),
+            "review_count": rd.get("review_count"),
+            "item_count": ci.get("item_count") or 0,
+            "sale_amount": ci.get("sale_amount") or 0,
+            "total_earnings": ci.get("total_earnings") or 0,
+            "badges": badges,
+            "shop_url": genius_url or impact_url or rd.get("canonical_url") or f"https://www.walmart.com/ip/{sku}",
+        }
+
+    def _build_amazon_item(self, conn: sqlite3.Connection, ci: dict[str, Any]) -> dict[str, Any] | None:
+        asin = ci.get("sku") or ""  # sku column holds ASIN for retailer='amazon' rows
+        product = conn.execute(
+            "SELECT * FROM amazon_trend_products WHERE asin = ?", (asin,)
+        ).fetchone()
+        rd = dict(product) if product else {}
+        affiliate = conn.execute(
+            """
+            SELECT affiliate_url
+            FROM amazon_affiliate_links
+            WHERE asin = ?
+            ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'workbook' THEN 1 ELSE 2 END,
+                     updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (asin,),
+        ).fetchone()
+        affiliate_url = affiliate["affiliate_url"] if affiliate else ""
+        if not affiliate_url:
+            affiliate_url = rd.get("amazon_link") or ""
+        genius = None
+        if affiliate_url:
+            genius = conn.execute(
+                """
+                SELECT genius_url
+                FROM walmart_urlgenius_links
+                WHERE destination_url = ? AND status IN ('active', 'fallback')
+                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                LIMIT 1
+                """,
+                (affiliate_url,),
+            ).fetchone()
+        genius_url = genius["genius_url"] if genius else ""
+        badges = json.loads(ci.get("badges_json") or "[]")
+        return {
+            "sku": asin,
+            "retailer": "amazon",
+            "title": rd.get("product_title") or "Amazon find",
+            "brand": rd.get("brand") or "",
+            "category": rd.get("category") or "",
+            "image_url": rd.get("image_url") or "",
+            "price_display": rd.get("price_display") or _price_display(rd.get("current_price")),
+            "availability": "",
+            "rating": None,
+            "review_count": None,
+            "item_count": ci.get("item_count") or 0,
+            "sale_amount": ci.get("sale_amount") or 0,
+            "total_earnings": ci.get("total_earnings") or 0,
+            "badges": badges,
+            "shop_url": genius_url or affiliate_url or f"https://www.amazon.com/dp/{asin}",
+        }
 
 
 class WalmartProductEnricher:
