@@ -293,6 +293,10 @@ def init_collection_content_drafts_schema(conn: sqlite3.Connection) -> None:
         )
     """)
     _add_column_if_missing(conn, 'collection_content_drafts', "cleaned_transcript TEXT")
+    # Editor design controls (theme/layout) per draft. Default 'peach'/'layout-2'
+    # so existing drafts behave the same as before this column was added.
+    _add_column_if_missing(conn, 'collection_content_drafts', "theme TEXT DEFAULT 'peach'")
+    _add_column_if_missing(conn, 'collection_content_drafts', "layout TEXT DEFAULT 'layout-2'")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_collection_content_source "
         "ON collection_content_drafts(source_type, source_collection_slug)"

@@ -20,11 +20,46 @@ import db_schema
 import walmart_storefront_enrichment as walmart_enrichment
 
 SOURCE_WALMART_TREND = "walmart_trend"
+SOURCE_AMAZON_TREND = "amazon_trend"
 DEFAULT_CREATOR_ID = "everydaywithsteph"
 DEFAULT_PLATFORM = "facebook_group"
 DEFAULT_TONE = "warm mom-to-mom"
-DEFAULT_CTA = "Shop the Walmart finds"
+DEFAULT_CTA = "Shop these finds"
 HOOK_FRAMEWORKS = ["Fast Discovery", "Problem → Solution", "Creator Favorites"]
+
+
+def _collection_retailer(collection: dict[str, Any]) -> str:
+    """Return 'walmart', 'amazon', or '' based on collection or its items."""
+    direct = str(collection.get("retailer") or "").strip().lower()
+    if direct in ("walmart", "amazon"):
+        return direct
+    seen: set[str] = set()
+    for item in collection.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        for field in ("retailer", "network", "retailer_name"):
+            value = str(item.get(field) or "").strip().lower()
+            if value in ("walmart", "amazon"):
+                seen.add(value)
+                break
+    if len(seen) == 1:
+        return next(iter(seen))
+    return ""
+
+
+def _retailer_label(retailer: str) -> str:
+    if retailer == "walmart":
+        return "Walmart"
+    if retailer == "amazon":
+        return "Amazon"
+    return ""
+
+
+def default_cta_for_retailer(retailer: str) -> str:
+    label = _retailer_label(retailer)
+    if label:
+        return f"Shop the {label} finds"
+    return "Shop these finds"
 
 
 class CollectionContentError(RuntimeError):
@@ -143,15 +178,46 @@ def get_latest_draft_for_public_slug(public_slug: str) -> dict[str, Any] | None:
         conn.close()
 
 
+_AMAZON_ASIN_RE = re.compile(r'^[A-Z0-9]{10}$')
+
+
 def collection_from_draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
-    """Build an editor-safe Walmart collection from a saved product snapshot."""
+    """Build an editor-safe collection from a saved product snapshot.
+
+    Carries retailer/network through so the editor can show "Walmart" or
+    "Amazon" labels for an edit of an already-published page.
+    """
     items = []
+    detected_retailers: set[str] = set()
     for idx, product in enumerate(draft.get("product_snapshot") or [], start=1):
         if not isinstance(product, dict):
             continue
+
+        # Use the attribution URL as the most reliable signal for stale
+        # snapshots that may have an incorrect or missing retailer field.
+        link = str(product.get("attribution_link") or product.get("shop_url") or "").lower()
+        if "amazon.com" in link:
+            retailer = "amazon"
+        elif "walmart.com" in link:
+            retailer = "walmart"
+        else:
+            retailer = ""
+            for field in ("retailer", "network", "retailer_name"):
+                value = str(product.get(field) or "").strip().lower()
+                if value in ("walmart", "amazon"):
+                    retailer = value
+                    break
+            # Last resort: Amazon ASINs are exactly 10 uppercase alphanumeric chars.
+            if not retailer:
+                asin = str(product.get("asin") or product.get("sku") or "").strip()
+                if _AMAZON_ASIN_RE.match(asin):
+                    retailer = "amazon"
+
+        if retailer:
+            detected_retailers.add(retailer)
         items.append({
             "sku": str(product.get("asin") or product.get("sku") or ""),
-            "title": product.get("product_name") or product.get("title") or "Walmart find",
+            "title": product.get("product_name") or product.get("title") or "Trend find",
             "brand": product.get("brand") or product.get("company_name") or "",
             "price_display": product.get("price_display") or product.get("price") or "",
             "current_price": product.get("current_price") or "",
@@ -160,35 +226,59 @@ def collection_from_draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
             "category": product.get("category") or "",
             "rank": product.get("rank") or product.get("source_rank") or idx,
             "badges": product.get("source_badges") or [],
+            "retailer": retailer,
+            "network": retailer,
         })
-    return {
+    out = {
         "slug": draft.get("source_collection_slug") or "",
-        "name": draft.get("title") or "Walmart finds",
+        "name": draft.get("title") or "Trend finds",
         "description": draft.get("description") or "",
         "items": items,
     }
+    if len(detected_retailers) == 1:
+        out["retailer"] = next(iter(detected_retailers))
+    return out
 
 
 def walmart_product_context(collection: dict[str, Any], limit: int = 10) -> list[dict[str, str]]:
     """Normalize first products for AI context while preserving existing shop_url."""
     products = []
     for product in (collection.get("items") or [])[:limit]:
+        # Use the actual product retailer (walmart/amazon), not a hardcoded label.
+        product_retailer = ""
+        for field in ("retailer", "network", "retailer_name"):
+            value = str(product.get(field) or "").strip().lower()
+            if value in ("walmart", "amazon"):
+                product_retailer = "Walmart" if value == "walmart" else "Amazon"
+                break
         products.append({
             "sku": str(product.get("sku") or ""),
-            "name": str(product.get("title") or "Walmart find"),
+            "name": str(product.get("title") or "find"),
             "brand": str(product.get("brand") or ""),
             "price": str(product.get("price_display") or ""),
-            "retailer": "Walmart",
+            "retailer": product_retailer or "Walmart",
             "shop_url": str(product.get("shop_url") or ""),
         })
     return products
 
 
-def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int | None = None) -> list[dict[str, Any]]:
-    """Adapt Walmart products to existing /shop/<slug> product shape.
+def _product_retailer_key(product: dict[str, Any]) -> str:
+    """Detect retailer from a source product dict: 'walmart' | 'amazon' | ''."""
+    for field in ("retailer", "network", "retailer_name"):
+        value = str(product.get(field) or "").strip().lower()
+        if value in ("walmart", "amazon"):
+            return value
+    return ""
 
-    Raises if any product lacks the existing shop_url, so Walmart pages never fall
-    back to the Amazon URL in the shared landing page template.
+
+def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int | None = None) -> list[dict[str, Any]]:
+    """Adapt collection products (Walmart or Amazon) to /shop/<slug> product shape.
+
+    Walmart items go through walmart_enrichment for display metadata. Amazon items
+    skip the Walmart enrichment (it silently no-ops on non-Walmart anyway, but we
+    skip explicitly and label them correctly).
+
+    Raises if any product lacks shop_url so we never fall back to a hardcoded URL.
     """
     adapted = []
     source_items = collection.get("items") or []
@@ -198,7 +288,7 @@ def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int | 
         sku = str(product.get("sku") or "").strip()
         shop_url = str(product.get("shop_url") or "").strip()
         if not sku or not shop_url:
-            raise CollectionContentError(f"Walmart product {sku or '(missing sku)'} is missing shop_url")
+            raise CollectionContentError(f"Product {sku or '(missing sku)'} is missing shop_url")
         metadata = product.get("metadata") or {}
         if not isinstance(metadata, dict):
             metadata = {}
@@ -209,9 +299,12 @@ def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int | 
             or (metadata.get("1A") or {}).get("rank")
             or (metadata.get("1B") or {}).get("rank")
         )
+        retailer_key = _product_retailer_key(product) or "walmart"
+        retailer_label_text = "Amazon" if retailer_key == "amazon" else "Walmart"
+        default_name = f"{retailer_label_text} find"
         adapted_product = {
             "asin": sku,
-            "product_name": product.get("title") or "Walmart find",
+            "product_name": product.get("title") or default_name,
             "company_name": product.get("brand") or "",
             "brand": product.get("brand") or "",
             "price": product.get("price_display") or product.get("current_price") or "",
@@ -219,9 +312,9 @@ def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int | 
             "price_display": product.get("price_display") or "",
             "image_encoded_string": product.get("image_url") or "",
             "attribution_link": shop_url,
-            "retailer": "Walmart",
-            "retailer_name": "Walmart",
-            "network": "walmart",
+            "retailer": retailer_label_text,
+            "retailer_name": retailer_label_text,
+            "network": retailer_key,
             "category": product.get("category") or "",
             "item_count": product.get("item_count"),
             "source_rank": source_rank,
@@ -241,26 +334,63 @@ def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int | 
         ):
             if product.get(optional_field) not in (None, ""):
                 adapted_product[optional_field] = product.get(optional_field)
-        adapted.append(walmart_enrichment.enrich_product_payload(adapted_product))
+        if retailer_key == "amazon":
+            # Amazon products: skip Walmart-only enrichment.
+            adapted.append(adapted_product)
+        else:
+            adapted.append(walmart_enrichment.enrich_product_payload(adapted_product))
     if not adapted:
         raise CollectionContentError("Collection has no products to publish")
     return adapted
 
 
 def _demo_generation(collection: dict[str, Any], voice_source_text: str) -> dict[str, Any]:
-    title = collection.get("name") or "Walmart finds"
-    note = voice_source_text.strip() or "I pulled together a few Walmart finds that caught my eye."
+    retailer = _collection_retailer(collection)
+    label = _retailer_label(retailer)
+    retail_phrase = label if label else ""
+    finds_phrase = f"{label} finds" if label else "finds"
+    title = collection.get("name") or finds_phrase
+    note = voice_source_text.strip() or f"I pulled together a few {finds_phrase} that caught my eye."
     cleaned = note.replace("Steph voice:", "").strip()
+    hook_fast = (
+        f"I found a quick {retail_phrase} roundup for {title.lower()}"
+        if retail_phrase
+        else f"I found a quick roundup for {title.lower()}"
+    )
+    hook_problem = (
+        f"If your weekend list is scattered, these {finds_phrase} put the useful stuff in one place"
+    )
+    hook_fav = (
+        f"Steph’s {retail_phrase} picks for the yard, kids, and little home wins"
+        if retail_phrase
+        else "Steph’s picks for the yard, kids, and little home wins"
+    )
+    social = (
+        f"{cleaned}\n\nI rounded up the {finds_phrase} in one spot so you can skim them fast and "
+        "decide what’s worth checking out. [collection link]"
+    )
+    if retail_phrase:
+        landing = (
+            f"I pulled together this {title.lower()} page so you can quickly browse the "
+            f"{finds_phrase} from the post. Check the product cards below, compare the current "
+            f"{retail_phrase} price, and grab whatever fits your home, yard, or family."
+        )
+    else:
+        landing = (
+            f"I pulled together this {title.lower()} page so you can quickly browse the "
+            f"{finds_phrase} from the post. Check the product cards below, compare current "
+            "prices, and grab whatever fits your home, yard, or family."
+        )
     return _normalize_generated({
         "cleaned_transcript": cleaned,
         "hooks": [
-            {"type": "Fast Discovery", "text": f"I found a quick Walmart roundup for {title.lower()}"},
-            {"type": "Problem → Solution", "text": "If your weekend list is scattered, these Walmart finds put the useful stuff in one place"},
-            {"type": "Creator Favorites", "text": "Steph’s Walmart picks for the yard, kids, and little home wins"},
+            {"type": "Fast Discovery", "text": hook_fast},
+            {"type": "Problem → Solution", "text": hook_problem},
+            {"type": "Creator Favorites", "text": hook_fav},
         ],
-        "social_post": f"{cleaned}\n\nI rounded up the Walmart finds in one spot so you can skim them fast and decide what’s worth checking out. [collection link]",
-        "landing_intro": f"I pulled together this {title.lower()} page so you can quickly browse the Walmart finds from the post. Check the product cards below, compare the current Walmart price, and grab whatever fits your home, yard, or family.",
-        "cta": DEFAULT_CTA,
+        "social_post": social,
+        "landing_intro": landing,
+        "cta": default_cta_for_retailer(retailer),
         "link_placeholder": "[collection link]",
     })
 
@@ -295,8 +425,11 @@ def generate_walmart_collection_content(
             return generated
         raise CollectionContentError("AI key missing: ANTHROPIC_API_KEY is not configured. Enable Demo fallback or add the key to generate with Claude.")
 
+    retailer_key_value = _collection_retailer(collection)
+    retailer_label_text = _retailer_label(retailer_key_value) or "Walmart"
+    cta_default = default_cta_for_retailer(retailer_key_value)
     product_lines = "\n".join(
-        f"- {p['name']} | brand: {p['brand'] or 'n/a'} | price: {p['price'] or 'price not shown'} | retailer: Walmart"
+        f"- {p['name']} | brand: {p['brand'] or 'n/a'} | price: {p['price'] or 'price not shown'} | retailer: {p.get('retailer') or retailer_label_text}"
         for p in products
     )
     system = (
@@ -306,11 +439,11 @@ def generate_walmart_collection_content(
         "hooks must be exactly three objects with these exact types in order: Fast Discovery, Problem → Solution, Creator Favorites. "
         "Fast Discovery = quick timely find/roundup; Problem → Solution = practical problem solved by the collection; Creator Favorites = Steph/creator-curated picks. "
         "Rules: preserve the creator voice from pasted/transcribed notes; use the creator voice_prompt if provided; "
-        "use the creator's words as the primary source; use Walmart collection title and products as context; "
+        f"use the creator's words as the primary source; use the {retailer_label_text} collection title and products as context; "
         "do not invent product claims, personal ownership, personal experience, prices, availability, urgency, or scarcity; "
         "do not mention earnings, units, workbook, API, Impact, URLGenius, backend, or internal data; "
         "make social_post click-driving in Facebook group style; make landing_intro support the shoppable page and not duplicate the social post; "
-        "mention Walmart and the collection theme naturally; use 0-3 emojis max unless the creator voice clearly uses more; "
+        f"mention {retailer_label_text} and the collection theme naturally; use 0-3 emojis max unless the creator voice clearly uses more; "
         "include [collection link] as the link placeholder, never a raw URL."
     )
     user = (
@@ -318,21 +451,48 @@ def generate_walmart_collection_content(
         f"Creator voice prompt: {creator.get('voice_prompt') or ''}\n"
         f"Pasted creator voice/notes: {voice_source_text}\n\n"
         f"Platform: {platform}\nTone: {tone}\nAudience: {audience_context}\n\n"
+        f"Retailer: {retailer_label_text}\n"
         f"Collection title: {collection.get('name') or ''}\n"
         f"Collection description: {collection.get('description') or ''}\n"
         f"Products:\n{product_lines}\n\n"
         "Return JSON exactly like: "
-        '{"cleaned_transcript":"cleaned-up creator words","hooks":[{"type":"Fast Discovery","text":"..."},{"type":"Problem → Solution","text":"..."},{"type":"Creator Favorites","text":"..."}],"social_post":"...","landing_intro":"...","cta":"Shop the Walmart finds","link_placeholder":"[collection link]"}'
+        '{"cleaned_transcript":"cleaned-up creator words","hooks":[{"type":"Fast Discovery","text":"..."},{"type":"Problem → Solution","text":"..."},{"type":"Creator Favorites","text":"..."}],"social_post":"...","landing_intro":"...","cta":"'
+        + cta_default
+        + '","link_placeholder":"[collection link]"}'
     )
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1800,
-        system=system,
-        messages=[{"role": "user", "content": user}],
+    # Try the preferred model, then fall back to a known-good alias, then to
+    # demo copy. We've seen Anthropic return a transient 500 on certain inputs;
+    # never let that fully block the demo flow.
+    model_candidates = ["claude-sonnet-4-6", "claude-sonnet-4-5", "claude-3-5-sonnet-latest"]
+    last_err: Exception | None = None
+    for model_name in model_candidates:
+        try:
+            message = client.messages.create(
+                model=model_name,
+                max_tokens=1800,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            raw = message.content[0].text if message.content else "{}"
+            try:
+                return _normalize_generated(_extract_json_object(raw))
+            except (ValueError, json.JSONDecodeError) as exc:
+                last_err = exc
+                continue
+        except anthropic.APIError as exc:
+            last_err = exc
+            continue
+        except Exception as exc:
+            last_err = exc
+            break
+    # All AI attempts failed — fall through to demo so the demo flow stays usable.
+    generated = _demo_generation(collection, voice_source_text)
+    err_text = str(last_err) if last_err else "AI generation unavailable"
+    generated["warning"] = (
+        f"AI generation hit an error ({err_text[:200]}); showing an editable demo draft."
     )
-    raw = message.content[0].text if message.content else "{}"
-    return _normalize_generated(_extract_json_object(raw))
+    return generated
 
 
 def save_walmart_collection_draft(
@@ -350,9 +510,20 @@ def save_walmart_collection_draft(
     else:
         raise CollectionContentError("Walmart collection not found")
     creator_id = _clean_text(payload.get("creator_id"), 120) or DEFAULT_CREATOR_ID
-    title = _clean_text(payload.get("title"), 240) or collection.get("name") or "Walmart finds"
+    retailer = _collection_retailer(collection)
+    title = _clean_text(payload.get("title"), 240) or collection.get("name") or (_retailer_label(retailer) + " finds" if _retailer_label(retailer) else "Trending finds")
     description = _clean_text(payload.get("description"), 500) or collection.get("description") or ""
-    public_slug = slugify(payload.get("public_slug") or f"walmart-{collection_slug}")
+    slug_prefix = retailer if retailer else "trend"
+    public_slug = slugify(payload.get("public_slug") or f"{slug_prefix}-{collection_slug}")
+    # Editor design controls (allow-list).
+    valid_themes = {"coral", "peach", "sage", "sand", "midnight"}
+    valid_layouts = {"layout-2", "layout-3", "layout-4", "layout-featured"}
+    theme = _clean_text(payload.get("theme"), 40) or "peach"
+    if theme not in valid_themes:
+        theme = "peach"
+    layout = _clean_text(payload.get("layout"), 40) or "layout-2"
+    if layout not in valid_layouts:
+        layout = "layout-2"
     hooks_raw = payload.get("hooks") or []
     if not isinstance(hooks_raw, list):
         hooks_raw = []
@@ -377,13 +548,15 @@ def save_walmart_collection_draft(
         "social_post": _clean_text(payload.get("social_post"), 5000),
         "landing_intro": _clean_text(payload.get("landing_intro"), 3000),
         "hooks_json": json.dumps(hooks),
-        "cta": _clean_text(payload.get("cta"), 120) or DEFAULT_CTA,
+        "cta": _clean_text(payload.get("cta"), 120) or default_cta_for_retailer(retailer),
         "platform": _clean_text(payload.get("platform"), 80) or DEFAULT_PLATFORM,
         "tone": _clean_text(payload.get("tone"), 160),
         "product_snapshot_json": json.dumps(products),
         "status": status,
         "public_slug": public_slug,
         "published_collage_slug": payload.get("published_collage_slug") or "",
+        "theme": theme,
+        "layout": layout,
         "updated_at": now,
     }
     conn = _connect()
@@ -435,8 +608,8 @@ def get_draft(draft_id: int) -> dict[str, Any] | None:
 
 
 
-def _shopper_safe_description(description: Any) -> str:
-    """Keep published Walmart Trend subtitles shopper-facing."""
+def _shopper_safe_description(description: Any, retailer: str = "") -> str:
+    """Keep published Trend subtitles shopper-facing, retailer-aware."""
     text = _clean_text(description, 300)
     lowered = text.lower()
     internal_markers = (
@@ -449,7 +622,10 @@ def _shopper_safe_description(description: Any) -> str:
         "curated walmart picks across",
     )
     if not text or any(marker in lowered for marker in internal_markers):
-        return "Fresh Walmart finds shoppers are checking out right now."
+        label = _retailer_label(retailer)
+        if label:
+            return f"Fresh {label} finds shoppers are checking out right now."
+        return "Fresh finds shoppers are checking out right now."
     return text
 
 def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str, str]:
@@ -460,22 +636,49 @@ def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str
     status = "published" if publish else "draft"
     creator_id = draft.get("creator_id") or DEFAULT_CREATOR_ID
 
+    # Detect dominant retailer from products to tag campaign_types correctly.
+    seen_retailers: set[str] = set()
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        for field in ("retailer", "network", "retailer_name"):
+            value = str(product.get(field) or "").strip().lower()
+            if value in ("walmart", "amazon"):
+                seen_retailers.add(value)
+                break
+    if seen_retailers == {"amazon"}:
+        campaign_types = [SOURCE_AMAZON_TREND]
+        retailer_for_subtitle = "amazon"
+    elif seen_retailers == {"walmart"}:
+        campaign_types = [SOURCE_WALMART_TREND]
+        retailer_for_subtitle = "walmart"
+    elif seen_retailers:
+        campaign_types = sorted(
+            {SOURCE_AMAZON_TREND if r == "amazon" else SOURCE_WALMART_TREND for r in seen_retailers}
+        )
+        retailer_for_subtitle = ""
+    else:
+        campaign_types = [SOURCE_WALMART_TREND]
+        retailer_for_subtitle = ""
+
+    draft_theme = (draft.get("theme") or "").strip() or "peach"
+    draft_layout = (draft.get("layout") or "").strip() or ("layout-3" if len(products) >= 6 else "layout-2")
     try:
         result = collection_service.save_collage(
             {
                 "slug": public_slug,
                 "products": products,
-                "layout": "layout-2" if len(products) < 6 else "layout-3",
-                "theme": "peach",
+                "layout": draft_layout,
+                "theme": draft_theme,
                 "caption": draft.get("landing_intro") or "",
                 "direct_to_amazon": False,
                 "creator_id": creator_id,
                 "status": status,
                 "hero_title": draft.get("title") or public_slug.replace("-", " ").title(),
-                "hero_subtitle": _shopper_safe_description(draft.get("description")),
+                "hero_subtitle": _shopper_safe_description(draft.get("description"), retailer_for_subtitle),
             },
             shop_subdomain=os.environ.get("SHOP_SUBDOMAIN", "shop.echotribe.ai").lower(),
-            campaign_types=[SOURCE_WALMART_TREND],
+            campaign_types=campaign_types,
         )
     except collection_service.CollectionServiceError as exc:
         raise CollectionContentError(str(exc)) from exc

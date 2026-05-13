@@ -42,6 +42,8 @@ THEMES = {
     'peach':    {'bg': '#fdf6f0', 'accent': '#e85d26', 'btn': '#8a5510', 'text': '#1a1a17'},
     'clean':    {'bg': '#ffffff', 'accent': '#1a1a17', 'btn': '#2e7dd4', 'text': '#1a1a17'},
     'bold':     {'bg': '#fff8f6', 'accent': '#e85d26', 'btn': '#a02828', 'text': '#1a1a17'},
+    'sage':     {'bg': '#f0f4f0', 'accent': '#3a7a4a', 'btn': '#2d6b3c', 'text': '#1a1a17'},
+    'sand':     {'bg': '#fdf8f0', 'accent': '#8a6a3a', 'btn': '#7a5a2a', 'text': '#1a1a17'},
 }
 
 PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
@@ -1168,10 +1170,11 @@ def archer_save_collage():
     data = request.get_json() or {}
     try:
         existing = collection_service.get_collage(data.get('slug') or '')
-        if existing and 'walmart_trend' in (existing.get('campaign_types') or []):
+        existing_types = (existing.get('campaign_types') if existing else None) or []
+        if existing and ('walmart_trend' in existing_types or 'amazon_trend' in existing_types):
             return jsonify({
-                'error': 'Walmart-origin pages must be edited in the Walmart collection editor',
-                'edit_url': f"/walmart/pages/{existing['slug']}/edit",
+                'error': 'Trend-origin pages must be edited in the collection editor',
+                'edit_url': f"/collections/{existing['slug']}/edit",
             }), 409
         archer = None
 
@@ -1230,9 +1233,10 @@ def archer_collage_get(slug):
     out = collection_service.get_collage(slug)
     if not out:
         return jsonify({'error': 'not found'}), 404
-    if 'walmart_trend' in (out.get('campaign_types') or []):
-        out['editor_type'] = 'walmart_collection'
-        out['edit_url'] = f"/walmart/pages/{out['slug']}/edit"
+    types = out.get('campaign_types') or []
+    if 'walmart_trend' in types or 'amazon_trend' in types:
+        out['editor_type'] = 'trend_collection'
+        out['edit_url'] = f"/collections/{out['slug']}/edit"
     return jsonify({'collage': out})
 
 
@@ -1243,9 +1247,10 @@ def archer_list_collages():
     try:
         collages = collection_service.list_collages(status=status, limit=50)
         for collage in collages:
-            if 'walmart_trend' in (collage.get('campaign_types') or []):
-                collage['editor_type'] = 'walmart_collection'
-                collage['edit_url'] = f"/walmart/pages/{collage['slug']}/edit"
+            ctypes = collage.get('campaign_types') or []
+            if 'walmart_trend' in ctypes or 'amazon_trend' in ctypes:
+                collage['editor_type'] = 'trend_collection'
+                collage['edit_url'] = f"/collections/{collage['slug']}/edit"
             else:
                 collage['editor_type'] = 'collage'
                 collage['edit_url'] = f"/archer/collage?collection={collage['slug']}"
@@ -1345,6 +1350,25 @@ def shop_directory():
             if p.get('image_encoded_string'):
                 cover_img = p['image_encoded_string']
                 break
+        # Detect dominant retailer for chip display.
+        seen = set()
+        for p in products:
+            if not isinstance(p, dict):
+                continue
+            for field in ('retailer', 'network', 'retailer_name'):
+                v = str(p.get(field) or '').strip().lower()
+                if v in ('walmart', 'amazon'):
+                    seen.add(v)
+                    break
+        if seen == {'amazon'}:
+            retailer_chip = 'amazon'
+            retailer_label_value = 'Amazon'
+        elif seen == {'walmart'}:
+            retailer_chip = 'walmart'
+            retailer_label_value = 'Walmart'
+        else:
+            retailer_chip = ''
+            retailer_label_value = ''
         creator = creators_by_id.get(r['creator_id'] or 'everydaywithsteph', {})
         items.append({
             'slug':          r['slug'],
@@ -1358,6 +1382,8 @@ def shop_directory():
             'creator_id':    r['creator_id'] or 'everydaywithsteph',
             'creator_handle': creator.get('handle') or '@creator',
             'creator_name':   creator.get('display_name') or 'Creator',
+            'retailer':       retailer_chip,
+            'retailer_label': retailer_label_value,
         })
 
     return render_template(
@@ -1392,17 +1418,22 @@ def shop_posts():
     ).fetchall()
     conn.close()
 
+    from utils.retailer_labels import angle_label as _angle_label
     creators_by_id = {c['id']: c for c in db_schema.list_creators()}
     items = []
     for r in rows:
         creator = creators_by_id.get(r['creator_id'] or 'everydaywithsteph', {})
         copy = (r['copy'] or '').strip()
+        _network = (r['network'] or 'amazon').lower()
+        _retailer_display = 'Walmart' if _network == 'walmart' else ('Amazon' if _network == 'amazon' else '')
         items.append({
             'id': r['id'],
             'slug': r['slug'] or '',
             'asin': r['asin'] or '',
-            'network': r['network'] or 'amazon',
+            'network': _network,
+            'retailer_label': _retailer_display,
             'angle': r['angle'] or '',
+            'angle_label': _angle_label(r['angle'] or ''),
             'copy': copy,
             'copy_excerpt': (copy[:180] + '…') if len(copy) > 180 else copy,
             'collection_slug': r['collection_slug'] or '',
@@ -1564,18 +1595,37 @@ def walmart_trending_now_api():
     return jsonify(get_trending_page_data())
 
 
-@app.route('/walmart/collections/<collection_slug>/create-post')
-def walmart_collection_create_post(collection_slug):
-    """Dedicated creator-voice post/page flow for one Walmart trend collection."""
+def _editor_retailer_context(collection):
+    """Compute retailer label/copy bundle for the collection editor template."""
+    from utils import retailer_labels as rl
+    items = collection.get('items') if isinstance(collection, dict) else None
+    # Prefer the collection's own retailer field (set by walmart_trends), then
+    # fall back to inspecting items.
+    direct = str((collection or {}).get('retailer') or '').strip().lower()
+    retailer = direct if direct in ('walmart', 'amazon') else rl.collection_retailer(items)
+    label = rl.retailer_label({'retailer': retailer}) if retailer else ''
+    return {
+        'retailer_key': retailer,                 # 'walmart' | 'amazon' | ''
+        'retailer_label': label,                  # 'Walmart' | 'Amazon' | ''
+        'retailer_label_or_finds': label or 'creator',
+        'slug_prefix': retailer or 'trend',
+        'default_cta': rl.collection_cta_default(items),
+        'finds_label': f"{label} finds" if label else "creator finds",
+    }
+
+
+def _render_collection_create_post(collection_slug):
+    """Shared handler for the (retailer-agnostic) create-post editor."""
     import collection_content as cc
 
     collection = cc.get_walmart_collection(collection_slug)
     if not collection:
-        return "Walmart collection not found", 404
+        return "Collection not found", 404
     creator_id = (request.args.get('creator_id') or 'everydaywithsteph').strip()
     admin_token = (request.args.get('admin_token') or '').strip()
     products = collection.get('items', [])[:10]
-    default_public_slug = cc.slugify(f"walmart-{collection.get('name') or collection_slug}")
+    rctx = _editor_retailer_context(collection)
+    default_public_slug = cc.slugify(f"{rctx['slug_prefix']}-{collection.get('name') or collection_slug}")
     return render_template(
         'walmart_collection_create_post.html',
         collection=collection,
@@ -1588,17 +1638,17 @@ def walmart_collection_create_post(collection_slug):
         existing_draft=None,
         editor_mode='create',
         shop_subdomain=SHOP_SUBDOMAIN,
+        retailer_ctx=rctx,
     )
 
 
-@app.route('/walmart/pages/<public_slug>/edit')
-def walmart_page_edit(public_slug):
-    """Walmart-aware editor for published Walmart collection pages."""
+def _render_collection_page_edit(public_slug):
+    """Shared handler for the (retailer-agnostic) page editor."""
     import collection_content as cc
 
     draft = cc.get_latest_draft_for_public_slug(public_slug)
     if not draft:
-        return "Walmart page draft not found", 404
+        return "Page draft not found", 404
     collection_slug = draft.get('source_collection_slug') or ''
     collection = cc.get_walmart_collection(collection_slug) if collection_slug else None
     if not collection:
@@ -1606,6 +1656,7 @@ def walmart_page_edit(public_slug):
     creator_id = (request.args.get('creator_id') or draft.get('creator_id') or 'everydaywithsteph').strip()
     admin_token = (request.args.get('admin_token') or '').strip()
     products = collection.get('items', [])[:10]
+    rctx = _editor_retailer_context(collection)
     return render_template(
         'walmart_collection_create_post.html',
         collection=collection,
@@ -1618,7 +1669,42 @@ def walmart_page_edit(public_slug):
         existing_draft=draft,
         editor_mode='edit',
         shop_subdomain=SHOP_SUBDOMAIN,
+        retailer_ctx=rctx,
     )
+
+
+# Canonical retailer-agnostic routes.
+@app.route('/collections/<collection_slug>/create-post')
+def collection_create_post(collection_slug):
+    """Canonical creator-voice editor for a trend collection (Walmart, Amazon, mixed)."""
+    return _render_collection_create_post(collection_slug)
+
+
+@app.route('/collections/<public_slug>/edit')
+def collection_page_edit(public_slug):
+    """Canonical editor for a published collection page."""
+    return _render_collection_page_edit(public_slug)
+
+
+# Backward-compatible aliases — old links keep working.
+@app.route('/walmart/collections/<collection_slug>/create-post')
+def walmart_collection_create_post(collection_slug):
+    """Legacy alias → /collections/<slug>/create-post (kept so old links don't 404)."""
+    qs = request.query_string.decode('utf-8') if request.query_string else ''
+    target = f"/collections/{collection_slug}/create-post"
+    if qs:
+        target = f"{target}?{qs}"
+    return redirect(target, code=302)
+
+
+@app.route('/walmart/pages/<public_slug>/edit')
+def walmart_page_edit(public_slug):
+    """Legacy alias → /collections/<slug>/edit."""
+    qs = request.query_string.decode('utf-8') if request.query_string else ''
+    target = f"/collections/{public_slug}/edit"
+    if qs:
+        target = f"{target}?{qs}"
+    return redirect(target, code=302)
 
 
 @app.route('/api/walmart/collections/<collection_slug>/transcribe-voice', methods=['POST'])
@@ -1701,7 +1787,7 @@ def walmart_collection_generate_post(collection_slug):
             voice_source_text=body.get('voice_source_text') or '',
             platform=body.get('platform') or 'facebook_group',
             tone=body.get('tone') or 'warm mom-to-mom',
-            audience_context=body.get('audience_context') or 'busy moms looking for timely Walmart finds',
+            audience_context=body.get('audience_context') or 'busy moms looking for timely creator finds',
             allow_demo_fallback=bool(body.get('demo_fallback')),
             regenerate_target=body.get('regenerate_target') or '',
         )
@@ -1757,6 +1843,180 @@ def collection_content_draft_publish(draft_id):
     except Exception as exc:
         logging.exception('[WALMART_CONTENT] publish failed')
         return jsonify({'error': str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Lightweight product controls + manual price refresh for the collection editor
+# ---------------------------------------------------------------------------
+
+def _load_draft_or_404(draft_id):
+    import collection_content as cc
+    try:
+        did = int(draft_id)
+    except (TypeError, ValueError):
+        return None, (jsonify({'error': 'invalid draft_id'}), 400)
+    draft = cc.get_draft(did)
+    if not draft:
+        return None, (jsonify({'error': 'draft not found'}), 404)
+    return draft, None
+
+
+def _save_draft_products(draft_id: int, products: list) -> None:
+    """Replace product_snapshot_json on an existing draft. Bumps updated_at."""
+    import collection_content as cc
+    conn = cc._connect()
+    try:
+        conn.execute(
+            "UPDATE collection_content_drafts SET product_snapshot_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(products), cc._now(), int(draft_id)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@app.route('/api/walmart/collections/<collection_slug>/drafts/<draft_id>/products', methods=['POST'])
+def walmart_draft_replace_products(collection_slug, draft_id):
+    """Replace product list on a draft (used after reorder/remove)."""
+    guard = _require_walmart_admin_if_configured()
+    if guard:
+        return guard
+    draft, err = _load_draft_or_404(draft_id)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    products = body.get('products') or []
+    if not isinstance(products, list):
+        return jsonify({'error': 'products must be a list'}), 400
+    _save_draft_products(int(draft['id']), products)
+    return jsonify({'ok': True, 'count': len(products), 'products': products})
+
+
+@app.route('/api/walmart/collections/<collection_slug>/drafts/<draft_id>/add-product', methods=['POST'])
+def walmart_draft_add_product(collection_slug, draft_id):
+    """Hydrate one ASIN (Amazon) and append to draft.product_snapshot."""
+    guard = _require_walmart_admin_if_configured()
+    if guard:
+        return guard
+    draft, err = _load_draft_or_404(draft_id)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    asin = str(body.get('asin') or '').strip().upper()
+    if not asin:
+        return jsonify({'error': 'asin is required'}), 400
+
+    existing = list(draft.get('product_snapshot') or [])
+    if any(str(p.get('asin') or p.get('sku') or '').strip().upper() == asin for p in existing if isinstance(p, dict)):
+        return jsonify({'error': 'duplicate', 'message': f'{asin} is already in this collection'}), 409
+
+    try:
+        import amazon_trends
+        enricher = amazon_trends.AmazonProductEnricher(amazon_trends.AmazonTrendStore())
+        enriched = enricher.enrich(asin) or {}
+    except Exception as exc:
+        logging.exception('[WALMART_CONTENT] add-product enrichment failed')
+        return jsonify({'error': 'enrichment failed', 'message': str(exc)}), 502
+
+    # Build a product dict matching the existing snapshot shape (see
+    # collection_content.adapt_walmart_products_for_collage).
+    detail_url = (
+        enriched.get('detail_page_url')
+        or enriched.get('attribution_link')
+        or f"https://www.amazon.com/dp/{asin}"
+    )
+    new_product = {
+        'asin': asin,
+        'product_name': enriched.get('product_title') or enriched.get('product_name') or enriched.get('title') or asin,
+        'company_name': enriched.get('brand') or '',
+        'brand': enriched.get('brand') or '',
+        'price': enriched.get('price_display') or enriched.get('current_price') or '',
+        'current_price': enriched.get('current_price') or '',
+        'price_display': enriched.get('price_display') or '',
+        'image_encoded_string': enriched.get('image_url') or '',
+        'attribution_link': detail_url,
+        'retailer': 'Amazon',
+        'retailer_name': 'Amazon',
+        'network': 'amazon',
+        'category': enriched.get('category') or '',
+        'source_rank': None,
+        'rank': len(existing) + 1,
+        'source_badges': [],
+    }
+    existing.append(new_product)
+    _save_draft_products(int(draft['id']), existing)
+    return jsonify({'ok': True, 'count': len(existing), 'products': existing, 'added': new_product})
+
+
+@app.route('/api/walmart/collections/<collection_slug>/drafts/<draft_id>/refresh-pricing', methods=['POST'])
+def walmart_draft_refresh_pricing(collection_slug, draft_id):
+    """Re-hydrate price/image for every product in the draft snapshot."""
+    guard = _require_walmart_admin_if_configured()
+    if guard:
+        return guard
+    draft, err = _load_draft_or_404(draft_id)
+    if err:
+        return err
+
+    import walmart_storefront_enrichment as wse
+    products = list(draft.get('product_snapshot') or [])
+    updated = 0
+    failed = 0
+    new_list = []
+    amazon_enricher = None
+    for product in products:
+        if not isinstance(product, dict):
+            new_list.append(product)
+            continue
+        retailer = ''
+        for field in ('retailer', 'network', 'retailer_name'):
+            value = str(product.get(field) or '').strip().lower()
+            if value in ('walmart', 'amazon'):
+                retailer = value
+                break
+        try:
+            if retailer == 'walmart':
+                refreshed = wse.enrich_product_payload(product, fetch_live=True)
+                new_list.append(refreshed)
+                updated += 1
+            elif retailer == 'amazon':
+                if amazon_enricher is None:
+                    import amazon_trends
+                    amazon_enricher = amazon_trends.AmazonProductEnricher(amazon_trends.AmazonTrendStore())
+                asin = str(product.get('asin') or product.get('sku') or '').strip()
+                if not asin:
+                    new_list.append(product)
+                    failed += 1
+                    continue
+                data = amazon_enricher.enrich(asin) or {}
+                merged = dict(product)
+                if data.get('image_url'):
+                    merged['image_encoded_string'] = data['image_url']
+                if data.get('current_price') not in (None, ''):
+                    merged['current_price'] = data['current_price']
+                if data.get('price_display'):
+                    merged['price_display'] = data['price_display']
+                    merged['price'] = data['price_display']
+                fresh_name = data.get('product_title') or data.get('product_name') or data.get('title')
+                if fresh_name:
+                    merged['product_name'] = merged.get('product_name') or fresh_name
+                new_list.append(merged)
+                updated += 1
+            else:
+                new_list.append(product)
+        except Exception as exc:
+            logging.warning('[WALMART_CONTENT] refresh-pricing failed for one product: %s', exc)
+            new_list.append(product)
+            failed += 1
+
+    _save_draft_products(int(draft['id']), new_list)
+    from datetime import datetime as _dt
+    return jsonify({
+        'updated': updated,
+        'failed': failed,
+        'last_checked_at': _dt.utcnow().replace(microsecond=0).isoformat(sep=' '),
+        'products': new_list,
+    })
 
 
 @app.route('/admin/walmart-trends/workbooks', methods=['GET'])

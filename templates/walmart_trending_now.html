@@ -142,7 +142,7 @@
             {% if display_description %}<p class="section-desc">{{ display_description }}</p>{% endif %}
           </div>
           {% if admin_mode %}
-            <a class="admin-action" href="/walmart/collections/{{ collection['slug'] }}/create-post?creator_id=everydaywithsteph{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">Create post</a>
+            <a class="admin-action" href="/collections/{{ collection['slug'] }}/create-post?creator_id=everydaywithsteph{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">Create post</a>
           {% endif %}
         </div>
         {% if collection['items'] %}
