@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% if editor_mode == 'edit' %}Edit Walmart Collection Page{% else %}Create Walmart Trend Post{% endif %} | EchoDashboard</title>
+  {% set _rl = (retailer_ctx.retailer_label if retailer_ctx and retailer_ctx.retailer_label else '') %}
+  {% set _rlabel = _rl if _rl else 'Trend' %}
+  <title>{% if editor_mode == 'edit' %}Edit {{ _rlabel }} Collection Page{% else %}Create {{ _rlabel }} Trend Post{% endif %} | EchoDashboard</title>
   <style>
     :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.12); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; }
     * { box-sizing:border-box; }
@@ -57,21 +59,31 @@
     .trending-note { font-size:11px; color:var(--muted); margin:6px 0 4px; font-style:italic; }
     .pricing-status { display:none; margin-top:8px; font-size:12px; color:var(--green); font-weight:800; }
     .pricing-status.err { color:#a02828; }
+    .design-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:6px; }
+    @media (max-width:620px) { .design-row { grid-template-columns:1fr; } }
+    .design-col { min-width:0; }
+    .design-label { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:900; margin-bottom:6px; }
+    .theme-picker { display:flex; gap:6px; flex-wrap:wrap; }
+    .tp-opt { width:30px; height:30px; padding:0; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px var(--line); cursor:pointer; background-clip:padding-box; }
+    .tp-opt.active { box-shadow:0 0 0 2px var(--accent); }
+    .layout-picker { display:flex; gap:6px; flex-wrap:wrap; }
+    .lp-opt { font-size:11px; font-weight:800; padding:7px 10px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--muted); cursor:pointer; }
+    .lp-opt.active { background:var(--ink); color:#fff; border-color:var(--ink); }
   </style>
 </head>
 <body>
   <main class="page">
     <div class="topbar">
-      <a class="back" href="/walmart/trending-now?admin=1{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">← Back to Walmart trends</a>
+      <a class="back" href="/walmart/trending-now?admin=1{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">← Back to Trends</a>
       <a class="back" href="/archer/organic">Organic</a>
-      <span class="pill">{% if editor_mode == 'edit' %}Walmart page editor{% else %}Creator Voice · Paste-first demo{% endif %}</span>
+      <span class="pill">{% if editor_mode == 'edit' %}{{ _rlabel }} page editor{% else %}Creator Voice · Paste-first demo{% endif %}</span>
     </div>
 
     <section class="hero">
-      <span class="pill">Walmart trend collection</span>
+      <span class="pill">{% if _rl %}{{ _rl }} trend collection{% else %}Trend collection{% endif %}</span>
       <h1>{{ collection['name'] }}</h1>
-      <p class="sub">{{ collection['description'] or 'Use this Walmart trend collection to create a creator-style social post and matching shoppable landing page intro.' }}</p>
-      {% if editor_mode == 'edit' %}<div class="top-alert">Editing in the Walmart-aware page model. The full saved product snapshot, landing intro, hooks, social copy, and existing Walmart links are preserved.</div>{% endif %}
+      <p class="sub">{{ collection['description'] or ('Use this ' ~ (_rl ~ ' ' if _rl else '') ~ 'trend collection to create a creator-style social post and matching shoppable landing page intro.') }}</p>
+      {% if editor_mode == 'edit' %}<div class="top-alert">Editing the saved page. Product snapshot, landing intro, hooks, social copy, and shop links are preserved.</div>{% endif %}
       {% if demo_auth_allowed %}<div class="top-alert">Demo auth is enabled for this local/Replit environment. Production still requires an admin token.</div>{% endif %}
     </section>
 
@@ -90,7 +102,7 @@
           <button class="ghost" type="button" onclick="addProductByAsin()">+ Add</button>
         </div>
         <div id="productList" class="products" data-trending="{{ '1' if _trending_slug else '0' }}"></div>
-        <p class="fine">Product links are copied from the existing Walmart Trending shop_url values. This flow does not generate new Impact or URLGenius links.</p>
+        <p class="fine">Product links are reused from the saved trend shop_url values. This flow does not generate new Impact or URLGenius links.</p>
       </aside>
 
       <section class="panel">
@@ -107,6 +119,30 @@
         </div>
         <label for="title">Landing page title</label>
         <input id="title" value="{{ collection['name'] }}">
+
+        <label>Page design</label>
+        <div class="design-row">
+          <div class="design-col">
+            <div class="design-label">Theme</div>
+            <div class="theme-picker" id="themePicker">
+              <button type="button" class="tp-opt" data-theme="peach" title="Peach" style="background:linear-gradient(135deg,#fbeedd,#fdf0ea)"></button>
+              <button type="button" class="tp-opt" data-theme="coral" title="Coral" style="background:linear-gradient(135deg,#ff6b6b,#ffa500)"></button>
+              <button type="button" class="tp-opt" data-theme="sage" title="Sage" style="background:linear-gradient(135deg,#cfe3d0,#e9f3e5)"></button>
+              <button type="button" class="tp-opt" data-theme="sand" title="Sand" style="background:linear-gradient(135deg,#efe7d4,#fbf4e3)"></button>
+              <button type="button" class="tp-opt" data-theme="midnight" title="Midnight" style="background:linear-gradient(135deg,#1a1a2e,#3a3a55)"></button>
+            </div>
+          </div>
+          <div class="design-col">
+            <div class="design-label">Layout</div>
+            <div class="layout-picker" id="layoutPicker">
+              <button type="button" class="lp-opt" data-layout="layout-2">2-col</button>
+              <button type="button" class="lp-opt" data-layout="layout-3">3-col</button>
+              <button type="button" class="lp-opt" data-layout="layout-featured">Featured</button>
+            </div>
+          </div>
+        </div>
+        <input id="themeValue" type="hidden" value="peach">
+        <input id="layoutValue" type="hidden" value="layout-2">
         <div class="voice-tabs" style="display:flex;gap:8px;margin-top:14px;">
           <button class="ghost" id="recordTabBtn" onclick="switchVoiceTab('record')" type="button">Record voice</button>
           <button class="ghost" id="pasteTabBtn" onclick="switchVoiceTab('paste')" type="button">Paste notes</button>
@@ -134,7 +170,7 @@
             <button class="ghost" onclick="useStephSampleVoice()" type="button">Use Steph sample voice</button>
             <button onclick="generateFromPaste()" type="button">Generate from pasted notes</button>
             <label style="display:flex;align-items:center;gap:8px;margin:0;text-transform:none;letter-spacing:0;font-size:12px;color:var(--muted);">
-              <input id="demoFallback" type="checkbox" style="width:auto;"> Demo fallback if AI key is missing
+              <input id="demoFallback" type="checkbox" style="width:auto;" checked> Demo fallback if AI key is missing or errors
             </label>
           </div>
         </div>
@@ -160,7 +196,7 @@
         </div>
         <div id="pricingStatus" class="pricing-status"></div>
         <div id="status" class="status"></div>
-        <div class="workflow-state" aria-label="Walmart collection publishing status">
+        <div class="workflow-state" aria-label="Collection publishing status">
           <div class="state-row">
             <span class="state-label">Draft</span>
             <span class="state-value" id="draftState">Not saved yet</span>
@@ -186,7 +222,7 @@
         <label for="landingIntro">Landing page intro</label>
         <textarea id="landingIntro" placeholder="Generated landing page intro will appear here..."></textarea>
         <label for="cta">CTA</label>
-        <input id="cta" value="Shop the Walmart finds">
+        <input id="cta" value="{{ retailer_ctx.default_cta if retailer_ctx and retailer_ctx.default_cta else 'Shop these finds' }}">
       </section>
     </div>
   </main>
@@ -197,6 +233,10 @@
     const demoAuthAllowed = {{ demo_auth_allowed|tojson }};
     const existingDraft = {{ existing_draft|tojson }};
     const shopSubdomain = {{ shop_subdomain|tojson }};
+    const RETAILER_KEY = {{ (retailer_ctx.retailer_key if retailer_ctx and retailer_ctx.retailer_key else '')|tojson }};
+    const RETAILER_LABEL = {{ (retailer_ctx.retailer_label if retailer_ctx and retailer_ctx.retailer_label else '')|tojson }};
+    const DEFAULT_CTA = {{ (retailer_ctx.default_cta if retailer_ctx and retailer_ctx.default_cta else 'Shop these finds')|tojson }};
+    const FINDS_LABEL = {{ (retailer_ctx.finds_label if retailer_ctx and retailer_ctx.finds_label else 'creator finds')|tojson }};
     const hookTypes = ['Fast Discovery', 'Problem → Solution', 'Creator Favorites'];
     let draftId = null;
     let previewUrl = '';
@@ -225,7 +265,9 @@
       setValue('tone', existingDraft.tone || 'warm mom-to-mom');
       setValue('socialPost', existingDraft.social_post || '');
       setValue('landingIntro', existingDraft.landing_intro || '');
-      setValue('cta', existingDraft.cta || 'Shop the Walmart finds');
+      setValue('cta', existingDraft.cta || DEFAULT_CTA);
+      if (existingDraft.theme) setTheme(existingDraft.theme);
+      if (existingDraft.layout) setLayout(existingDraft.layout);
       (existingDraft.hooks || []).slice(0,3).forEach((hook, i) => {
         setValue(`hook${i}`, typeof hook === 'string' ? hook : (hook.text || ''));
       });
@@ -275,7 +317,8 @@
     }
 
     function useStephSampleVoice() {
-      document.getElementById('voice').value = "Steph voice: I’d tell the group these are easy Walmart finds I’d check before the weekend. I love when I can pull together practical stuff in one place — a few things for the yard, a few things for the kids, and the kind of random home finds that make life feel a little more put together without spending a fortune.";
+      const retailerWord = RETAILER_LABEL || 'creator';
+      document.getElementById('voice').value = `Steph voice: I’d tell the group these are easy ${retailerWord} finds I’d check before the weekend. I love when I can pull together practical stuff in one place — a few things for the yard, a few things for the kids, and the kind of random home finds that make life feel a little more put together without spending a fortune.`;
       setStatus('Steph sample voice added. Click Generate from pasted notes.');
     }
 
@@ -301,7 +344,9 @@
         social_post: document.getElementById('socialPost').value.trim(),
         landing_intro: document.getElementById('landingIntro').value.trim(),
         hooks,
-        cta: document.getElementById('cta').value.trim() || 'Shop the Walmart finds',
+        cta: document.getElementById('cta').value.trim() || DEFAULT_CTA,
+        theme: (document.getElementById('themeValue').value || 'peach'),
+        layout: (document.getElementById('layoutValue').value || 'layout-2'),
         draft_id: draftId,
       };
     }
@@ -313,8 +358,32 @@
       });
       document.getElementById('socialPost').value = data.social_post || '';
       document.getElementById('landingIntro').value = data.landing_intro || '';
-      document.getElementById('cta').value = data.cta || 'Shop the Walmart finds';
+      document.getElementById('cta').value = data.cta || DEFAULT_CTA;
     }
+
+    // --- Theme + layout pickers (Issue 4) ---
+    function setTheme(value) {
+      const v = (value || 'peach').toLowerCase();
+      document.getElementById('themeValue').value = v;
+      document.querySelectorAll('#themePicker .tp-opt').forEach((el) => {
+        el.classList.toggle('active', el.getAttribute('data-theme') === v);
+      });
+    }
+    function setLayout(value) {
+      const v = value || 'layout-2';
+      document.getElementById('layoutValue').value = v;
+      document.querySelectorAll('#layoutPicker .lp-opt').forEach((el) => {
+        el.classList.toggle('active', el.getAttribute('data-layout') === v);
+      });
+    }
+    document.querySelectorAll('#themePicker .tp-opt').forEach((el) => {
+      el.addEventListener('click', () => setTheme(el.getAttribute('data-theme')));
+    });
+    document.querySelectorAll('#layoutPicker .lp-opt').forEach((el) => {
+      el.addEventListener('click', () => setLayout(el.getAttribute('data-layout')));
+    });
+    setTheme('peach');
+    setLayout('layout-2');
 
     function setRecordingTimer() {
       const elapsed = Math.floor((Date.now() - recordingStartedAt) / 1000);
@@ -383,7 +452,7 @@
         form.append('creator_id', document.getElementById('creatorId').value.trim() || 'everydaywithsteph');
         form.append('platform', document.getElementById('platform').value.trim() || 'facebook_group');
         form.append('tone', document.getElementById('tone').value.trim() || 'warm mom-to-mom');
-        form.append('audience_context', 'busy moms looking for timely Walmart finds');
+        form.append('audience_context', `busy moms looking for timely ${RETAILER_LABEL || 'creator'} finds`);
         const res = await fetch(`/api/walmart/collections/${collectionSlug}/transcribe-voice`, {
           method: 'POST', headers: authHeaders(), body: form
         });
@@ -416,7 +485,7 @@
         if (options.voiceText) body.voice_source_text = options.voiceText;
         if (options.regenerateTarget) body.regenerate_target = options.regenerateTarget;
         body.demo_fallback = document.getElementById('demoFallback')?.checked || false;
-        body.audience_context = 'busy moms looking for timely Walmart finds';
+        body.audience_context = `busy moms looking for timely ${RETAILER_LABEL || 'creator'} finds`;
         const res = await fetch(`/api/walmart/collections/${collectionSlug}/generate-post`, {
           method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(body)
         });
@@ -491,10 +560,18 @@
       }
     }
     // --- Product list management (Issue 2) ---
-    // Seed from server-rendered products if no draft exists yet.
+    // Seed from server-rendered products if no draft exists yet. The retailer
+    // for each row is taken from the product itself (walmart_trends emits
+    // retailer:'walmart' or retailer:'amazon'), with the collection's retailer
+    // as a fallback.
     const initialProducts = (existingDraft && existingDraft.product_snapshot && existingDraft.product_snapshot.length)
       ? existingDraft.product_snapshot
       : ({{ products|tojson }} || []).map(function(p, idx) {
+          const rawRetailer = String(p.retailer || p.network || p.retailer_name || RETAILER_KEY || '').toLowerCase();
+          const isAmazon = rawRetailer === 'amazon';
+          const isWalmart = rawRetailer === 'walmart';
+          const retailerKey = isAmazon ? 'amazon' : (isWalmart ? 'walmart' : '');
+          const retailerLabel = isAmazon ? 'Amazon' : (isWalmart ? 'Walmart' : '');
           return {
             asin: p.sku || p.asin || '',
             product_name: p.title || p.product_name || '',
@@ -505,9 +582,9 @@
             price_display: p.price_display || '',
             image_encoded_string: p.image_url || '',
             attribution_link: p.shop_url || '',
-            retailer: 'Walmart',
-            retailer_name: 'Walmart',
-            network: 'walmart',
+            retailer: retailerLabel,
+            retailer_name: retailerLabel,
+            network: retailerKey,
             source_rank: p.rank || idx + 1,
             rank: p.rank || idx + 1,
           };

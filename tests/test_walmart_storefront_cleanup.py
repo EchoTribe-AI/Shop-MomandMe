@@ -125,10 +125,24 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
 
     def test_create_post_ui_can_preview_subset_while_showing_full_count(self):
         with patch.object(self.collection_content, "get_walmart_collection", return_value=_walmart_collection(12)):
-            resp = self.client.get("/walmart/collections/kids-room-character-favorites/create-post")
+            resp = self.client.get("/collections/kids-room-character-favorites/create-post")
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
         self.assertIn("Showing 10 of 12 products", html)
+
+    def test_legacy_walmart_routes_redirect_to_canonical_collections_routes(self):
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=_walmart_collection(1)):
+            resp = self.client.get(
+                "/walmart/collections/kids-room-character-favorites/create-post"
+                "?creator_id=everydaywithsteph",
+                follow_redirects=False,
+            )
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(
+            "/collections/kids-room-character-favorites/create-post",
+            resp.headers.get("Location", ""),
+        )
+        self.assertIn("creator_id=everydaywithsteph", resp.headers.get("Location", ""))
 
     def test_public_nav_and_trends_route_render_on_shop_pages(self):
         source = _walmart_collection(1)
@@ -174,8 +188,8 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         collage_resp = self.client.get("/archer/collage/walmart-kids-room-character-favorites")
         self.assertEqual(collage_resp.status_code, 200)
         collage = collage_resp.get_json()["collage"]
-        self.assertEqual(collage["editor_type"], "walmart_collection")
-        self.assertEqual(collage["edit_url"], "/walmart/pages/walmart-kids-room-character-favorites/edit")
+        self.assertEqual(collage["editor_type"], "trend_collection")
+        self.assertEqual(collage["edit_url"], "/collections/walmart-kids-room-character-favorites/edit")
         self.assertEqual(len(collage["products"]), 12)
 
         generic_save = self.client.post("/archer/collage/save", json={
@@ -186,7 +200,7 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         })
         self.assertEqual(generic_save.status_code, 409)
 
-        editor = self.client.get("/walmart/pages/walmart-kids-room-character-favorites/edit")
+        editor = self.client.get("/collections/walmart-kids-room-character-favorites/edit")
         self.assertEqual(editor.status_code, 200)
         html = editor.get_data(as_text=True)
         self.assertIn("Walmart page editor", html)

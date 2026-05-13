@@ -92,8 +92,8 @@
         <div>{{ c.product_count }} products</div>
         <div>{{ c.created_at }}</div>
         <div class="actions">
-          {% if 'walmart_trend' in (c.campaign_types or []) %}
-          <a class="btn primary" href="/walmart/pages/{{ c.slug }}/edit">Edit</a>
+          {% if 'walmart_trend' in (c.campaign_types or []) or 'amazon_trend' in (c.campaign_types or []) %}
+          <a class="btn primary" href="/collections/{{ c.slug }}/edit">Edit</a>
           {% else %}
           <a class="btn primary" href="/archer/collage?collection={{ c.slug }}">Edit</a>
           {% endif %}

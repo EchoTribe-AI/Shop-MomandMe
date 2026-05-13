@@ -179,14 +179,27 @@ def get_latest_draft_for_public_slug(public_slug: str) -> dict[str, Any] | None:
 
 
 def collection_from_draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
-    """Build an editor-safe Walmart collection from a saved product snapshot."""
+    """Build an editor-safe collection from a saved product snapshot.
+
+    Carries retailer/network through so the editor can show "Walmart" or
+    "Amazon" labels for an edit of an already-published page.
+    """
     items = []
+    detected_retailers: set[str] = set()
     for idx, product in enumerate(draft.get("product_snapshot") or [], start=1):
         if not isinstance(product, dict):
             continue
+        retailer = ""
+        for field in ("retailer", "network", "retailer_name"):
+            value = str(product.get(field) or "").strip().lower()
+            if value in ("walmart", "amazon"):
+                retailer = value
+                break
+        if retailer:
+            detected_retailers.add(retailer)
         items.append({
             "sku": str(product.get("asin") or product.get("sku") or ""),
-            "title": product.get("product_name") or product.get("title") or "Walmart find",
+            "title": product.get("product_name") or product.get("title") or "Trend find",
             "brand": product.get("brand") or product.get("company_name") or "",
             "price_display": product.get("price_display") or product.get("price") or "",
             "current_price": product.get("current_price") or "",
@@ -195,13 +208,18 @@ def collection_from_draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
             "category": product.get("category") or "",
             "rank": product.get("rank") or product.get("source_rank") or idx,
             "badges": product.get("source_badges") or [],
+            "retailer": retailer,
+            "network": retailer,
         })
-    return {
+    out = {
         "slug": draft.get("source_collection_slug") or "",
-        "name": draft.get("title") or "Walmart finds",
+        "name": draft.get("title") or "Trend finds",
         "description": draft.get("description") or "",
         "items": items,
     }
+    if len(detected_retailers) == 1:
+        out["retailer"] = next(iter(detected_retailers))
+    return out
 
 
 def walmart_product_context(collection: dict[str, Any], limit: int = 10) -> list[dict[str, str]]:
@@ -425,14 +443,38 @@ def generate_walmart_collection_content(
         + '","link_placeholder":"[collection link]"}'
     )
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1800,
-        system=system,
-        messages=[{"role": "user", "content": user}],
+    # Try the preferred model, then fall back to a known-good alias, then to
+    # demo copy. We've seen Anthropic return a transient 500 on certain inputs;
+    # never let that fully block the demo flow.
+    model_candidates = ["claude-sonnet-4-6", "claude-sonnet-4-5", "claude-3-5-sonnet-latest"]
+    last_err: Exception | None = None
+    for model_name in model_candidates:
+        try:
+            message = client.messages.create(
+                model=model_name,
+                max_tokens=1800,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            raw = message.content[0].text if message.content else "{}"
+            try:
+                return _normalize_generated(_extract_json_object(raw))
+            except (ValueError, json.JSONDecodeError) as exc:
+                last_err = exc
+                continue
+        except anthropic.APIError as exc:
+            last_err = exc
+            continue
+        except Exception as exc:
+            last_err = exc
+            break
+    # All AI attempts failed — fall through to demo so the demo flow stays usable.
+    generated = _demo_generation(collection, voice_source_text)
+    err_text = str(last_err) if last_err else "AI generation unavailable"
+    generated["warning"] = (
+        f"AI generation hit an error ({err_text[:200]}); showing an editable demo draft."
     )
-    raw = message.content[0].text if message.content else "{}"
-    return _normalize_generated(_extract_json_object(raw))
+    return generated
 
 
 def save_walmart_collection_draft(
@@ -450,9 +492,20 @@ def save_walmart_collection_draft(
     else:
         raise CollectionContentError("Walmart collection not found")
     creator_id = _clean_text(payload.get("creator_id"), 120) or DEFAULT_CREATOR_ID
-    title = _clean_text(payload.get("title"), 240) or collection.get("name") or "Walmart finds"
+    retailer = _collection_retailer(collection)
+    title = _clean_text(payload.get("title"), 240) or collection.get("name") or (_retailer_label(retailer) + " finds" if _retailer_label(retailer) else "Trending finds")
     description = _clean_text(payload.get("description"), 500) or collection.get("description") or ""
-    public_slug = slugify(payload.get("public_slug") or f"walmart-{collection_slug}")
+    slug_prefix = retailer if retailer else "trend"
+    public_slug = slugify(payload.get("public_slug") or f"{slug_prefix}-{collection_slug}")
+    # Editor design controls (allow-list).
+    valid_themes = {"coral", "peach", "sage", "sand", "midnight"}
+    valid_layouts = {"layout-2", "layout-3", "layout-4", "layout-featured"}
+    theme = _clean_text(payload.get("theme"), 40) or "peach"
+    if theme not in valid_themes:
+        theme = "peach"
+    layout = _clean_text(payload.get("layout"), 40) or "layout-2"
+    if layout not in valid_layouts:
+        layout = "layout-2"
     hooks_raw = payload.get("hooks") or []
     if not isinstance(hooks_raw, list):
         hooks_raw = []
@@ -477,13 +530,15 @@ def save_walmart_collection_draft(
         "social_post": _clean_text(payload.get("social_post"), 5000),
         "landing_intro": _clean_text(payload.get("landing_intro"), 3000),
         "hooks_json": json.dumps(hooks),
-        "cta": _clean_text(payload.get("cta"), 120) or DEFAULT_CTA,
+        "cta": _clean_text(payload.get("cta"), 120) or default_cta_for_retailer(retailer),
         "platform": _clean_text(payload.get("platform"), 80) or DEFAULT_PLATFORM,
         "tone": _clean_text(payload.get("tone"), 160),
         "product_snapshot_json": json.dumps(products),
         "status": status,
         "public_slug": public_slug,
         "published_collage_slug": payload.get("published_collage_slug") or "",
+        "theme": theme,
+        "layout": layout,
         "updated_at": now,
     }
     conn = _connect()
@@ -588,13 +643,15 @@ def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str
         campaign_types = [SOURCE_WALMART_TREND]
         retailer_for_subtitle = ""
 
+    draft_theme = (draft.get("theme") or "").strip() or "peach"
+    draft_layout = (draft.get("layout") or "").strip() or ("layout-3" if len(products) >= 6 else "layout-2")
     try:
         result = collection_service.save_collage(
             {
                 "slug": public_slug,
                 "products": products,
-                "layout": "layout-2" if len(products) < 6 else "layout-3",
-                "theme": "peach",
+                "layout": draft_layout,
+                "theme": draft_theme,
                 "caption": draft.get("landing_intro") or "",
                 "direct_to_amazon": False,
                 "creator_id": creator_id,

@@ -1168,10 +1168,11 @@ def archer_save_collage():
     data = request.get_json() or {}
     try:
         existing = collection_service.get_collage(data.get('slug') or '')
-        if existing and 'walmart_trend' in (existing.get('campaign_types') or []):
+        existing_types = (existing.get('campaign_types') if existing else None) or []
+        if existing and ('walmart_trend' in existing_types or 'amazon_trend' in existing_types):
             return jsonify({
-                'error': 'Walmart-origin pages must be edited in the Walmart collection editor',
-                'edit_url': f"/walmart/pages/{existing['slug']}/edit",
+                'error': 'Trend-origin pages must be edited in the collection editor',
+                'edit_url': f"/collections/{existing['slug']}/edit",
             }), 409
         archer = None
 
@@ -1230,9 +1231,10 @@ def archer_collage_get(slug):
     out = collection_service.get_collage(slug)
     if not out:
         return jsonify({'error': 'not found'}), 404
-    if 'walmart_trend' in (out.get('campaign_types') or []):
-        out['editor_type'] = 'walmart_collection'
-        out['edit_url'] = f"/walmart/pages/{out['slug']}/edit"
+    types = out.get('campaign_types') or []
+    if 'walmart_trend' in types or 'amazon_trend' in types:
+        out['editor_type'] = 'trend_collection'
+        out['edit_url'] = f"/collections/{out['slug']}/edit"
     return jsonify({'collage': out})
 
 
@@ -1243,9 +1245,10 @@ def archer_list_collages():
     try:
         collages = collection_service.list_collages(status=status, limit=50)
         for collage in collages:
-            if 'walmart_trend' in (collage.get('campaign_types') or []):
-                collage['editor_type'] = 'walmart_collection'
-                collage['edit_url'] = f"/walmart/pages/{collage['slug']}/edit"
+            ctypes = collage.get('campaign_types') or []
+            if 'walmart_trend' in ctypes or 'amazon_trend' in ctypes:
+                collage['editor_type'] = 'trend_collection'
+                collage['edit_url'] = f"/collections/{collage['slug']}/edit"
             else:
                 collage['editor_type'] = 'collage'
                 collage['edit_url'] = f"/archer/collage?collection={collage['slug']}"
@@ -1590,18 +1593,37 @@ def walmart_trending_now_api():
     return jsonify(get_trending_page_data())
 
 
-@app.route('/walmart/collections/<collection_slug>/create-post')
-def walmart_collection_create_post(collection_slug):
-    """Dedicated creator-voice post/page flow for one Walmart trend collection."""
+def _editor_retailer_context(collection):
+    """Compute retailer label/copy bundle for the collection editor template."""
+    from utils import retailer_labels as rl
+    items = collection.get('items') if isinstance(collection, dict) else None
+    # Prefer the collection's own retailer field (set by walmart_trends), then
+    # fall back to inspecting items.
+    direct = str((collection or {}).get('retailer') or '').strip().lower()
+    retailer = direct if direct in ('walmart', 'amazon') else rl.collection_retailer(items)
+    label = rl.retailer_label({'retailer': retailer}) if retailer else ''
+    return {
+        'retailer_key': retailer,                 # 'walmart' | 'amazon' | ''
+        'retailer_label': label,                  # 'Walmart' | 'Amazon' | ''
+        'retailer_label_or_finds': label or 'creator',
+        'slug_prefix': retailer or 'trend',
+        'default_cta': rl.collection_cta_default(items),
+        'finds_label': f"{label} finds" if label else "creator finds",
+    }
+
+
+def _render_collection_create_post(collection_slug):
+    """Shared handler for the (retailer-agnostic) create-post editor."""
     import collection_content as cc
 
     collection = cc.get_walmart_collection(collection_slug)
     if not collection:
-        return "Walmart collection not found", 404
+        return "Collection not found", 404
     creator_id = (request.args.get('creator_id') or 'everydaywithsteph').strip()
     admin_token = (request.args.get('admin_token') or '').strip()
     products = collection.get('items', [])[:10]
-    default_public_slug = cc.slugify(f"walmart-{collection.get('name') or collection_slug}")
+    rctx = _editor_retailer_context(collection)
+    default_public_slug = cc.slugify(f"{rctx['slug_prefix']}-{collection.get('name') or collection_slug}")
     return render_template(
         'walmart_collection_create_post.html',
         collection=collection,
@@ -1614,17 +1636,17 @@ def walmart_collection_create_post(collection_slug):
         existing_draft=None,
         editor_mode='create',
         shop_subdomain=SHOP_SUBDOMAIN,
+        retailer_ctx=rctx,
     )
 
 
-@app.route('/walmart/pages/<public_slug>/edit')
-def walmart_page_edit(public_slug):
-    """Walmart-aware editor for published Walmart collection pages."""
+def _render_collection_page_edit(public_slug):
+    """Shared handler for the (retailer-agnostic) page editor."""
     import collection_content as cc
 
     draft = cc.get_latest_draft_for_public_slug(public_slug)
     if not draft:
-        return "Walmart page draft not found", 404
+        return "Page draft not found", 404
     collection_slug = draft.get('source_collection_slug') or ''
     collection = cc.get_walmart_collection(collection_slug) if collection_slug else None
     if not collection:
@@ -1632,6 +1654,7 @@ def walmart_page_edit(public_slug):
     creator_id = (request.args.get('creator_id') or draft.get('creator_id') or 'everydaywithsteph').strip()
     admin_token = (request.args.get('admin_token') or '').strip()
     products = collection.get('items', [])[:10]
+    rctx = _editor_retailer_context(collection)
     return render_template(
         'walmart_collection_create_post.html',
         collection=collection,
@@ -1644,7 +1667,42 @@ def walmart_page_edit(public_slug):
         existing_draft=draft,
         editor_mode='edit',
         shop_subdomain=SHOP_SUBDOMAIN,
+        retailer_ctx=rctx,
     )
+
+
+# Canonical retailer-agnostic routes.
+@app.route('/collections/<collection_slug>/create-post')
+def collection_create_post(collection_slug):
+    """Canonical creator-voice editor for a trend collection (Walmart, Amazon, mixed)."""
+    return _render_collection_create_post(collection_slug)
+
+
+@app.route('/collections/<public_slug>/edit')
+def collection_page_edit(public_slug):
+    """Canonical editor for a published collection page."""
+    return _render_collection_page_edit(public_slug)
+
+
+# Backward-compatible aliases — old links keep working.
+@app.route('/walmart/collections/<collection_slug>/create-post')
+def walmart_collection_create_post(collection_slug):
+    """Legacy alias → /collections/<slug>/create-post (kept so old links don't 404)."""
+    qs = request.query_string.decode('utf-8') if request.query_string else ''
+    target = f"/collections/{collection_slug}/create-post"
+    if qs:
+        target = f"{target}?{qs}"
+    return redirect(target, code=302)
+
+
+@app.route('/walmart/pages/<public_slug>/edit')
+def walmart_page_edit(public_slug):
+    """Legacy alias → /collections/<slug>/edit."""
+    qs = request.query_string.decode('utf-8') if request.query_string else ''
+    target = f"/collections/{public_slug}/edit"
+    if qs:
+        target = f"{target}?{qs}"
+    return redirect(target, code=302)
 
 
 @app.route('/api/walmart/collections/<collection_slug>/transcribe-voice', methods=['POST'])
@@ -1727,7 +1785,7 @@ def walmart_collection_generate_post(collection_slug):
             voice_source_text=body.get('voice_source_text') or '',
             platform=body.get('platform') or 'facebook_group',
             tone=body.get('tone') or 'warm mom-to-mom',
-            audience_context=body.get('audience_context') or 'busy moms looking for timely Walmart finds',
+            audience_context=body.get('audience_context') or 'busy moms looking for timely creator finds',
             allow_demo_fallback=bool(body.get('demo_fallback')),
             regenerate_target=body.get('regenerate_target') or '',
         )
