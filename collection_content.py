@@ -178,6 +178,9 @@ def get_latest_draft_for_public_slug(public_slug: str) -> dict[str, Any] | None:
         conn.close()
 
 
+_AMAZON_ASIN_RE = re.compile(r'^[A-Z0-9]{10}$')
+
+
 def collection_from_draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
     """Build an editor-safe collection from a saved product snapshot.
 
@@ -189,12 +192,27 @@ def collection_from_draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
     for idx, product in enumerate(draft.get("product_snapshot") or [], start=1):
         if not isinstance(product, dict):
             continue
-        retailer = ""
-        for field in ("retailer", "network", "retailer_name"):
-            value = str(product.get(field) or "").strip().lower()
-            if value in ("walmart", "amazon"):
-                retailer = value
-                break
+
+        # Use the attribution URL as the most reliable signal for stale
+        # snapshots that may have an incorrect or missing retailer field.
+        link = str(product.get("attribution_link") or product.get("shop_url") or "").lower()
+        if "amazon.com" in link:
+            retailer = "amazon"
+        elif "walmart.com" in link:
+            retailer = "walmart"
+        else:
+            retailer = ""
+            for field in ("retailer", "network", "retailer_name"):
+                value = str(product.get(field) or "").strip().lower()
+                if value in ("walmart", "amazon"):
+                    retailer = value
+                    break
+            # Last resort: Amazon ASINs are exactly 10 uppercase alphanumeric chars.
+            if not retailer:
+                asin = str(product.get("asin") or product.get("sku") or "").strip()
+                if _AMAZON_ASIN_RE.match(asin):
+                    retailer = "amazon"
+
         if retailer:
             detected_retailers.add(retailer)
         items.append({

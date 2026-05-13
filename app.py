@@ -42,6 +42,8 @@ THEMES = {
     'peach':    {'bg': '#fdf6f0', 'accent': '#e85d26', 'btn': '#8a5510', 'text': '#1a1a17'},
     'clean':    {'bg': '#ffffff', 'accent': '#1a1a17', 'btn': '#2e7dd4', 'text': '#1a1a17'},
     'bold':     {'bg': '#fff8f6', 'accent': '#e85d26', 'btn': '#a02828', 'text': '#1a1a17'},
+    'sage':     {'bg': '#f0f4f0', 'accent': '#3a7a4a', 'btn': '#2d6b3c', 'text': '#1a1a17'},
+    'sand':     {'bg': '#fdf8f0', 'accent': '#8a6a3a', 'btn': '#7a5a2a', 'text': '#1a1a17'},
 }
 
 PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
@@ -1925,7 +1927,7 @@ def walmart_draft_add_product(collection_slug, draft_id):
     )
     new_product = {
         'asin': asin,
-        'product_name': enriched.get('product_name') or enriched.get('title') or asin,
+        'product_name': enriched.get('product_title') or enriched.get('product_name') or enriched.get('title') or asin,
         'company_name': enriched.get('brand') or '',
         'brand': enriched.get('brand') or '',
         'price': enriched.get('price_display') or enriched.get('current_price') or '',
@@ -1995,8 +1997,9 @@ def walmart_draft_refresh_pricing(collection_slug, draft_id):
                 if data.get('price_display'):
                     merged['price_display'] = data['price_display']
                     merged['price'] = data['price_display']
-                if data.get('product_name'):
-                    merged['product_name'] = merged.get('product_name') or data['product_name']
+                fresh_name = data.get('product_title') or data.get('product_name') or data.get('title')
+                if fresh_name:
+                    merged['product_name'] = merged.get('product_name') or fresh_name
                 new_list.append(merged)
                 updated += 1
             else:

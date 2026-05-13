@@ -50,7 +50,7 @@
 }
 </script>
 
-{% set theme = themes[collage.theme] %}
+{% set theme = themes.get(collage.theme) or themes.get('peach') %}
 <style>
   /* Draft watermark for ?preview=1 */
   .draft-banner { position: fixed; top: 0; left: 0; right: 0; background: #fff3e0; color: #e65100; text-align: center; padding: 6px 12px; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: 1px; z-index: 999; border-bottom: 1px solid #ffb74d; }
