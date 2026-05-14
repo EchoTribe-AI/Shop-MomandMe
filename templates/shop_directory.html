@@ -8,13 +8,17 @@
 <link rel="canonical" href="{{ canonical_url }}">
 
 <meta property="og:type" content="website">
-<meta property="og:title" content="Shop · The Mommy &amp; Me Collective">
-<meta property="og:description" content="Curated shoppable collections from The Mommy &amp; Me Collective.">
+<meta property="og:title" content="Shop - The Mommy &amp; Me Collective">
+<meta property="og:description" content="Curated shoppable collections from The Mommy &amp; Me Collective — daily deals, gift guides, and mom-tested recommendations.">
 <meta property="og:url" content="{{ canonical_url }}">
-{% if items and items[0].cover_image %}<meta property="og:image" content="{{ items[0].cover_image }}">{% endif %}
+<meta property="og:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
+<meta property="og:image:width" content="1731">
+<meta property="og:image:height" content="909">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Shop · The Mommy &amp; Me Collective">
+<meta name="twitter:title" content="Shop - The Mommy &amp; Me Collective">
+<meta name="twitter:description" content="Curated shoppable collections from The Mommy &amp; Me Collective — daily deals, gift guides, and mom-tested recommendations.">
+<meta name="twitter:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
 
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
