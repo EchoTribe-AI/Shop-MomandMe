@@ -108,6 +108,53 @@ class WalmartTrendsTestCase(unittest.TestCase):
         self.assertTrue(self.wt.is_malformed_double_encoded_walmart_goto(broken))
         self.assertFalse(self.wt.is_malformed_double_encoded_walmart_goto(fixed))
 
+    def test_normalize_product_brand_rejects_source_domains_and_preserves_real_brands(self):
+        self.assertEqual(self.wt.normalize_product_brand("WalmartCreator.com"), "")
+        self.assertEqual(self.wt.normalize_product_brand("https://walmart.com/ip/123"), "")
+        self.assertEqual(self.wt.normalize_product_brand("Best Choice Products"), "Best Choice Products")
+        self.assertEqual(self.wt.normalize_product_brand("Better Homes & Gardens"), "Better Homes & Gardens")
+
+    def test_normalize_product_brand_infers_known_safe_title_prefixes(self):
+        self.assertEqual(self.wt.normalize_product_brand("", "CONCETTA 4-Piece Patio Furniture Set"), "CONCETTA")
+        self.assertEqual(self.wt.normalize_product_brand("", "Better Homes & Gardens Lilah Patio Chair"), "Better Homes & Gardens")
+        self.assertEqual(self.wt.normalize_product_brand("", "Sportspower BouncePro Trampoline"), "Sportspower")
+        self.assertEqual(self.wt.normalize_product_brand("", "JUMPZYLLA Trampoline with Enclosure"), "JUMPZYLLA")
+        self.assertEqual(self.wt.normalize_product_brand("", "Generic Patio Furniture Set"), "")
+
+    def test_update_product_enrichment_does_not_preserve_invalid_existing_brand(self):
+        store = self.wt.WalmartTrendStore()
+        store.upsert_product_from_record(self.wt.TrendRecord(
+            sku="18985723227",
+            item_name="Generic Patio Furniture Set",
+            brand="WalmartCreator.com",
+        ))
+
+        store.update_product_enrichment(
+            "18985723227",
+            {"title": "Patio Furniture Set", "brand": ""},
+            "ok",
+        )
+
+        product = store.get_product("18985723227")
+        self.assertEqual(product["brand"], "")
+
+    def test_update_product_enrichment_can_infer_concetta_from_title(self):
+        store = self.wt.WalmartTrendStore()
+        store.upsert_product_from_record(self.wt.TrendRecord(
+            sku="18985723227",
+            item_name="Generic Patio Furniture Set",
+            brand="WalmartCreator.com",
+        ))
+
+        store.update_product_enrichment(
+            "18985723227",
+            {"title": "CONCETTA 4-Piece Patio Furniture Set with Loveseat", "brand": ""},
+            "ok",
+        )
+
+        product = store.get_product("18985723227")
+        self.assertEqual(product["brand"], "CONCETTA")
+
 
     def test_vanity_goto_affiliate_link_is_not_reused(self):
         store = self.wt.WalmartTrendStore()
