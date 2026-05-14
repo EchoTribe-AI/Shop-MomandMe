@@ -169,6 +169,43 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertEqual(trends.status_code, 200)
         self.assertIn("What’s Trending Now", trends.get_data(as_text=True))
 
+    def test_trends_cards_never_render_contaminated_walmart_brand(self):
+        import walmart_trends
+
+        walmart_trends.DB_PATH = self.db_path
+        store = walmart_trends.WalmartTrendStore()
+        run_id = store.create_run("workbook_bootstrap")
+        store.finish_run(run_id, "success", {"records": 1}, [])
+        store.replace_collections(run_id, "workbook_bootstrap", [{
+            "slug": "top-sellers",
+            "name": "Top Sellers",
+            "items": [{"sku": "18985723227", "badges": []}],
+        }])
+        store.upsert_product_from_record(walmart_trends.TrendRecord(
+            sku="18985723227",
+            item_name="CONCETTA 4-Piece Patio Furniture Set with Loveseat",
+            brand="WalmartCreator.com",
+        ))
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                "UPDATE walmart_products SET brand = ? WHERE sku = ?",
+                ("WalmartCreator.com", "18985723227"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        public_html = self.client.get("/trends", headers={"Host": "shop.echotribe.ai"}).get_data(as_text=True)
+        admin_html = self.client.get("/walmart/trending-now?admin=1").get_data(as_text=True)
+
+        self.assertNotIn("WalmartCreator.com", public_html)
+        self.assertNotIn("WALMARTCREATOR.COM", public_html)
+        self.assertNotIn("WalmartCreator.com", admin_html)
+        self.assertNotIn("WALMARTCREATOR.COM", admin_html)
+        self.assertIn("CONCETTA", public_html)
+        self.assertIn("CONCETTA", admin_html)
+
     def test_walmart_origin_pages_use_walmart_editor_not_six_slot_collage_editor(self):
         source = _walmart_collection(12)
         with patch.object(self.collection_content, "get_walmart_collection", return_value=source):

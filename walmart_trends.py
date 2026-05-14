@@ -31,6 +31,23 @@ ATTACHED_ASSETS_DIR = Path("attached_assets")
 SHEET_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 STALE_DOUBLE_ENCODED_WALMART_GOTO_ERROR = "stale double-encoded Walmart goto destination"
 
+SAFE_TITLE_BRAND_PREFIXES = (
+    ("better homes & gardens", "Better Homes & Gardens"),
+    ("best choice products", "Best Choice Products"),
+    ("expert gardener", "Expert Gardener"),
+    ("sportspower", "Sportspower"),
+    ("jumpzylla", "JUMPZYLLA"),
+    ("concetta", "CONCETTA"),
+    ("mainstays", "Mainstays"),
+)
+INVALID_BRAND_VALUES = {
+    "walmartcreator.com",
+    "walmart.com",
+    "amazon.com",
+    "urlgeni.us",
+    "goto.walmart.com",
+}
+
 
 @dataclass
 class TrendRecord:
@@ -122,6 +139,34 @@ def _connect() -> sqlite3.Connection:
 def _slugify(value: str, fallback: str = "collection") -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
     return slug or fallback
+
+
+def infer_product_brand_from_title(title: str) -> str:
+    """Infer only from known-safe brand prefixes in Walmart product titles."""
+    clean_title = re.sub(r"\s+", " ", (title or "").strip())
+    if not clean_title:
+        return ""
+    lower_title = clean_title.lower()
+    for prefix, brand in SAFE_TITLE_BRAND_PREFIXES:
+        if lower_title == prefix or lower_title.startswith(prefix + " "):
+            return brand
+    return ""
+
+
+def normalize_product_brand(value: Any, title: str = "") -> str:
+    """Normalize product brands and reject source/domain values."""
+    brand = re.sub(r"\s+", " ", str(value or "").strip())
+    lower_brand = brand.lower()
+    if not brand:
+        return infer_product_brand_from_title(title)
+    if (
+        lower_brand in INVALID_BRAND_VALUES
+        or "http" in lower_brand
+        or ".com" in lower_brand
+        or "urlgeni.us" in lower_brand
+    ):
+        return infer_product_brand_from_title(title)
+    return brand
 
 
 def _is_double_encoded_walmart_destination(value: str) -> bool:
@@ -437,7 +482,7 @@ class WorkbookTrendParser:
                 sale_amount=_to_float(row.get("Sale Amount")),
                 total_earnings=_to_float(row.get("Total Earnings")),
                 source_list_type="all_skus",
-                brand=(row.get("Brand") or "").strip(),
+                brand=normalize_product_brand(row.get("Brand") or "", row.get("Item Name") or ""),
                 landing_page_url=(row.get("Landing Page URL") or "").strip(),
             ))
         return records
@@ -526,6 +571,7 @@ class WalmartTrendStore:
             conn.close()
 
     def upsert_product_from_record(self, record: TrendRecord) -> None:
+        normalized_brand = normalize_product_brand(record.brand, record.item_name)
         conn = _connect()
         try:
             conn.execute(
@@ -535,11 +581,20 @@ class WalmartTrendStore:
                 ON CONFLICT(sku) DO UPDATE SET
                     item_name = COALESCE(NULLIF(excluded.item_name, ''), walmart_products.item_name),
                     category_list = COALESCE(NULLIF(excluded.category_list, ''), walmart_products.category_list),
-                    brand = COALESCE(NULLIF(excluded.brand, ''), walmart_products.brand),
+                    brand = CASE
+                        WHEN NULLIF(excluded.brand, '') IS NOT NULL THEN excluded.brand
+                        WHEN lower(COALESCE(walmart_products.brand, '')) LIKE '%walmartcreator%' THEN ''
+                        WHEN lower(COALESCE(walmart_products.brand, '')) LIKE '%walmart.com%' THEN ''
+                        WHEN lower(COALESCE(walmart_products.brand, '')) LIKE '%urlgeni%' THEN ''
+                        WHEN lower(COALESCE(walmart_products.brand, '')) LIKE '%goto.walmart%' THEN ''
+                        WHEN lower(COALESCE(walmart_products.brand, '')) LIKE '%http%' THEN ''
+                        WHEN lower(COALESCE(walmart_products.brand, '')) LIKE '%.com%' THEN ''
+                        ELSE walmart_products.brand
+                    END,
                     canonical_url = COALESCE(walmart_products.canonical_url, excluded.canonical_url),
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (record.sku, record.item_name, record.category_list, record.brand, f"https://www.walmart.com/ip/{record.sku}"),
+                (record.sku, record.item_name, record.category_list, normalized_brand, f"https://www.walmart.com/ip/{record.sku}"),
             )
             conn.commit()
         finally:
@@ -576,11 +631,21 @@ class WalmartTrendStore:
     def update_product_enrichment(self, sku: str, data: dict[str, Any], status: str, error: str = "") -> None:
         conn = _connect()
         try:
+            existing = conn.execute(
+                "SELECT brand, product_title, item_name FROM walmart_products WHERE sku = ?",
+                (sku,),
+            ).fetchone()
+            existing_brand = existing["brand"] if existing else ""
+            existing_title = (existing["product_title"] or existing["item_name"] or "") if existing else ""
+            title = data.get("title") or data.get("name") or existing_title or ""
+            new_brand = normalize_product_brand(data.get("brand") or "", title)
+            preserved_brand = normalize_product_brand(existing_brand, title or existing_title)
+            final_brand = new_brand or preserved_brand
             conn.execute(
                 """
                 UPDATE walmart_products SET
                     product_title = COALESCE(NULLIF(?, ''), product_title),
-                    brand = COALESCE(NULLIF(?, ''), brand),
+                    brand = ?,
                     taxonomy = COALESCE(NULLIF(?, ''), taxonomy),
                     image_url = COALESCE(NULLIF(?, ''), image_url),
                     current_price = COALESCE(?, current_price),
@@ -594,8 +659,8 @@ class WalmartTrendStore:
                 WHERE sku = ?
                 """,
                 (
-                    data.get("title") or data.get("name") or "",
-                    data.get("brand") or "",
+                    title,
+                    final_brand,
                     data.get("taxonomy") or data.get("category") or "",
                     data.get("image_url") or data.get("imageUrl") or data.get("image") or "",
                     data.get("price_value"),
@@ -1220,11 +1285,12 @@ class WalmartTrendStore:
             ).fetchone()
         genius_url = genius["genius_url"] if genius else ""
         badges = json.loads(ci.get("badges_json") or "[]")
+        title = rd.get("product_title") or rd.get("item_name") or "Walmart find"
         return {
             "sku": sku,
             "retailer": "walmart",
-            "title": rd.get("product_title") or rd.get("item_name") or "Walmart find",
-            "brand": rd.get("brand") or "",
+            "title": title,
+            "brand": normalize_product_brand(rd.get("brand") or "", title),
             "category": rd.get("category_list") or rd.get("taxonomy") or "",
             "image_url": rd.get("image_url") or "",
             "price_display": rd.get("price_display") or _price_display(rd.get("current_price")),
@@ -1298,7 +1364,16 @@ class WalmartProductEnricher:
 
     def enrich(self, sku: str) -> dict[str, Any]:
         existing = self.store.get_product(sku) or {}
-        if existing.get("enrichment_status") == "ok" and existing.get("image_url") and existing.get("canonical_url"):
+        existing_title = existing.get("product_title") or existing.get("item_name") or ""
+        existing_brand = existing.get("brand") or ""
+        existing_brand_normalized = normalize_product_brand(existing_brand, existing_title)
+        brand_needs_normalization = existing_brand != existing_brand_normalized
+        if (
+            existing.get("enrichment_status") == "ok"
+            and existing.get("image_url")
+            and existing.get("canonical_url")
+            and not brand_needs_normalization
+        ):
             return existing
         try:
             item = self.client.get_item_by_id(sku)
@@ -1307,14 +1382,15 @@ class WalmartProductEnricher:
                 self.store.update_product_enrichment(sku, fallback, "fallback", fallback["error"])
                 return fallback
             price_value = _to_float(item.get("price"))
+            title = item.get("name") or existing.get("item_name") or ""
             normalized = {
-                "title": item.get("name") or existing.get("item_name") or "",
+                "title": title,
                 "image_url": item.get("imageUrl") or item.get("image") or existing.get("image_url") or "",
                 "price_value": price_value or None,
                 "price_display": _price_display(price_value) or str(item.get("price") or ""),
                 "canonical_url": item.get("url") or existing.get("canonical_url") or f"https://www.walmart.com/ip/{sku}",
                 "category": item.get("category") or existing.get("category_list") or "",
-                "brand": item.get("brand") or existing.get("brand") or "",
+                "brand": normalize_product_brand(item.get("brand") or "", title),
                 "availability": item.get("availability") or "",
                 "rating": item.get("rating"),
                 "review_count": item.get("review_count"),
@@ -1329,14 +1405,15 @@ class WalmartProductEnricher:
 
     def _fallback(self, existing: dict[str, Any], error: str) -> dict[str, Any]:
         sku = existing.get("sku") or ""
+        title = existing.get("product_title") or existing.get("item_name") or "Walmart find"
         return {
-            "title": existing.get("product_title") or existing.get("item_name") or "Walmart find",
+            "title": title,
             "image_url": existing.get("image_url") or "",
             "price_value": existing.get("current_price"),
             "price_display": existing.get("price_display") or "",
             "canonical_url": existing.get("canonical_url") or f"https://www.walmart.com/ip/{sku}",
             "category": existing.get("category_list") or "",
-            "brand": existing.get("brand") or "",
+            "brand": normalize_product_brand(existing.get("brand") or "", title),
             "error": error,
         }
 
