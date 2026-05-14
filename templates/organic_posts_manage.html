@@ -99,6 +99,7 @@
           {% endif %}
           <a class="btn" href="/shop/{{ c.slug }}{% if is_draft %}?preview=1{% endif %}" target="_blank">{% if is_draft %}Preview{% else %}View{% endif %}</a>
           {% if is_draft %}<button class="btn green" onclick="publishCollection('{{ c.slug }}', this)">Publish</button>{% endif %}
+          <button class="btn red" onclick="archiveCollection('{{ c.slug }}', this)">Archive</button>
         </div>
       </div>
       {% else %}
@@ -130,6 +131,23 @@ async function publishCollection(slug, btn) {
   if (!res.ok) alert('Publish failed');
   else location.reload();
   btn.disabled = false; btn.textContent = old;
+}
+async function archiveCollection(slug, btn) {
+  if (!confirm(`Archive collection "${slug}"? It will be removed from the public shop directory.`)) return;
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Archiving...';
+  const res = await fetch('/archer/collage/archive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    alert('Archive failed: ' + (d.error || res.status));
+    btn.disabled = false; btn.textContent = old;
+  } else {
+    btn.closest('.row').remove();
+  }
 }
 </script>
 </body>
