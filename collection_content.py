@@ -178,6 +178,34 @@ def get_latest_draft_for_public_slug(public_slug: str) -> dict[str, Any] | None:
         conn.close()
 
 
+def get_latest_draft_for_source_collection(collection_slug: str, creator_id: str = "") -> dict[str, Any] | None:
+    clean_slug = _clean_text(collection_slug, 240)
+    if not clean_slug:
+        return None
+    params: list[Any] = [SOURCE_WALMART_TREND, clean_slug]
+    creator_clause = ""
+    clean_creator = _clean_text(creator_id, 120)
+    if clean_creator:
+        creator_clause = "AND creator_id = ?"
+        params.append(clean_creator)
+    conn = _connect()
+    try:
+        row = conn.execute(
+            f"""
+            SELECT id FROM collection_content_drafts
+            WHERE source_type = ?
+              AND source_collection_slug = ?
+              {creator_clause}
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+        return get_draft(int(row["id"])) if row else None
+    finally:
+        conn.close()
+
+
 _AMAZON_ASIN_RE = re.compile(r'^[A-Z0-9]{10}$')
 
 
@@ -344,6 +372,59 @@ def adapt_walmart_products_for_collage(collection: dict[str, Any], limit: int | 
     return adapted
 
 
+def _coerce_product_snapshot(raw: Any) -> list[dict[str, Any]] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise CollectionContentError("products must be a list")
+    products: list[dict[str, Any]] = []
+    for idx, product in enumerate(raw, start=1):
+        if not isinstance(product, dict):
+            raise CollectionContentError("each product must be an object")
+        item = dict(product)
+        item["rank"] = idx
+        if item.get("source_rank") in (None, ""):
+            item["source_rank"] = idx
+        products.append(item)
+    return products
+
+
+def _payload_product_snapshot(payload: dict[str, Any]) -> list[dict[str, Any]] | None:
+    if "product_snapshot" in payload:
+        return _coerce_product_snapshot(payload.get("product_snapshot"))
+    if "products" in payload:
+        return _coerce_product_snapshot(payload.get("products"))
+    return None
+
+
+def collage_from_draft_for_shop(draft: dict[str, Any]) -> dict[str, Any]:
+    public_slug = slugify(draft.get("public_slug") or f"walmart-{draft.get('source_collection_slug') or 'trend'}")
+    products = draft.get("product_snapshot") or []
+    seen_retailers: set[str] = set()
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        for field in ("retailer", "network", "retailer_name"):
+            value = str(product.get(field) or "").strip().lower()
+            if value in ("walmart", "amazon"):
+                seen_retailers.add(value)
+                break
+    retailer_for_subtitle = next(iter(seen_retailers)) if len(seen_retailers) == 1 else ""
+    return {
+        "slug": public_slug,
+        "products": products,
+        "layout": (draft.get("layout") or "").strip() or ("layout-3" if len(products) >= 6 else "layout-2"),
+        "theme": (draft.get("theme") or "").strip() or "peach",
+        "caption": draft.get("landing_intro") or "",
+        "direct_to_amazon": False,
+        "creator_id": draft.get("creator_id") or DEFAULT_CREATOR_ID,
+        "status": draft.get("status") or "draft",
+        "campaign_types": [SOURCE_WALMART_TREND],
+        "hero_title": draft.get("title") or public_slug.replace("-", " ").title(),
+        "hero_subtitle": _shopper_safe_description(draft.get("description"), retailer_for_subtitle),
+    }
+
+
 def _demo_generation(collection: dict[str, Any], voice_source_text: str) -> dict[str, Any]:
     retailer = _collection_retailer(collection)
     label = _retailer_label(retailer)
@@ -502,19 +583,34 @@ def save_walmart_collection_draft(
 ) -> dict[str, Any]:
     collection = get_walmart_collection(collection_slug)
     existing_draft = get_draft(int(payload.get("draft_id"))) if payload.get("draft_id") else None
-    if collection:
-        products = adapt_walmart_products_for_collage(collection)
+    payload_products = _payload_product_snapshot(payload)
+    if payload_products is not None:
+        products = payload_products
+        if not collection:
+            collection = collection_from_draft_snapshot({
+                **(existing_draft or {}),
+                "source_collection_slug": collection_slug,
+                "product_snapshot": products,
+            })
     elif existing_draft and existing_draft.get("product_snapshot"):
         collection = collection_from_draft_snapshot(existing_draft)
         products = existing_draft.get("product_snapshot") or []
+    elif collection:
+        products = adapt_walmart_products_for_collage(collection)
     else:
         raise CollectionContentError("Walmart collection not found")
+    if not products:
+        raise CollectionContentError("Draft must include at least one product")
     creator_id = _clean_text(payload.get("creator_id"), 120) or DEFAULT_CREATOR_ID
     retailer = _collection_retailer(collection)
     title = _clean_text(payload.get("title"), 240) or collection.get("name") or (_retailer_label(retailer) + " finds" if _retailer_label(retailer) else "Trending finds")
     description = _clean_text(payload.get("description"), 500) or collection.get("description") or ""
     slug_prefix = retailer if retailer else "trend"
-    public_slug = slugify(payload.get("public_slug") or f"{slug_prefix}-{collection_slug}")
+    public_slug = slugify(
+        payload.get("public_slug")
+        or (existing_draft or {}).get("public_slug")
+        or f"{slug_prefix}-{collection_slug}"
+    )
     # Editor design controls (allow-list).
     valid_themes = {"coral", "peach", "sage", "sand", "midnight"}
     valid_layouts = {"layout-2", "layout-3", "layout-4", "layout-featured"}
@@ -554,7 +650,7 @@ def save_walmart_collection_draft(
         "product_snapshot_json": json.dumps(products),
         "status": status,
         "public_slug": public_slug,
-        "published_collage_slug": payload.get("published_collage_slug") or "",
+        "published_collage_slug": payload.get("published_collage_slug") or (existing_draft or {}).get("published_collage_slug") or "",
         "theme": theme,
         "layout": layout,
         "updated_at": now,
@@ -732,7 +828,16 @@ def materialize_preview(draft_id: int) -> dict[str, str]:
     draft = get_draft(draft_id)
     if not draft:
         raise CollectionContentError("Draft not found")
-    return _upsert_collage_from_draft(draft, publish=False)
+    public_slug = slugify(draft.get("public_slug") or f"walmart-{draft['source_collection_slug']}")
+    creator_id = draft.get("creator_id") or DEFAULT_CREATOR_ID
+    return {
+        "public_slug": public_slug,
+        "public_url": f"/shop/{public_slug}?preview=1",
+        "preview_url": f"/shop/{public_slug}?preview=1",
+        "insights_url": f"/insights?creator_id={creator_id}",
+        "status": draft.get("status") or "draft",
+        "warnings": [],
+    }
 
 
 def publish_draft(draft_id: int) -> dict[str, str]:
@@ -740,3 +845,38 @@ def publish_draft(draft_id: int) -> dict[str, str]:
     if not draft:
         raise CollectionContentError("Draft not found")
     return _upsert_collage_from_draft(draft, publish=True)
+
+
+def unpublish_draft(draft_id: int) -> dict[str, str]:
+    draft = get_draft(draft_id)
+    if not draft:
+        raise CollectionContentError("Draft not found")
+    public_slug = slugify(
+        draft.get("published_collage_slug")
+        or draft.get("public_slug")
+        or f"walmart-{draft['source_collection_slug']}"
+    )
+    conn = _connect()
+    try:
+        if public_slug:
+            conn.execute("UPDATE collages SET status = 'draft' WHERE slug = ?", (public_slug,))
+        conn.execute(
+            """
+            UPDATE collection_content_drafts
+            SET status = 'draft', public_slug = ?, published_collage_slug = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (public_slug, public_slug, _now(), draft_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "public_slug": public_slug,
+        "public_url": f"/shop/{public_slug}?preview=1",
+        "preview_url": f"/shop/{public_slug}?preview=1",
+        "insights_url": f"/insights?creator_id={draft.get('creator_id') or DEFAULT_CREATOR_ID}",
+        "status": "draft",
+        "warnings": [],
+    }

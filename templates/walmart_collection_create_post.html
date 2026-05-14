@@ -98,11 +98,11 @@
         <div class="trending-note">Trending order is preserved for this collection — reorder is disabled, but you can still add or remove items.</div>
         {% endif %}
         <div class="add-product-row">
-          <input id="newAsinInput" placeholder="Add by ASIN (e.g. B0CXXXXXX)" maxlength="20">
+          <input id="newAsinInput" placeholder="Add Amazon ASIN/URL or Walmart SKU/URL">
           <button class="ghost" type="button" onclick="addProductByAsin()">+ Add</button>
         </div>
         <div id="productList" class="products" data-trending="{{ '1' if _trending_slug else '0' }}"></div>
-        <p class="fine">Product links are reused from the saved trend shop_url values. This flow does not generate new Impact or URLGenius links.</p>
+        <p class="fine">Product links use the saved affiliate/URLGenius path when available.</p>
       </aside>
 
       <section class="panel">
@@ -347,6 +347,7 @@
         cta: document.getElementById('cta').value.trim() || DEFAULT_CTA,
         theme: (document.getElementById('themeValue').value || 'peach'),
         layout: (document.getElementById('layoutValue').value || 'layout-2'),
+        product_snapshot: productsState,
         draft_id: draftId,
       };
     }
@@ -510,9 +511,18 @@
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
         draftId = data.draft_id;
         previewUrl = data.preview_url;
+        if (data.draft && Array.isArray(data.draft.product_snapshot)) {
+          productsState = data.draft.product_snapshot;
+          renderProductList();
+        }
         setStateLink('draftState', `Draft #${draftId} saved`, null);
         setStateLink('previewState', previewUrl, previewUrl);
-        setStateLink('publicState', 'Publish to create /shop link', null);
+        if (data.draft && data.draft.published_collage_slug) {
+          const publicSlug = data.draft.published_collage_slug || data.public_slug;
+          setStateLink('publicState', `https://${shopSubdomain}/${publicSlug}`, `https://${shopSubdomain}/${publicSlug}`);
+        } else {
+          setStateLink('publicState', 'Publish to create /shop link', null);
+        }
         setStatus(`Draft saved. Preview: ${previewUrl}`);
         return data;
       } catch (err) {
@@ -677,8 +687,8 @@
 
     async function addProductByAsin() {
       const input = document.getElementById('newAsinInput');
-      const asin = (input.value || '').trim().toUpperCase();
-      if (!asin) return setStatus('Enter an ASIN to add.', true);
+      const productInput = (input.value || '').trim();
+      if (!productInput) return setStatus('Enter an Amazon ASIN/URL or Walmart SKU/URL.', true);
       // Save the draft first if we don't have an id.
       if (!draftId) {
         const saved = await saveDraft();
@@ -688,7 +698,7 @@
         const res = await fetch(`/api/walmart/collections/${collectionSlug}/drafts/${draftId}/add-product`, {
           method: 'POST',
           headers: authHeaders({'Content-Type':'application/json'}),
-          body: JSON.stringify({ asin }),
+          body: JSON.stringify({ product: productInput }),
         });
         const data = await res.json();
         if (res.status === 409) {
@@ -699,7 +709,8 @@
         productsState = data.products || productsState;
         renderProductList();
         input.value = '';
-        setStatus(`Added ${asin}.`);
+        const addedId = (data.added && (data.added.asin || data.added.sku)) || productInput;
+        setStatus(`Added ${addedId}.`);
       } catch (err) {
         setStatus(`Add failed: ${err.message}`, true);
       }
