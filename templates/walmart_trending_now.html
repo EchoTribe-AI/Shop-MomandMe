@@ -97,9 +97,8 @@
 <body>
   <main class="page">
     <header class="hero">
-      <div class="eyebrow">🔥 The Mommy &amp; Me Collective</div>
-      <h1>What’s Trending Now</h1>
-      <p class="brand-attr" style="margin:0 0 4px;font-size:12px;font-weight:700;color:var(--accent);">from The Mommy &amp; Me Collective</p>
+      <div class="eyebrow">🔥 The Mommy &amp; Me Collective · Top Finds</div>
+      <h1>What’s Trending Now <span style="font-size:0.55em;font-weight:600;opacity:.65;">· The Mommy &amp; Me Collective</span></h1>
       <p class="subhead">Fresh finds from Walmart and Amazon, hand-picked by The Mommy &amp; Me Collective — home upgrades, kids’ picks, everyday deals, and more.</p>
       <div class="refreshed">Updated: {{ data['last_refreshed'] or 'Today' }}</div>
       {% include 'partials/public_shop_nav.html' %}
@@ -290,7 +289,7 @@
       row.className = 'lp-chat-row';
       const list = document.createElement('div');
       list.className = 'lp-chat-products';
-      products.slice(0, 3).forEach(function(p) {
+      products.forEach(function(p) {
         const card = document.createElement('div');
         card.className = 'lp-chat-product';
         const imgHtml = p.image
