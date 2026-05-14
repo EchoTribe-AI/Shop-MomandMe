@@ -1225,6 +1225,33 @@ def archer_collage_publish():
         status_code = 404 if str(exc) == 'collection not found' else 400
         return jsonify({'error': str(exc)}), status_code
 
+@app.route('/archer/collage/archive', methods=['POST'])
+def archer_collage_archive():
+    """Soft-delete a collage by setting its status to 'archived'.
+
+    Bypasses the trend-origin save guard intentionally — archiving is always
+    allowed regardless of how the page originated.
+
+    Body: { "slug": "..." }
+    """
+    import collection_service
+    data = request.get_json() or {}
+    slug = (data.get('slug') or '').strip()
+    if not slug:
+        return jsonify({'error': 'slug is required'}), 400
+    clean_slug = collection_service.normalize_slug(slug)
+    conn = collection_service._connect()
+    try:
+        row = conn.execute("SELECT slug FROM collages WHERE slug = ?", (clean_slug,)).fetchone()
+        if not row:
+            return jsonify({'error': 'collection not found'}), 404
+        conn.execute("UPDATE collages SET status = 'archived' WHERE slug = ?", (clean_slug,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'slug': clean_slug, 'status': 'archived'})
+
+
 @app.route('/archer/collage/<slug>', methods=['GET'])
 def archer_collage_get(slug):
     """Return one collection's full record (used by Ad Builder auto-load

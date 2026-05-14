@@ -628,11 +628,25 @@ def _shopper_safe_description(description: Any, retailer: str = "") -> str:
         return "Fresh finds shoppers are checking out right now."
     return text
 
+def _archive_collage_slug(slug: str) -> None:
+    """Set a collage row to 'archived' status. No-op if it doesn't exist."""
+    if not slug:
+        return
+    conn = _connect()
+    try:
+        conn.execute("UPDATE collages SET status = 'archived' WHERE slug = ?", (slug,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str, str]:
     products = draft.get("product_snapshot") or []
     if not products:
         raise CollectionContentError("Draft has no product snapshot")
     public_slug = slugify(draft.get("public_slug") or f"walmart-{draft['source_collection_slug']}")
+    # Track the previously published slug so we can archive it when the slug changes.
+    old_published_slug = slugify(draft.get("published_collage_slug") or "")
     status = "published" if publish else "draft"
     creator_id = draft.get("creator_id") or DEFAULT_CREATOR_ID
 
@@ -682,6 +696,11 @@ def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str
         )
     except collection_service.CollectionServiceError as exc:
         raise CollectionContentError(str(exc)) from exc
+
+    # Archive the previously published slug when the slug has changed so the old
+    # URL stops appearing on the shop directory and doesn't create a duplicate.
+    if publish and old_published_slug and old_published_slug != public_slug:
+        _archive_collage_slug(old_published_slug)
 
     conn = _connect()
     try:
