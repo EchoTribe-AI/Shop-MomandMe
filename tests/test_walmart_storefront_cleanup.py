@@ -103,7 +103,19 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         draft = draft_resp.get_json()["draft"]
         self.assertEqual(len(source["items"]), 12)
         self.assertEqual(len(draft["product_snapshot"]), 12)
-        self.assertEqual(self._json_count("collages", "products_json", "slug", "walmart-kids-room-character-favorites"), 12)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            self.assertIsNone(conn.execute(
+                "SELECT slug FROM collages WHERE slug = ?",
+                ("walmart-kids-room-character-favorites",),
+            ).fetchone())
+        finally:
+            conn.close()
+        preview = self.client.get("/shop/walmart-kids-room-character-favorites?preview=1")
+        self.assertEqual(preview.status_code, 200)
+        preview_html = preview.get_data(as_text=True)
+        self.assertIn("Character Sheet Set 1", preview_html)
+        self.assertIn("$7.77", preview_html)
 
         publish_resp = self.client.post(f"/api/collection-content-drafts/{draft['id']}/publish")
         self.assertEqual(publish_resp.status_code, 200)
@@ -123,12 +135,13 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertEqual(products[0]["rating"], 4.7)
         self.assertEqual(products[0]["review_count"], 321)
 
-    def test_create_post_ui_can_preview_subset_while_showing_full_count(self):
+    def test_create_post_ui_hydrates_full_source_snapshot_when_no_draft_exists(self):
         with patch.object(self.collection_content, "get_walmart_collection", return_value=_walmart_collection(12)):
             resp = self.client.get("/collections/kids-room-character-favorites/create-post")
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
-        self.assertIn("Showing 10 of 12 products", html)
+        self.assertIn("Character Sheet Set 12", html)
+        self.assertIn("Add Amazon ASIN/URL or Walmart SKU/URL", html)
 
     def test_legacy_walmart_routes_redirect_to_canonical_collections_routes(self):
         with patch.object(self.collection_content, "get_walmart_collection", return_value=_walmart_collection(1)):
@@ -162,7 +175,7 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
 
         collections = self.client.get("/collections", headers={"Host": "shop.echotribe.ai"})
         self.assertEqual(collections.status_code, 200)
-        self.assertIn("Shop creator-curated collections", collections.get_data(as_text=True))
+        self.assertIn("Shop The Mommy &amp; Me Collective", collections.get_data(as_text=True))
 
         with patch("walmart_trends.get_trending_page_data", return_value={"last_refreshed": "Today", "collections": []}):
             trends = self.client.get("/trends", headers={"Host": "shop.echotribe.ai"})
@@ -206,6 +219,247 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertIn("CONCETTA", public_html)
         self.assertIn("CONCETTA", admin_html)
 
+    def test_draft_product_snapshot_drives_reload_preview_publish_and_unpublish(self):
+        source = _walmart_collection(4)
+        edited = [
+            {
+                "asin": "WM003",
+                "product_name": "Moved First Walmart",
+                "brand": "WalmartBrand",
+                "price_display": "$10.00",
+                "image_encoded_string": "https://i.example/3.jpg",
+                "attribution_link": "https://goto.walmart.com/c/3590891/1398372/16662?u=wm3",
+                "retailer": "Walmart",
+                "retailer_name": "Walmart",
+                "network": "walmart",
+                "rank": 1,
+            },
+            {
+                "asin": "B0AMZN0001",
+                "product_name": "Added Amazon Find",
+                "brand": "AmazonBrand",
+                "price_display": "$22.00",
+                "image_encoded_string": "https://i.example/amazon.jpg",
+                "attribution_link": "https://urlgeni.us/amazon/added",
+                "retailer": "Amazon",
+                "retailer_name": "Amazon",
+                "network": "amazon",
+                "rank": 2,
+            },
+            {
+                "asin": "WM002",
+                "product_name": "Kept Second Walmart",
+                "brand": "WalmartBrand",
+                "price_display": "$10.00",
+                "image_encoded_string": "https://i.example/2.jpg",
+                "attribution_link": "https://goto.walmart.com/c/3590891/1398372/16662?u=wm2",
+                "retailer": "Walmart",
+                "retailer_name": "Walmart",
+                "network": "walmart",
+                "rank": 3,
+            },
+        ]
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "creator_id": "everydaywithsteph",
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Edited Kids Room",
+                "landing_intro": "Edited intro.",
+                "product_snapshot": edited,
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            products = json.loads(conn.execute(
+                "SELECT product_snapshot_json FROM collection_content_drafts WHERE id = ?",
+                (draft_id,),
+            ).fetchone()[0])
+            self.assertEqual([p["asin"] for p in products], ["WM003", "B0AMZN0001", "WM002"])
+            self.assertIsNone(conn.execute(
+                "SELECT slug FROM collages WHERE slug = ?",
+                ("walmart-kids-room-character-favorites",),
+            ).fetchone())
+        finally:
+            conn.close()
+
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            editor = self.client.get("/collections/walmart-kids-room-character-favorites/edit")
+        self.assertEqual(editor.status_code, 200)
+        html = editor.get_data(as_text=True)
+        self.assertIn("Moved First Walmart", html)
+        self.assertIn("Added Amazon Find", html)
+        self.assertNotIn("Character Sheet Set 1", html)
+
+        preview = self.client.get("/shop/walmart-kids-room-character-favorites?preview=1")
+        self.assertEqual(preview.status_code, 200)
+        preview_html = preview.get_data(as_text=True)
+        self.assertIn("Moved First Walmart", preview_html)
+        self.assertIn("Added Amazon Find", preview_html)
+        self.assertNotIn("Character Sheet Set 1", preview_html)
+
+        publish_resp = self.client.post(f"/api/collection-content-drafts/{draft_id}/publish")
+        self.assertEqual(publish_resp.status_code, 200)
+        public = self.client.get("/shop/walmart-kids-room-character-favorites")
+        self.assertEqual(public.status_code, 200)
+        public_html = public.get_data(as_text=True)
+        self.assertIn("Moved First Walmart", public_html)
+        self.assertIn("Added Amazon Find", public_html)
+
+        edited_after_publish = [
+            {**edited[2], "rank": 1},
+            {**edited[1], "rank": 2},
+        ]
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            save_after_publish = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "draft_id": draft_id,
+                "creator_id": "everydaywithsteph",
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Edited Kids Room Again",
+                "landing_intro": "Draft-only edit.",
+                "product_snapshot": edited_after_publish,
+            })
+        self.assertEqual(save_after_publish.status_code, 200)
+        public_before_republish = self.client.get("/shop/walmart-kids-room-character-favorites").get_data(as_text=True)
+        self.assertIn("Moved First Walmart", public_before_republish)
+        self.assertNotIn("Draft-only edit.", public_before_republish)
+
+        republish_resp = self.client.post(f"/api/collection-content-drafts/{draft_id}/publish")
+        self.assertEqual(republish_resp.status_code, 200)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            duplicate_count = conn.execute(
+                "SELECT COUNT(*) FROM collages WHERE slug = ?",
+                ("walmart-kids-room-character-favorites",),
+            ).fetchone()[0]
+            public_products = json.loads(conn.execute(
+                "SELECT products_json FROM collages WHERE slug = ?",
+                ("walmart-kids-room-character-favorites",),
+            ).fetchone()[0])
+        finally:
+            conn.close()
+        self.assertEqual(duplicate_count, 1)
+        self.assertEqual([p["asin"] for p in public_products], ["WM002", "B0AMZN0001"])
+
+        unpublish_resp = self.client.post(f"/api/collection-content-drafts/{draft_id}/unpublish")
+        self.assertEqual(unpublish_resp.status_code, 200)
+        self.assertEqual(self.client.get("/shop/walmart-kids-room-character-favorites").status_code, 404)
+        self.assertEqual(self.client.get("/shop/walmart-kids-room-character-favorites?preview=1").status_code, 200)
+
+    def test_add_product_accepts_amazon_and_walmart_inputs_with_retailer_metadata(self):
+        self.assertEqual(self.app_module._parse_collection_product_input("B0AMZN0002"), ("amazon", "B0AMZN0002"))
+        self.assertEqual(
+            self.app_module._parse_collection_product_input("https://www.amazon.com/example/dp/b0amzn0002?tag=old"),
+            ("amazon", "B0AMZN0002"),
+        )
+        self.assertEqual(self.app_module._parse_collection_product_input("987654321"), ("walmart", "987654321"))
+        self.assertEqual(
+            self.app_module._parse_collection_product_input("https://www.walmart.com/ip/Example-Product/987654321"),
+            ("walmart", "987654321"),
+        )
+        source = _walmart_collection(1)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "landing_intro": "Fresh finds.",
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+        with patch("app._build_amazon_snapshot_product", return_value={
+            "asin": "B0AMZN0002",
+            "product_name": "Amazon URL Product",
+            "attribution_link": "https://urlgeni.us/amazon/url-product",
+            "retailer": "Amazon",
+            "retailer_name": "Amazon",
+            "network": "amazon",
+        }) as amazon_build, patch("app._build_walmart_snapshot_product", return_value={
+            "asin": "987654321",
+            "product_name": "Walmart URL Product",
+            "attribution_link": "https://urlgeni.us/walmart/url-product",
+            "retailer": "Walmart",
+            "retailer_name": "Walmart",
+            "network": "walmart",
+        }) as walmart_build:
+            amazon_resp = self.client.post(
+                f"/api/walmart/collections/kids-room-character-favorites/drafts/{draft_id}/add-product",
+                json={"product": "https://www.amazon.com/example/dp/B0AMZN0002?tag=old"},
+            )
+            walmart_resp = self.client.post(
+                f"/api/walmart/collections/kids-room-character-favorites/drafts/{draft_id}/add-product",
+                json={"product": "https://www.walmart.com/ip/Example-Product/987654321"},
+            )
+        self.assertEqual(amazon_resp.status_code, 200)
+        self.assertEqual(walmart_resp.status_code, 200)
+        amazon_build.assert_called_once_with("B0AMZN0002")
+        walmart_build.assert_called_once_with("987654321")
+        products = walmart_resp.get_json()["products"]
+        self.assertEqual(products[-2]["network"], "amazon")
+        self.assertEqual(products[-1]["network"], "walmart")
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            stored = json.loads(conn.execute(
+                "SELECT product_snapshot_json FROM collection_content_drafts WHERE id = ?",
+                (draft_id,),
+            ).fetchone()[0])
+        finally:
+            conn.close()
+        self.assertEqual(stored[-2]["asin"], "B0AMZN0002")
+        self.assertEqual(stored[-1]["asin"], "987654321")
+
+    def test_draft_snapshot_edits_do_not_mutate_source_trend_tables(self):
+        import walmart_trends
+
+        walmart_trends.DB_PATH = self.db_path
+        store = walmart_trends.WalmartTrendStore()
+        run_id = store.create_run("workbook_bootstrap")
+        store.finish_run(run_id, "success", {"records": 2}, [])
+        store.upsert_product_from_record(walmart_trends.TrendRecord(sku="WM001", item_name="Source First"))
+        store.upsert_product_from_record(walmart_trends.TrendRecord(sku="WM002", item_name="Source Second"))
+        store.save_affiliate_link("WM001", "https://www.walmart.com/ip/WM001", "https://goto.walmart.com/source-1", "active")
+        store.save_affiliate_link("WM002", "https://www.walmart.com/ip/WM002", "https://goto.walmart.com/source-2", "active")
+        store.replace_collections(run_id, "workbook_bootstrap", [{
+            "slug": "source-collection",
+            "name": "Source Collection",
+            "items": [
+                {"sku": "WM001", "badges": [], "item_count": 1},
+                {"sku": "WM002", "badges": [], "item_count": 2},
+            ],
+        }])
+        edited = [{
+            "asin": "WM002",
+            "product_name": "Edited Draft Second",
+            "attribution_link": "https://goto.walmart.com/source-2",
+            "retailer": "Walmart",
+            "network": "walmart",
+        }]
+
+        draft_resp = self.client.post("/api/walmart/collections/source-collection/draft-page", json={
+            "public_slug": "source-collection-page",
+            "landing_intro": "Draft snapshot only.",
+            "product_snapshot": edited,
+        })
+        self.assertEqual(draft_resp.status_code, 200)
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            source_rows = conn.execute(
+                """
+                SELECT sku, display_order
+                FROM walmart_collection_items
+                WHERE collection_slug = ?
+                ORDER BY display_order ASC
+                """,
+                ("source-collection",),
+            ).fetchall()
+            product_count = conn.execute("SELECT COUNT(*) FROM walmart_products").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual([(row["sku"], row["display_order"]) for row in source_rows], [("WM001", 1), ("WM002", 2)])
+        self.assertEqual(product_count, 2)
+
     def test_walmart_origin_pages_use_walmart_editor_not_six_slot_collage_editor(self):
         source = _walmart_collection(12)
         with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
@@ -241,7 +495,7 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertEqual(editor.status_code, 200)
         html = editor.get_data(as_text=True)
         self.assertIn("Walmart page editor", html)
-        self.assertIn("Showing 10 of 12 products", html)
+        self.assertIn("Character Sheet Set 12", html)
         self.assertIn("Original rich landing intro", html)
         self.assertIn("Original social post", html)
         self.assertIn("Original hook", html)
