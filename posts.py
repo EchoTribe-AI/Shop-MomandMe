@@ -19,17 +19,14 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from datetime import datetime
 from typing import Optional
 
 import db_schema
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(db_schema.DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _connect():
+    return db_schema._connect()
 
 
 def _slugify_angle(angle: str) -> str:
@@ -75,7 +72,8 @@ def create_post(
                 smart_link_final_url,
                 product_name, product_brand, product_price, product_image,
                 product_availability, product_rating, product_review_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               RETURNING id""",
             (
                 creator_id, asin, network, angle, copy, image_note,
                 collection_slug, status,
@@ -88,8 +86,7 @@ def create_post(
                 product_availability, product_rating, product_review_count,
             ),
         )
-        post_id = cur.lastrowid
-        # Generate stable post slug now that we have the id
+        post_id = db_schema._last_id(cur)
         slug = f"{_slugify_angle(angle)}-{(asin or 'noasin').lower()}-{post_id}"
         conn.execute(
             "UPDATE posts SET slug = ? WHERE id = ?", (slug, post_id)
@@ -110,13 +107,12 @@ def list_posts(
     limit: int = 200,
 ) -> list[dict]:
     """Query posts with optional filters. Default excludes archived."""
-    where = ['COALESCE(creator_id,\'everydaywithsteph\') = ?']
+    where = ["COALESCE(creator_id,'everydaywithsteph') = ?"]
     params: list = [creator_id or 'everydaywithsteph']
     if status:
         where.append('status = ?')
         params.append(status)
     else:
-        # Default: hide archived
         where.append("status != 'archived'")
     if collection_slug:
         where.append('collection_slug = ?')
@@ -147,15 +143,7 @@ def get_post(post_id: int) -> Optional[dict]:
 
 
 def update_post(post_id: int, fields: dict) -> Optional[dict]:
-    """Update specific fields. Bumps updated_at automatically.
-
-    Allowed fields: copy, image_note, angle, status, smart_link,
-    smart_link_id, smart_link_affiliate_url, smart_link_final_url,
-    utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-    collection_slug, product_image, posted_at, product_name,
-    product_brand, product_price, product_availability, product_rating,
-    product_review_count.
-    """
+    """Update specific fields. Bumps updated_at automatically."""
     allowed = {
         'copy', 'image_note', 'angle', 'status', 'smart_link',
         'smart_link_id', 'smart_link_affiliate_url', 'smart_link_final_url',

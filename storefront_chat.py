@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import math
 import re
-import sqlite3
 import uuid
 from typing import Any, Callable
 
@@ -21,17 +20,22 @@ STOPWORDS = {
 }
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(db_schema.DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _connect():
+    return db_schema._connect()
 
 
-def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
-        (table,),
-    ).fetchone()
+def _table_exists(conn, table: str) -> bool:
+    if db_schema._USE_PG:
+        row = conn.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = ?",
+            (table,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+            (table,),
+        ).fetchone()
     return row is not None
 
 
@@ -213,7 +217,7 @@ def append_chat_turn(
             INSERT INTO storefront_chat_sessions (creator_id, session_id, turns_json)
             VALUES (?, ?, ?)
             ON CONFLICT(creator_id, session_id) DO UPDATE SET
-                turns_json = excluded.turns_json,
+                turns_json = EXCLUDED.turns_json,
                 updated_at = CURRENT_TIMESTAMP
             """,
             (creator, session, json.dumps(turns)),
@@ -237,7 +241,7 @@ def format_history_for_prompt(history: list[dict[str, Any]]) -> str:
     return "\n".join(lines) or "(none)"
 
 
-def _clicks_by_item(conn: sqlite3.Connection, creator_id: str) -> dict[tuple[str, str], int]:
+def _clicks_by_item(conn, creator_id: str) -> dict[tuple[str, str], int]:
     if not _table_exists(conn, "click_log"):
         return {}
     clicks: dict[tuple[str, str], int] = {}

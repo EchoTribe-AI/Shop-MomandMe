@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from typing import Any
 
 import db_schema
@@ -16,10 +15,8 @@ import db_schema
 WALMART_NETWORK_VALUES = {"walmart", "walmart_impact"}
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(db_schema.DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _connect():
+    return db_schema._connect()
 
 
 def _clean(value: Any) -> str:
@@ -75,7 +72,7 @@ def _cached_walmart_product(sku: str) -> dict[str, Any]:
             (sku,),
         ).fetchone()
         return dict(row) if row else {}
-    except sqlite3.OperationalError:
+    except Exception:
         return {}
     finally:
         conn.close()

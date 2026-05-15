@@ -55,6 +55,15 @@ PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
 SHOP_SUBDOMAIN = os.environ.get('SHOP_SUBDOMAIN', 'shop.echotribe.ai').lower()
 
 
+def _fmt_date(v) -> str:
+    """Format a date value (datetime obj or ISO string) to YYYY-MM-DD string."""
+    if v is None:
+        return ''
+    if hasattr(v, 'date'):
+        return str(v.date())
+    return str(v)[:10]
+
+
 def _public_shop_nav(active: str = '') -> list[dict]:
     base = f'https://{SHOP_SUBDOMAIN}'
     return [
@@ -1417,7 +1426,7 @@ def shop_directory():
             'cover_image':   cover_img,
             'product_count': len(products),
             'click_count':   r['click_count'] or 0,
-            'created_at':    (r['created_at'] or '')[:10],
+            'created_at':    _fmt_date(r['created_at']),
             'creator_id':    r['creator_id'] or 'everydaywithsteph',
             'creator_handle': creator.get('handle') or '@creator',
             'creator_name':   creator.get('display_name') or 'Creator',
@@ -1487,8 +1496,8 @@ def shop_posts():
             'product_review_count': r['product_review_count'],
             'creator_id': r['creator_id'] or 'everydaywithsteph',
             'creator_handle': creator.get('handle') or '@creator',
-            'created_at': (r['created_at'] or '')[:10],
-            'posted_at': (r['posted_at'] or '')[:10] if r['posted_at'] else '',
+            'created_at': _fmt_date(r['created_at']),
+            'posted_at': _fmt_date(r['posted_at']),
             'shop_url': f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}" if r['collection_slug'] else '',
             'cta_url': (
                 f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}"
@@ -2354,8 +2363,7 @@ def admin_walmart_storefront_enrich():
         'samples': [],
     }
 
-    conn = sqlite3.connect(db_schema.DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
+    conn = db_schema._connect(timeout=30)
     try:
         if include_collages:
             collage_where = ["COALESCE(status, 'published') IN ('published', 'draft')"]
@@ -2472,7 +2480,7 @@ def shop_sitemap():
     parts.append(f'  <url><loc>{base}/trends</loc><changefreq>daily</changefreq><priority>0.8</priority></url>')
     parts.append(f'  <url><loc>{base}/posts</loc><changefreq>daily</changefreq><priority>0.8</priority></url>')
     for slug, updated in rows:
-        lastmod = (updated or '')[:10]
+        lastmod = _fmt_date(updated)
         parts.append(
             f'  <url><loc>{base}/{slug}</loc>'
             f'<lastmod>{lastmod}</lastmod>'
@@ -2839,7 +2847,7 @@ def archer_campaigns_generate():
                     brand_slug, product_slug, product_name, destination_url,
                     layers_json, asset_url, asset_type, package_json,
                     defaults_overrides_json, utm_auto, status)
-                   VALUES (?, 'new_campaign', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')""",
+                   VALUES (?, 'new_campaign', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft') RETURNING id""",
                 (
                     creator_id,
                     target.get('kind', 'asin'),
@@ -2857,7 +2865,7 @@ def archer_campaigns_generate():
                 ),
             )
             conn.commit()
-            campaign_id = cur.lastrowid
+            campaign_id = db_schema._last_id(cur)
             conn.close()
 
             persisted.append({
@@ -2959,14 +2967,14 @@ def archer_campaigns_boost():
         """INSERT INTO campaigns_v3
            (creator_id, package_type, target_type, target_value,
             brand_slug, product_slug, package_json, meta_post_id, status, utm_auto)
-           VALUES (?, 'boost_post', 'post', ?, ?, ?, ?, ?, 'draft', 1)""",
+           VALUES (?, 'boost_post', 'post', ?, ?, ?, ?, ?, 'draft', 1) RETURNING id""",
         (
             creator_id, target_value, brand_slug, product_slug,
             json.dumps(pkg), meta_post_id,
         ),
     )
     conn.commit()
-    campaign_id = cur.lastrowid
+    campaign_id = db_schema._last_id(cur)
     conn.close()
 
     return jsonify({
@@ -3230,9 +3238,13 @@ def archer_save_campaign():
 
     conn = a._db_connect()
     conn.execute("""
-        INSERT OR REPLACE INTO campaigns
+        INSERT INTO campaigns
         (slug, campaign_type, routing, products_json, variants_json, spend_budget, forecast_roas, status, created_at)
         VALUES (?,?,?,?,?,?,?,'draft',CURRENT_TIMESTAMP)
+        ON CONFLICT (slug) DO UPDATE SET
+          campaign_type=EXCLUDED.campaign_type, routing=EXCLUDED.routing,
+          products_json=EXCLUDED.products_json, variants_json=EXCLUDED.variants_json,
+          spend_budget=EXCLUDED.spend_budget, forecast_roas=EXCLUDED.forecast_roas
     """, (
         slug,
         data.get('campaign_type', 'organic'),
@@ -3266,7 +3278,7 @@ def archer_list_campaigns():
             'product_count': len(products),
             'forecast_roas': r['forecast_roas'] or '—',
             'status': r['status'] or 'draft',
-            'created_at': r['created_at'][:10] if r['created_at'] else ''
+            'created_at': _fmt_date(r['created_at'])
         })
     return jsonify({'campaigns': campaigns})
 

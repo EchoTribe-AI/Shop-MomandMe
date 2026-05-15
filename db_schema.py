@@ -1,32 +1,44 @@
 """
-Multi-creator + insights schema migrations.
+Multi-creator + insights schema — PostgreSQL (psycopg2) backend.
 
-Runs idempotent CREATE TABLE / ADD COLUMN statements against the existing
-sqlite database (data/archer_catalog.db). Safe to call on every app boot.
+Migrated from SQLite to PostgreSQL for persistent data across Replit
+Autoscale deploys. Falls back to SQLite only when DATABASE_URL is unset
+(local dev / unit tests without a provisioned DB).
 
-Tables introduced
------------------
-creators          — per-creator brand/voice/auth config (Steph seeded by default)
-earnings_amazon   — Amazon Associates earnings rows from manual CSV uploads
-attribution_paid  — Archer (and later Impact) paid-ad attribution snapshots
-storefront_chat_sessions — lightweight creator-scoped public shop chat memory
-
-Columns added to collages
--------------------------
-creator_id      — FK-by-convention to creators.id (default 'everydaywithsteph')
-status          — 'draft' | 'published' (existing rows backfilled to 'published')
-campaign_types  — JSON array of {'organic','paid'} signaling where the
-                  collection has been used (auto-tagged on Mode C save / Ad
-                  Builder use)
+Public API (unchanged for all callers):
+  _connect()            → connection-like object (PGConn or sqlite3.Connection)
+  _last_id(cur)         → int  — use after INSERT ... RETURNING id
+  bootstrap()           → idempotent boot initialiser
+  init_schema()         → create / patch all tables
+  seed_default_creator()
+  get_creator(id)
+  list_creators()
+  upsert_creator(dict)
+  add_campaign_type_to_collage(slug, type)
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
-import sqlite3
+import re as _re
 
+try:
+    import psycopg2
+    import psycopg2.extras
+    import psycopg2.extensions
+    _HAS_PSYCOPG2 = True
+except ImportError:
+    _HAS_PSYCOPG2 = False
+
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
+_USE_PG = bool(DATABASE_URL) and _HAS_PSYCOPG2
+
+# Legacy path kept so any code that still imports DB_PATH doesn't crash.
 DB_PATH = os.environ.get('CACHE_DB_PATH', 'data/archer_catalog.db')
+
+# DDL fragment: auto-increment primary key — differs between PG and SQLite.
+_PK = "SERIAL PRIMARY KEY" if _USE_PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
 
 DEFAULT_CREATOR = {
     'id':                 'everydaywithsteph',
@@ -47,15 +59,153 @@ DEFAULT_CREATOR = {
         "every sale happening right now."
     ),
     'theme_default':      'coral',
-    # Per-creator ad defaults (Q7 — overrides hardcoded spec defaults).
-    # Stored as JSON in creators.defaults_json. Empty {} = use spec defaults.
     'defaults_json':      json.dumps({}),
 }
 
 
-def _connect(timeout: int = 30) -> sqlite3.Connection:
+# ─────────────────────────────────────────────────────────────────────────────
+# PostgreSQL compatibility wrapper
+# ─────────────────────────────────────────────────────────────────────────────
+
+import datetime as _dt
+
+
+def _adapt_sql(sql: str) -> str:
+    """Convert SQLite ? placeholders to PostgreSQL %s placeholders."""
+    return _re.sub(r'\?', '%s', sql)
+
+
+def _coerce_row(row):
+    """
+    Convert datetime/date values in a psycopg2 RealDictRow to ISO strings,
+    matching the string-based output that sqlite3 always returned.
+    Returns None unchanged.
+    """
+    if row is None:
+        return None
+    result = {}
+    for k, v in row.items():
+        if isinstance(v, _dt.datetime):
+            result[k] = v.isoformat(sep=' ', timespec='seconds')
+        elif isinstance(v, _dt.date):
+            result[k] = v.isoformat()
+        else:
+            result[k] = v
+    return result
+
+
+class _DateAwareCursor:
+    """
+    Wraps a psycopg2 RealDictCursor so that fetchone/fetchall always return
+    datetime/date values as ISO strings, exactly like sqlite3 does.
+    """
+
+    def __init__(self, cur):
+        self._cur = cur
+
+    def fetchone(self):
+        return _coerce_row(self._cur.fetchone())
+
+    def fetchall(self):
+        return [_coerce_row(r) for r in self._cur.fetchall()]
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    @property
+    def lastrowid(self):
+        return getattr(self._cur, 'lastrowid', None)
+
+    def __iter__(self):
+        for row in self._cur:
+            yield _coerce_row(row)
+
+
+class _PGConn:
+    """
+    Thin psycopg2 wrapper that mimics the sqlite3.Connection.execute() API so
+    every module in the codebase can keep using conn.execute(sql, params)
+    without change.
+
+    Key behaviours:
+    - .execute(sql, params) → RealDictCursor (rows are dicts)
+    - .row_factory = anything → silently ignored (rows are always dict-like)
+    - .in_transaction → bool
+    - .commit() / .rollback() / .close() → delegate to underlying PG connection
+    - ? placeholders are auto-converted to %s before execution
+    """
+
+    def __init__(self, pg_conn):
+        self._conn = pg_conn
+
+    # sqlite3 compat: accept row_factory assignments without error
+    @property
+    def row_factory(self):
+        return None
+
+    @row_factory.setter
+    def row_factory(self, value):
+        pass
+
+    @property
+    def in_transaction(self) -> bool:
+        try:
+            return self._conn.status == psycopg2.extensions.STATUS_IN_TRANSACTION
+        except Exception:
+            return False
+
+    def execute(self, sql: str, params=None):
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(_adapt_sql(sql), params if params is not None else ())
+        return _DateAwareCursor(cur)
+
+    def executemany(self, sql: str, seq_of_params):
+        cur = self._conn.cursor()
+        for params in seq_of_params:
+            cur.execute(_adapt_sql(sql), params)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            self._conn.commit()
+        except Exception:
+            pass
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Connection factory
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _connect(timeout: int = 30):
+    """
+    Open a database connection.
+
+    Returns a _PGConn (psycopg2 wrapper) when DATABASE_URL is set,
+    otherwise a native sqlite3.Connection for local dev / unit tests.
+    """
+    if _USE_PG:
+        pg = psycopg2.connect(DATABASE_URL, connect_timeout=timeout)
+        pg.autocommit = False
+        return _PGConn(pg)
+    # ── SQLite fallback ────────────────────────────────────────────────────
+    import sqlite3
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=timeout)
+    conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA journal_mode=WAL")
     except sqlite3.OperationalError:
@@ -63,21 +213,60 @@ def _connect(timeout: int = 30) -> sqlite3.Connection:
     return conn
 
 
-def _add_column_if_missing(conn: sqlite3.Connection, table: str, col_def: str) -> None:
-    """Run ALTER TABLE … ADD COLUMN, swallowing 'duplicate column name' errors."""
-    col_name = col_def.split()[0]
-    cur = conn.execute(f"PRAGMA table_info({table})")
-    existing = {row[1] for row in cur.fetchall()}
-    if col_name not in existing:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+def _last_id(cur) -> int:
+    """
+    Return the id assigned by the most recent INSERT ... RETURNING id.
 
+    Works for both psycopg2 RealDictCursor (fetchone returns a dict-like row)
+    and native sqlite3 cursors (uses lastrowid as fallback).
+    """
+    try:
+        row = cur.fetchone()
+        if row is not None:
+            if hasattr(row, 'get'):
+                return int(row.get('id') or row.get('id', 0))
+            return int(row[0])
+    except Exception:
+        pass
+    try:
+        return int(cur.lastrowid or 0)
+    except Exception:
+        return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Schema helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _add_column_if_missing(conn, table: str, col_def: str) -> None:
+    """ALTER TABLE … ADD COLUMN if the column doesn't exist yet. Idempotent."""
+    col_name = col_def.split()[0]
+    if _USE_PG:
+        row = conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = %s AND column_name = %s",
+            (table, col_name),
+        ).fetchone()
+        if not row:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+    else:
+        import sqlite3
+        cur = conn.execute(f"PRAGMA table_info({table})")
+        existing = {r[1] for r in cur.fetchall()}
+        if col_name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Schema init
+# ─────────────────────────────────────────────────────────────────────────────
 
 def init_schema() -> None:
-    """Create new tables and patch collages columns. Idempotent."""
+    """Create new tables and patch existing columns. Idempotent."""
     conn = _connect()
     try:
         # ── creators ──────────────────────────────────────────────────────
-        conn.execute("""
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS creators (
                 id                 TEXT PRIMARY KEY,
                 display_name       TEXT NOT NULL,
@@ -94,14 +283,13 @@ def init_schema() -> None:
                 updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Branch 3 columns added via ALTER (idempotent for existing DBs)
         _add_column_if_missing(conn, 'creators', "fb_page_id TEXT")
         _add_column_if_missing(conn, 'creators', "defaults_json TEXT DEFAULT '{}'")
 
-        # ── earnings_amazon (manual CSV uploads) ─────────────────────────
-        conn.execute("""
+        # ── earnings_amazon ───────────────────────────────────────────────
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS earnings_amazon (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                id           {_PK},
                 creator_id   TEXT NOT NULL,
                 asin         TEXT NOT NULL,
                 product_name TEXT,
@@ -116,13 +304,13 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_earnings_amazon_asin ON earnings_amazon(asin)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_earnings_amazon_creator ON earnings_amazon(creator_id)")
 
-        # ── attribution_paid (Archer + future Impact pulls) ──────────────
-        conn.execute("""
+        # ── attribution_paid ──────────────────────────────────────────────
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS attribution_paid (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                id           {_PK},
                 creator_id   TEXT NOT NULL,
-                network      TEXT NOT NULL,    -- 'archer' | 'impact'
-                label        TEXT,             -- maps to utm_campaign / layer label
+                network      TEXT NOT NULL,
+                label        TEXT,
                 clicks       INTEGER DEFAULT 0,
                 conversions  INTEGER DEFAULT 0,
                 revenue      REAL DEFAULT 0,
@@ -134,7 +322,7 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_attribution_label ON attribution_paid(label)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_attribution_creator ON attribution_paid(creator_id)")
 
-        # ── collages: public collection landing pages ───────────────────
+        # ── collages ──────────────────────────────────────────────────────
         conn.execute("""
             CREATE TABLE IF NOT EXISTS collages (
                 slug TEXT PRIMARY KEY,
@@ -147,21 +335,16 @@ def init_schema() -> None:
                 click_count INTEGER DEFAULT 0
             )
         """)
-        # ── collages: ADD COLUMN backfills ───────────────────────────────
         _add_column_if_missing(conn, 'collages', "creator_id TEXT DEFAULT 'everydaywithsteph'")
         _add_column_if_missing(conn, 'collages', "status TEXT DEFAULT 'published'")
         _add_column_if_missing(conn, 'collages', "campaign_types TEXT DEFAULT '[\"organic\"]'")
         _add_column_if_missing(conn, 'collages', "hero_title TEXT")
         _add_column_if_missing(conn, 'collages', "hero_subtitle TEXT")
 
-        # ── posts (Branch 2B) ────────────────────────────────────────────
-        # Persists Mode B individual social posts (1 per product). Optional
-        # foreign key to a collection slug so a "Mother's Day" gift guide
-        # can have N individual posts AND one collection landing page, all
-        # queryable together.
-        conn.execute("""
+        # ── posts ─────────────────────────────────────────────────────────
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS posts (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                id              {_PK},
                 creator_id      TEXT NOT NULL DEFAULT 'everydaywithsteph',
                 asin            TEXT,
                 network         TEXT DEFAULT 'amazon',
@@ -200,11 +383,10 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_collection ON posts(collection_slug)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)")
 
-        # Public storefront chat memory. The browser owns the opaque
-        # session_id; the server keeps only the last few turns per creator.
-        conn.execute("""
+        # ── storefront_chat_sessions ──────────────────────────────────────
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS storefront_chat_sessions (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                id          {_PK},
                 creator_id  TEXT NOT NULL,
                 session_id  TEXT NOT NULL,
                 turns_json  TEXT DEFAULT '[]',
@@ -218,31 +400,27 @@ def init_schema() -> None:
             "ON storefront_chat_sessions(creator_id, session_id)"
         )
 
-        # ── campaigns_v3 (Branch 3) ──────────────────────────────────────
-        # Persists Campaign Build Packages per the Campaign_Build_Package_Spec.
-        # Each row is one buildable package (one ASIN OR one collection OR one
-        # boosted post). Bulk generation creates N rows. The full spec-compliant
-        # JSON lives in package_json so the export step is just a SELECT.
-        conn.execute("""
+        # ── campaigns_v3 ──────────────────────────────────────────────────
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS campaigns_v3 (
-                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                id                       {_PK},
                 creator_id               TEXT NOT NULL DEFAULT 'everydaywithsteph',
-                package_type             TEXT NOT NULL,        -- 'new_campaign' | 'boost_post'
-                target_type              TEXT NOT NULL,        -- 'asin' | 'collection' | 'post'
-                target_value             TEXT NOT NULL,        -- ASIN, slug, or post id
+                package_type             TEXT NOT NULL,
+                target_type              TEXT NOT NULL,
+                target_value             TEXT NOT NULL,
                 brand_slug               TEXT,
                 product_slug             TEXT,
                 product_name             TEXT,
                 destination_url          TEXT,
-                layers_json              TEXT,                 -- ['L1','L2','L3'] selected
-                asset_url                TEXT,                 -- shared image/video URL
+                layers_json              TEXT,
+                asset_url                TEXT,
                 asset_type               TEXT DEFAULT 'static_image',
-                package_json             TEXT NOT NULL,        -- full spec-compliant JSON
-                defaults_overrides_json  TEXT,                 -- user tweaks
+                package_json             TEXT NOT NULL,
+                defaults_overrides_json  TEXT,
                 utm_auto                 INTEGER DEFAULT 1,
-                status                   TEXT DEFAULT 'draft', -- draft | exported | built
+                status                   TEXT DEFAULT 'draft',
                 meta_campaign_ids_json   TEXT,
-                meta_post_id             TEXT,                 -- for boost_post packages
+                meta_post_id             TEXT,
                 notes                    TEXT,
                 created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -254,6 +432,57 @@ def init_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_status ON campaigns_v3(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_campaigns_v3_target ON campaigns_v3(target_type, target_value)")
 
+        # ── product cache tables (from product_api.ArcherAPI._init_cache) ─
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS products (
+                asin TEXT PRIMARY KEY,
+                brand_id TEXT,
+                company_name TEXT,
+                product_name TEXT,
+                price TEXT,
+                commission_payout TEXT,
+                product_category TEXT,
+                sub_category TEXT,
+                avg_rating TEXT,
+                total_reviews TEXT,
+                image_encoded_string TEXT,
+                deal_json TEXT,
+                product_status TEXT,
+                steph_revenue REAL,
+                steph_units INTEGER,
+                cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cache_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS click_log (
+                id            {_PK},
+                asin          TEXT,
+                slug          TEXT,
+                fbclid        TEXT,
+                attribution_url TEXT,
+                clicked_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS campaigns (
+                slug TEXT PRIMARY KEY,
+                campaign_type TEXT DEFAULT 'organic',
+                routing TEXT DEFAULT 'landing',
+                products_json TEXT,
+                variants_json TEXT,
+                spend_budget REAL DEFAULT 0,
+                forecast_roas TEXT,
+                status TEXT DEFAULT 'draft',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         init_collection_content_drafts_schema(conn)
         init_walmart_trends_schema(conn)
         init_amazon_trends_schema(conn)
@@ -263,11 +492,10 @@ def init_schema() -> None:
         conn.close()
 
 
-def init_collection_content_drafts_schema(conn: sqlite3.Connection) -> None:
-    """Create draft content table for trend collection post/page generation."""
-    conn.execute("""
+def init_collection_content_drafts_schema(conn) -> None:
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS collection_content_drafts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {_PK},
             source_type TEXT NOT NULL,
             source_collection_slug TEXT NOT NULL,
             source_collection_id TEXT,
@@ -293,8 +521,6 @@ def init_collection_content_drafts_schema(conn: sqlite3.Connection) -> None:
         )
     """)
     _add_column_if_missing(conn, 'collection_content_drafts', "cleaned_transcript TEXT")
-    # Editor design controls (theme/layout) per draft. Default 'peach'/'layout-2'
-    # so existing drafts behave the same as before this column was added.
     _add_column_if_missing(conn, 'collection_content_drafts', "theme TEXT DEFAULT 'peach'")
     _add_column_if_missing(conn, 'collection_content_drafts', "layout TEXT DEFAULT 'layout-2'")
     conn.execute(
@@ -307,17 +533,16 @@ def init_collection_content_drafts_schema(conn: sqlite3.Connection) -> None:
     )
 
 
-def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
-    """Create normalized tables for the Walmart What's Trending Now workflow."""
-    conn.execute("""
+def init_walmart_trends_schema(conn) -> None:
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS walmart_refresh_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {_PK},
             source_type TEXT NOT NULL,
             source_file TEXT,
             window_start DATE,
             window_end DATE,
             status TEXT NOT NULL DEFAULT 'running',
-            counts_json TEXT DEFAULT '{}',
+            counts_json TEXT DEFAULT '{{}}',
             failures_json TEXT DEFAULT '[]',
             started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             finished_at TIMESTAMP,
@@ -353,9 +578,9 @@ def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_products_category ON walmart_products(category_list)")
 
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS walmart_product_performance_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {_PK},
             refresh_run_id INTEGER,
             sku TEXT NOT NULL,
             source_type TEXT NOT NULL,
@@ -367,7 +592,7 @@ def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
             sale_amount REAL DEFAULT 0,
             total_earnings REAL DEFAULT 0,
             rank INTEGER,
-            metadata_json TEXT DEFAULT '{}',
+            metadata_json TEXT DEFAULT '{{}}',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(refresh_run_id, sku, source_list_type, collection_name)
         )
@@ -375,9 +600,9 @@ def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_perf_sku ON walmart_product_performance_snapshots(sku)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_perf_run ON walmart_product_performance_snapshots(refresh_run_id)")
 
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS walmart_affiliate_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {_PK},
             sku TEXT NOT NULL,
             product_url TEXT NOT NULL,
             impact_url TEXT NOT NULL,
@@ -390,9 +615,9 @@ def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_affiliate_sku ON walmart_affiliate_links(sku)")
 
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS walmart_urlgenius_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {_PK},
             destination_url TEXT NOT NULL UNIQUE,
             genius_url TEXT NOT NULL,
             link_id TEXT,
@@ -419,9 +644,9 @@ def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_collections_active ON walmart_collections(is_active, display_order)")
 
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS walmart_collection_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {_PK},
             collection_slug TEXT NOT NULL,
             sku TEXT NOT NULL,
             refresh_run_id INTEGER,
@@ -430,7 +655,7 @@ def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
             sale_amount REAL DEFAULT 0,
             total_earnings REAL DEFAULT 0,
             badges_json TEXT DEFAULT '[]',
-            metadata_json TEXT DEFAULT '{}',
+            metadata_json TEXT DEFAULT '{{}}',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(collection_slug, sku)
@@ -438,20 +663,11 @@ def init_walmart_trends_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_walmart_collection_items_slug ON walmart_collection_items(collection_slug, display_order)")
 
-    # retailer = 'walmart' | 'amazon' — identifies product source for render/join logic.
-    # source_type on these tables records the ingest method, not the retailer.
     _add_column_if_missing(conn, 'walmart_collections', "retailer TEXT DEFAULT 'walmart'")
     _add_column_if_missing(conn, 'walmart_collection_items', "retailer TEXT DEFAULT 'walmart'")
 
 
-def init_amazon_trends_schema(conn: sqlite3.Connection) -> None:
-    """Create normalized tables for Amazon trend ingestion.
-
-    Kept separate from Walmart tables per architecture requirement.
-    Collections are stored in the shared walmart_collections / walmart_collection_items
-    tables (long-term rename target: trend_collections / trend_collection_items)
-    with retailer='amazon' discriminator. Amazon products are NOT stored in walmart_products.
-    """
+def init_amazon_trends_schema(conn) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS amazon_trend_products (
             asin                TEXT PRIMARY KEY,
@@ -469,9 +685,9 @@ def init_amazon_trends_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_amazon_products_category ON amazon_trend_products(category)")
 
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS amazon_product_performance_snapshots (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                  {_PK},
             refresh_run_id      INTEGER,
             asin                TEXT NOT NULL,
             source_list_type    TEXT,
@@ -489,9 +705,9 @@ def init_amazon_trends_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_amazon_perf_asin ON amazon_product_performance_snapshots(asin)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_amazon_perf_run  ON amazon_product_performance_snapshots(refresh_run_id)")
 
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS amazon_affiliate_links (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              {_PK},
             asin            TEXT NOT NULL UNIQUE,
             product_url     TEXT NOT NULL,
             affiliate_url   TEXT NOT NULL,
@@ -502,23 +718,25 @@ def init_amazon_trends_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_amazon_affiliate_asin ON amazon_affiliate_links(asin)")
 
-    # Phase 3 enrichment columns (idempotent for existing DBs).
     _add_column_if_missing(conn, 'amazon_trend_products', "enrichment_error TEXT")
     _add_column_if_missing(conn, 'amazon_trend_products', "last_verified_at TIMESTAMP")
-
-    # Creators API hydration columns (idempotent).
     _add_column_if_missing(conn, 'amazon_trend_products', "availability_type TEXT")
     _add_column_if_missing(conn, 'amazon_trend_products', "availability_message TEXT")
     _add_column_if_missing(conn, 'amazon_trend_products', "parent_asin TEXT")
     _add_column_if_missing(conn, 'amazon_trend_products', "detail_page_url TEXT")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Creator helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
 def seed_default_creator() -> None:
     """Insert the default Steph row if creators is empty. Idempotent."""
     conn = _connect()
     try:
-        count = conn.execute("SELECT COUNT(*) FROM creators").fetchone()[0]
-        if count == 0:
+        count = conn.execute("SELECT COUNT(*) as n FROM creators").fetchone()
+        n = count['n'] if hasattr(count, 'get') else count[0]
+        if n == 0:
             cols = list(DEFAULT_CREATOR.keys())
             placeholders = ', '.join('?' for _ in cols)
             conn.execute(
@@ -532,13 +750,10 @@ def seed_default_creator() -> None:
 
 
 def get_creator(creator_id: str = 'everydaywithsteph') -> dict:
-    """Fetch a creator row as a dict. Falls back to DEFAULT_CREATOR if the row
-    is missing OR if the table itself doesn't exist yet (e.g. during a boot
-    race before bootstrap() has run)."""
+    """Fetch a creator row as a dict. Falls back to DEFAULT_CREATOR if missing."""
     try:
         conn = _connect()
         try:
-            conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT * FROM creators WHERE id = ?", (creator_id,)
             ).fetchone()
@@ -546,26 +761,23 @@ def get_creator(creator_id: str = 'everydaywithsteph') -> dict:
                 return dict(row)
         finally:
             conn.close()
-    except sqlite3.OperationalError as e:
-        # Table doesn't exist yet — safe fallback during boot
+    except Exception as e:
         logging.warning(f"[DB_SCHEMA] get_creator fallback (table missing): {e}")
     return dict(DEFAULT_CREATOR)
 
 
 def list_creators() -> list[dict]:
-    """Return all creators, ordered by display_name. Defensive: returns
-    [DEFAULT_CREATOR] if the table doesn't exist yet."""
+    """Return all creators, ordered by display_name."""
     try:
         conn = _connect()
         try:
-            conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM creators ORDER BY display_name"
             ).fetchall()
             return [dict(r) for r in rows]
         finally:
             conn.close()
-    except sqlite3.OperationalError as e:
+    except Exception as e:
         logging.warning(f"[DB_SCHEMA] list_creators fallback (table missing): {e}")
         return [dict(DEFAULT_CREATOR)]
 
@@ -576,7 +788,6 @@ def upsert_creator(creator: dict) -> dict:
         raise ValueError("creator.id is required")
     conn = _connect()
     try:
-        # Build the canonical column set so we never silently drop fields
         cols = [
             'id', 'display_name', 'handle', 'brand_label', 'fb_pixel_id',
             'fb_page_id', 'amazon_tag', 'meta_ad_account_id', 'ltk_url',
@@ -584,9 +795,13 @@ def upsert_creator(creator: dict) -> dict:
         ]
         values = [creator.get(c) for c in cols]
         placeholders = ', '.join('?' for _ in cols)
+        update_set = ', '.join(
+            f"{c} = EXCLUDED.{c}" for c in cols if c != 'id'
+        )
         conn.execute(
-            f"INSERT OR REPLACE INTO creators ({', '.join(cols)}, updated_at) "
-            f"VALUES ({placeholders}, CURRENT_TIMESTAMP)",
+            f"INSERT INTO creators ({', '.join(cols)}, updated_at) "
+            f"VALUES ({placeholders}, CURRENT_TIMESTAMP) "
+            f"ON CONFLICT (id) DO UPDATE SET {update_set}, updated_at = CURRENT_TIMESTAMP",
             values,
         )
         conn.commit()
@@ -606,8 +821,9 @@ def add_campaign_type_to_collage(slug: str, campaign_type: str) -> None:
         ).fetchone()
         if not row:
             return
+        raw = row['campaign_types'] if hasattr(row, 'get') else row[0]
         try:
-            current = json.loads(row[0] or '[]')
+            current = json.loads(raw or '[]')
             if not isinstance(current, list):
                 current = []
         except (json.JSONDecodeError, TypeError):
@@ -624,7 +840,7 @@ def add_campaign_type_to_collage(slug: str, campaign_type: str) -> None:
 
 
 def bootstrap() -> None:
-    """One-shot initializer called at app boot."""
+    """One-shot initialiser called at app boot."""
     init_schema()
     seed_default_creator()
 

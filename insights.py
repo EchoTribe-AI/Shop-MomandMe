@@ -12,17 +12,23 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 from datetime import date, datetime, timedelta
 from typing import Optional
 
 import db_schema
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(db_schema.DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _connect():
+    return db_schema._connect()
+
+
+def _fmt_date(v) -> str:
+    """Return YYYY-MM-DD for a datetime object or ISO string; '' for None."""
+    if v is None:
+        return ''
+    if hasattr(v, 'date'):
+        return str(v.date())
+    return str(v)[:10]
 
 
 def resolve_window(window: str, custom_start: Optional[str] = None,
@@ -143,7 +149,7 @@ def collections_summary(creator_id: str, start: str, end: str) -> list[dict]:
             title = meta['hero_title'] or (meta['slug'] or '').replace('-', ' ').title()
             theme = meta['theme'] or 'coral'
             status = meta['status'] or 'published'
-            created_at = (meta['created_at'] or '')[:10]
+            created_at = _fmt_date(meta['created_at'])
         else:
             campaign_types = ['organic']
             title = slug.replace('-', ' ').title()
@@ -234,9 +240,9 @@ def posts_summary(creator_id: str, start: str, end: str) -> list[dict]:
             'status':          r['status'] or 'draft',
             'collection_slug': r['collection_slug'] or '',
             'clicks':          int(click_info.get('clicks') or 0),
-            'last_click':      (click_info.get('last_click') or '')[:10],
-            'created_at':      (r['created_at'] or '')[:10],
-            'posted_at':       (r['posted_at'] or '')[:10] if r['posted_at'] else '',
+            'last_click':      _fmt_date(click_info.get('last_click')),
+            'created_at':      _fmt_date(r['created_at']),
+            'posted_at':       _fmt_date(r['posted_at']),
         })
     out.sort(key=lambda r: (r['clicks'], r['created_at']), reverse=True)
     return out
@@ -313,24 +319,24 @@ def overview(creator_id: str, start: str, end: str) -> dict:
     conn = _connect()
     where, params = _date_filter(start, end, 'clicked_at')
     total_clicks = conn.execute(
-        f"SELECT COUNT(*) FROM click_log WHERE {where}",
+        f"SELECT COUNT(*) AS n FROM click_log WHERE {where}",
         params,
-    ).fetchone()[0] or 0
+    ).fetchone()['n'] or 0
 
     total_earnings_row = conn.execute(
-        "SELECT COALESCE(SUM(earnings),0) FROM earnings_amazon "
+        "SELECT COALESCE(SUM(earnings),0) AS s FROM earnings_amazon "
         "WHERE creator_id = ? "
         "  AND DATE(period_start) <= ? AND DATE(period_end) >= ?",
         (creator_id, end, start),
     ).fetchone()
-    total_earnings = float(total_earnings_row[0] or 0)
+    total_earnings = float(total_earnings_row['s'] or 0)
 
     published_count = conn.execute(
-        "SELECT COUNT(*) FROM collages "
+        "SELECT COUNT(*) AS n FROM collages "
         "WHERE COALESCE(creator_id,'everydaywithsteph') = ? "
         "  AND COALESCE(status,'published') = 'published'",
         (creator_id,),
-    ).fetchone()[0] or 0
+    ).fetchone()['n'] or 0
 
     conn.close()
     return {

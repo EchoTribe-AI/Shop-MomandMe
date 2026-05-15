@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 from typing import Any, Callable
 
 import db_schema
@@ -16,6 +15,15 @@ DEFAULT_SHOP_SUBDOMAIN = "shop.echotribe.ai"
 
 class CollectionServiceError(RuntimeError):
     """Raised when a collection cannot be safely saved or published."""
+
+
+def _fmt_date(v) -> str:
+    """Return YYYY-MM-DD for a datetime object or ISO string; '' for None."""
+    if v is None:
+        return ''
+    if hasattr(v, 'date'):
+        return str(v.date())
+    return str(v)[:10]
 
 
 def normalize_slug(value: str) -> str:
@@ -39,10 +47,8 @@ def is_walmart_product(product: dict[str, Any]) -> bool:
     return any(field.strip().lower() == "walmart" for field in fields)
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(db_schema.DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _connect():
+    return db_schema._connect()
 
 
 def _loads_list(raw: Any, fallback: list | None = None) -> list:
@@ -125,7 +131,7 @@ def list_collages(status: str = "published", limit: int = 50) -> list[dict[str, 
             "slug": row["slug"],
             "theme": row["theme"],
             "layout": row["layout"],
-            "created_at": row["created_at"][:10] if row["created_at"] else "",
+            "created_at": _fmt_date(row["created_at"]),
             "click_count": row["click_count"] or 0,
             "product_count": len(products),
             "creator_id": row["creator_id"] or DEFAULT_CREATOR_ID,

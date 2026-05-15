@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import zipfile
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -125,15 +124,8 @@ def discover_workbooks(assets_dir: Path = ATTACHED_ASSETS_DIR) -> list[dict]:
     return workbooks
 
 
-def _connect() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-    except sqlite3.OperationalError:
-        pass
-    return conn
+def _connect():
+    return db_schema._connect()
 
 
 def _slugify(value: str, fallback: str = "collection") -> str:
@@ -543,11 +535,12 @@ class WalmartTrendStore:
                 INSERT INTO walmart_refresh_runs
                 (source_type, source_file, window_start, window_end, status, date_label)
                 VALUES (?, ?, ?, ?, 'running', ?)
+                RETURNING id
                 """,
                 (source_type, source_file, window_start or None, window_end or None, date_label or None),
             )
             conn.commit()
-            return int(cur.lastrowid)
+            return db_schema._last_id(cur)
         except Exception:
             if conn.in_transaction:
                 conn.rollback()
@@ -605,10 +598,14 @@ class WalmartTrendStore:
         try:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO walmart_product_performance_snapshots
+                INSERT INTO walmart_product_performance_snapshots
                 (refresh_run_id, sku, source_type, source_list_type, collection_name,
                  window_start, window_end, item_count, sale_amount, total_earnings, rank, metadata_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (refresh_run_id, sku, source_list_type, collection_name) DO UPDATE SET
+                  item_count=EXCLUDED.item_count, sale_amount=EXCLUDED.sale_amount,
+                  total_earnings=EXCLUDED.total_earnings, rank=EXCLUDED.rank,
+                  metadata_json=EXCLUDED.metadata_json
                 """,
                 (
                     run_id, record.sku, source_type, record.source_list_type, record.collection_name or "",
@@ -1150,10 +1147,16 @@ class WalmartTrendStore:
                 for item_order, item in enumerate(collection.get("items", []), start=1):
                     conn.execute(
                         """
-                        INSERT OR REPLACE INTO walmart_collection_items
+                        INSERT INTO walmart_collection_items
                         (collection_slug, sku, refresh_run_id, display_order, item_count,
                          sale_amount, total_earnings, badges_json, metadata_json, retailer, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT (collection_slug, sku) DO UPDATE SET
+                          refresh_run_id=EXCLUDED.refresh_run_id, display_order=EXCLUDED.display_order,
+                          item_count=EXCLUDED.item_count, sale_amount=EXCLUDED.sale_amount,
+                          total_earnings=EXCLUDED.total_earnings, badges_json=EXCLUDED.badges_json,
+                          metadata_json=EXCLUDED.metadata_json, retailer=EXCLUDED.retailer,
+                          updated_at=CURRENT_TIMESTAMP
                         """,
                         (
                             slug, item["sku"], run_id, item_order, item.get("item_count", 0),
@@ -1251,7 +1254,7 @@ class WalmartTrendStore:
         finally:
             conn.close()
 
-    def _build_walmart_item(self, conn: sqlite3.Connection, ci: dict[str, Any]) -> dict[str, Any] | None:
+    def _build_walmart_item(self, conn, ci: dict[str, Any]) -> dict[str, Any] | None:
         sku = ci.get("sku") or ""
         product = conn.execute(
             "SELECT * FROM walmart_products WHERE sku = ?", (sku,)
@@ -1304,7 +1307,7 @@ class WalmartTrendStore:
             "shop_url": genius_url or impact_url or rd.get("canonical_url") or f"https://www.walmart.com/ip/{sku}",
         }
 
-    def _build_amazon_item(self, conn: sqlite3.Connection, ci: dict[str, Any]) -> dict[str, Any] | None:
+    def _build_amazon_item(self, conn, ci: dict[str, Any]) -> dict[str, Any] | None:
         asin = ci.get("sku") or ""  # sku column holds ASIN for retailer='amazon' rows
         product = conn.execute(
             "SELECT * FROM amazon_trend_products WHERE asin = ?", (asin,)

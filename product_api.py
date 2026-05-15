@@ -13,6 +13,7 @@ import sqlite3
 import time
 from datetime import datetime, timedelta
 import time
+import db_schema
 import base64
 import uuid
 from typing import List, Dict, Optional
@@ -710,13 +711,8 @@ class ArcherAPI:
     # ── CATALOG CACHE ─────────────────────────────────────
 
     def _db_connect(self, timeout=30):
-        """Open a DB connection with WAL mode and a lock timeout."""
-        conn = sqlite3.connect(self.CACHE_DB, timeout=timeout)
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError:
-            pass  # DB may be locked briefly on startup; WAL upgrade will succeed later
-        return conn
+        """Open a database connection (PostgreSQL via db_schema, SQLite fallback)."""
+        return db_schema._connect(timeout=timeout)
 
     def _init_cache(self):
         os.makedirs("data", exist_ok=True)
@@ -747,9 +743,9 @@ class ArcherAPI:
                 value TEXT
             )
         """)
-        conn.execute("""
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS click_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {db_schema._PK},
                 asin TEXT,
                 slug TEXT,
                 fbclid TEXT,
@@ -778,7 +774,7 @@ class ArcherAPI:
         if not os.path.exists(self.MATCHED_ASINS_PATH):
             return
         conn = self._db_connect()
-        count = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) AS n FROM products").fetchone()['n']
         if count > 0:
             conn.close()
             return
@@ -787,11 +783,12 @@ class ArcherAPI:
                 products = json.load(f)
             for p in products:
                 conn.execute("""
-                    INSERT OR IGNORE INTO products
+                    INSERT INTO products
                     (asin, company_name, product_name, price, commission_payout,
                      product_category, avg_rating, total_reviews, product_status,
                      steph_revenue, steph_units, cached_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                    ON CONFLICT (asin) DO NOTHING
                 """, (
                     p.get("asin"), p.get("brand"), p.get("product_name"),
                     p.get("price"), p.get("commission"),
@@ -895,12 +892,21 @@ class ArcherAPI:
 
                 for p in products:
                     conn.execute("""
-                        INSERT OR REPLACE INTO products
+                        INSERT INTO products
                         (asin, brand_id, company_name, product_name, price,
                          commission_payout, product_category, sub_category,
                          avg_rating, total_reviews, image_encoded_string,
                          deal_json, product_status, cached_at)
                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                        ON CONFLICT (asin) DO UPDATE SET
+                          brand_id=EXCLUDED.brand_id, company_name=EXCLUDED.company_name,
+                          product_name=EXCLUDED.product_name, price=EXCLUDED.price,
+                          commission_payout=EXCLUDED.commission_payout,
+                          product_category=EXCLUDED.product_category, sub_category=EXCLUDED.sub_category,
+                          avg_rating=EXCLUDED.avg_rating, total_reviews=EXCLUDED.total_reviews,
+                          image_encoded_string=EXCLUDED.image_encoded_string,
+                          deal_json=EXCLUDED.deal_json, product_status=EXCLUDED.product_status,
+                          cached_at=CURRENT_TIMESTAMP
                     """, (
                         p.get("ASIN"), p.get("brand_id"), p.get("company_name"),
                         p.get("product_name"), p.get("price"),
@@ -925,7 +931,8 @@ class ArcherAPI:
                 break
 
         conn.execute(
-            "INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('last_full_sync', ?)",
+            "INSERT INTO cache_meta (key, value) VALUES ('last_full_sync', ?) "
+            "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
             (datetime.now().isoformat(),)
         )
         conn.commit()

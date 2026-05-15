@@ -346,11 +346,15 @@ class AmazonTrendStore:
         try:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO amazon_product_performance_snapshots
+                INSERT INTO amazon_product_performance_snapshots
                 (refresh_run_id, asin, source_list_type, collection_name,
                  clicks, items_ordered, items_shipped, items_returned,
                  total_earnings, rank)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (refresh_run_id, asin, source_list_type, collection_name) DO UPDATE SET
+                  clicks=EXCLUDED.clicks, items_ordered=EXCLUDED.items_ordered,
+                  items_shipped=EXCLUDED.items_shipped, items_returned=EXCLUDED.items_returned,
+                  total_earnings=EXCLUDED.total_earnings, rank=EXCLUDED.rank
                 """,
                 (
                     run_id,

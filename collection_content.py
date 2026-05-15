@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import sqlite3
 from datetime import datetime
 from typing import Any
 
@@ -66,10 +65,8 @@ class CollectionContentError(RuntimeError):
     """Raised for validation or persistence failures in collection content flow."""
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(db_schema.DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _connect():
+    return db_schema._connect()
 
 
 def _now() -> str:
@@ -673,10 +670,10 @@ def save_walmart_collection_draft(
             columns = ", ".join(fields.keys())
             placeholders = ", ".join("?" for _ in fields)
             cur = conn.execute(
-                f"INSERT INTO collection_content_drafts ({columns}) VALUES ({placeholders})",
+                f"INSERT INTO collection_content_drafts ({columns}) VALUES ({placeholders}) RETURNING id",
                 list(fields.values()),
             )
-            saved_id = int(cur.lastrowid)
+            saved_id = db_schema._last_id(cur)
         conn.commit()
         return get_draft(saved_id) or {}
     finally:
