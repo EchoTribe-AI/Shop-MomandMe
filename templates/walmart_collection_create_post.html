@@ -32,9 +32,17 @@
     .row { display:grid; grid-template-columns:1fr; gap:10px; }
     @media (min-width:620px) { .row { grid-template-columns:1fr 1fr; } }
     .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+    .primary-action-row { display:grid; grid-template-columns:1fr; gap:8px; margin-top:14px; }
+    .secondary-tools { margin-top:10px; border:1px solid var(--line); border-radius:14px; background:#fffdfb; overflow:hidden; }
+    .secondary-tools summary { cursor:pointer; padding:11px 12px; color:var(--accent); font-size:13px; font-weight:900; list-style:none; }
+    .secondary-tools summary::-webkit-details-marker { display:none; }
+    .secondary-tools summary::after { content:'+'; float:right; color:var(--muted); }
+    .secondary-tools[open] summary::after { content:'-'; }
+    .secondary-tools-body { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; padding:0 12px 12px; }
     button, .btn { appearance:none; border:0; border-radius:14px; padding:11px 13px; background:var(--accent); color:#fff; font-weight:900; font-size:13px; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:7px; }
     button.secondary, .btn.secondary { background:#1a1a17; }
     button.ghost, .btn.ghost { background:var(--soft); color:var(--accent); }
+    button.danger, .btn.danger { background:#fff0ed; color:#a02828; }
     button:disabled { opacity:.55; cursor:not-allowed; }
     .hooks { display:grid; gap:8px; }
     .hook { border:1px solid var(--line); border-radius:14px; padding:10px; background:#fffdfb; font-size:13px; }
@@ -46,8 +54,9 @@
     .state-value { color:var(--ink); font-weight:850; text-align:right; overflow-wrap:anywhere; }
     .state-value a { color:var(--accent); text-decoration:none; }
     .status-control { margin-top:14px; border:1px solid var(--line); border-radius:14px; padding:12px; background:#fffdfb; }
-    .status-control-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    .status-control select { flex:1; min-width:180px; border:1px solid var(--line); border-radius:12px; padding:10px 12px; font:inherit; background:#fff; color:var(--ink); }
+    .status-control-row { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; align-items:end; }
+    .status-control select { width:100%; border:1px solid var(--line); border-radius:12px; padding:10px 12px; font:inherit; background:#fff; color:var(--ink); }
+    .status-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
     .status-hint { margin-top:8px; color:var(--muted); font-size:12px; line-height:1.4; }
     .fine { color:var(--muted); font-size:12px; line-height:1.45; margin-top:10px; }
     .top-alert { margin-top:14px; padding:11px 12px; border-radius:14px; background:#fff3e0; color:#a45700; font-size:13px; font-weight:800; line-height:1.4; }
@@ -73,6 +82,10 @@
     .layout-picker { display:flex; gap:6px; flex-wrap:wrap; }
     .lp-opt { font-size:11px; font-weight:800; padding:7px 10px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--muted); cursor:pointer; }
     .lp-opt.active { background:var(--ink); color:#fff; border-color:var(--ink); }
+    @media (max-width:620px) {
+      .secondary-tools-body, .status-actions { grid-template-columns:1fr; }
+      button, .btn { width:100%; min-height:44px; }
+    }
   </style>
 </head>
 <body>
@@ -183,18 +196,17 @@
             <input id="tone" value="warm mom-to-mom">
           </div>
         </div>
-        <div class="actions">
+        <div class="primary-action-row">
           <button id="generateBtn" onclick="generatePost()" type="button">Generate post</button>
-          <button class="ghost" onclick="tryAnotherVersion()" type="button">Try another version</button>
-          <button class="ghost" onclick="copySocialPost()" type="button">Copy social post</button>
-          <button class="secondary" onclick="saveDraft()" type="button">Save draft</button>
-          <button class="ghost" onclick="previewPage()" type="button">Preview landing page</button>
-          <button class="secondary" onclick="publishPage()" type="button">Publish page</button>
-          <button class="ghost" onclick="archivePage()" type="button">Archive page</button>
-          <button class="ghost" onclick="applySelectedStatus()" type="button">Apply status</button>
-          <button id="refreshPricingBtn" class="ghost" onclick="refreshPricing()" type="button">Update pricing</button>
-          <a class="btn ghost" id="insightsLink" href="/insights?creator_id={{ creator_id }}" style="display:none;">View in Insights</a>
         </div>
+        <details class="secondary-tools">
+          <summary>More content tools</summary>
+          <div class="secondary-tools-body">
+            <button class="ghost" onclick="tryAnotherVersion()" type="button">New version</button>
+            <button class="ghost" onclick="copySocialPost()" type="button">Copy post</button>
+            <button id="refreshPricingBtn" class="ghost" onclick="refreshPricing()" type="button">Update pricing</button>
+          </div>
+        </details>
         <div id="pricingStatus" class="pricing-status"></div>
         <div id="status" class="status"></div>
         <div class="status-control" aria-label="Page status">
@@ -207,6 +219,11 @@
             </select>
           </div>
           <div class="status-hint" id="pageStatusHint">Draft pages are hidden from public shop, but previews still work.</div>
+          <div class="status-actions">
+            <button class="ghost" onclick="previewPage()" type="button">Preview page</button>
+            <button id="applyStatusBtn" class="secondary" onclick="applySelectedStatus()" type="button">Save draft</button>
+          </div>
+          <a class="btn ghost" id="insightsLink" href="/insights?creator_id={{ creator_id }}" style="display:none;margin-top:8px;">View in Insights</a>
         </div>
         <div class="workflow-state" aria-label="Collection publishing status">
           <div class="state-row">
@@ -258,6 +275,7 @@
     let recordingBlob = null;
     let timerHandle = null;
     let recordingStartedAt = 0;
+    let currentPageStatus = (existingDraft && existingDraft.status) || 'draft';
 
     function setValue(id, value) {
       const el = document.getElementById(id);
@@ -281,6 +299,7 @@
       if (existingDraft.theme) setTheme(existingDraft.theme);
       if (existingDraft.layout) setLayout(existingDraft.layout);
       const pageStatus = existingDraft.status || 'draft';
+      currentPageStatus = pageStatus;
       setPageStatus(pageStatus);
       (existingDraft.hooks || []).slice(0,3).forEach((hook, i) => {
         setValue(`hook${i}`, typeof hook === 'string' ? hook : (hook.text || ''));
@@ -331,14 +350,26 @@
       const status = ['draft', 'published', 'archived'].includes(value) ? value : 'draft';
       const select = document.getElementById('pageStatus');
       const hint = document.getElementById('pageStatusHint');
+      const applyBtn = document.getElementById('applyStatusBtn');
       if (select) select.value = status;
-      if (!hint) return;
       if (status === 'published') {
-        hint.textContent = 'Published pages are live on the public shop. Republish saves current edits first.';
+        if (hint) hint.textContent = 'Published pages are live on the public shop. Republish saves current edits first.';
+        if (applyBtn) {
+          applyBtn.textContent = currentPageStatus === 'published' ? 'Republish page' : 'Publish page';
+          applyBtn.className = 'secondary';
+        }
       } else if (status === 'archived') {
-        hint.textContent = 'Archived pages are hidden from public shop and preserved for history. Preview still works.';
+        if (hint) hint.textContent = 'Archived pages are hidden from public shop and preserved for history. Preview still works.';
+        if (applyBtn) {
+          applyBtn.textContent = 'Archive page';
+          applyBtn.className = 'danger';
+        }
       } else {
-        hint.textContent = 'Draft pages are hidden from public shop, but previews still work.';
+        if (hint) hint.textContent = 'Draft pages are hidden from public shop, but previews still work.';
+        if (applyBtn) {
+          applyBtn.textContent = 'Save draft';
+          applyBtn.className = 'secondary';
+        }
       }
     }
 
@@ -570,6 +601,7 @@
         const res = await fetch(`/api/collection-content-drafts/${draftId}/unpublish`, { method:'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        currentPageStatus = 'draft';
         setPageStatus('draft');
         setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
         setStateLink('publicState', 'Draft (hidden from public shop)', null);
@@ -582,8 +614,7 @@
     }
 
     async function previewPage() {
-      const status = document.getElementById('pageStatus')?.value || (existingDraft && existingDraft.status) || 'draft';
-      const data = await saveCurrentDraftOnly(status);
+      const data = await saveCurrentDraftOnly(currentPageStatus || 'draft');
       if (data) setStatus(`Preview saved: ${data.preview_url}`);
       if (data && data.preview_url) window.open(data.preview_url, '_blank', 'noopener');
     }
@@ -595,6 +626,7 @@
         const res = await fetch(`/api/collection-content-drafts/${draftId}/publish`, { method:'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        currentPageStatus = 'published';
         setPageStatus('published');
         setStateLink('draftState', `Draft #${draftId} published`, null);
         setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
@@ -615,6 +647,7 @@
         const res = await fetch(`/api/collection-content-drafts/${draftId}/archive`, { method:'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        currentPageStatus = 'archived';
         setPageStatus('archived');
         setStateLink('draftState', `Draft #${draftId} archived`, null);
         setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
@@ -766,7 +799,7 @@
       if (!productInput) return setStatus('Enter an Amazon ASIN/URL or Walmart SKU/URL.', true);
       // Save the draft first if we don't have an id.
       if (!draftId) {
-        const saved = await saveCurrentDraftOnly(document.getElementById('pageStatus')?.value || 'draft');
+        const saved = await saveCurrentDraftOnly(currentPageStatus || 'draft');
         if (!saved) return;
       }
       try {
@@ -795,7 +828,7 @@
       const btn = document.getElementById('refreshPricingBtn');
       const statusEl = document.getElementById('pricingStatus');
       if (!draftId) {
-        const saved = await saveCurrentDraftOnly(document.getElementById('pageStatus')?.value || 'draft');
+        const saved = await saveCurrentDraftOnly(currentPageStatus || 'draft');
         if (!saved) return;
       }
       btn.disabled = true;
