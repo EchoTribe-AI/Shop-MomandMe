@@ -3119,6 +3119,97 @@ def insights_page():
     )
 
 
+# ── ONE-TIME: seed production database from dev export ───────────────────────
+@app.route('/admin/seed-production', methods=['POST'])
+def seed_production():
+    """
+    One-time endpoint: runs scripts/prod_seed.sql against the current DATABASE_URL.
+    Safe to call multiple times — INSERT … ON CONFLICT DO NOTHING prevents duplicates.
+    Protected by ?token=SEED_MMC_2026 query parameter.
+    """
+    if request.args.get('token') != 'SEED_MMC_2026':
+        return jsonify({'error': 'unauthorized'}), 403
+
+    import os as _os
+    sql_path = _os.path.join(_os.path.dirname(__file__), 'scripts', 'prod_seed.sql')
+    if not _os.path.exists(sql_path):
+        return jsonify({'error': 'seed file not found'}), 404
+
+    import psycopg2 as _psycopg2
+    import os as _os2
+
+    DATABASE_URL = _os2.environ.get('DATABASE_URL', '')
+    if not DATABASE_URL:
+        return jsonify({'error': 'DATABASE_URL not set'}), 500
+
+    raw_conn = _psycopg2.connect(DATABASE_URL)
+    raw_conn.autocommit = False
+    ok = 0
+    skipped = 0
+    errors = []
+    try:
+        with open(sql_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        cur = raw_conn.cursor()
+        for line in lines:
+            line = line.strip()
+            # Only process INSERT statements; skip comments, SET, psql meta-commands
+            if not line or line.startswith('--') or line.startswith('\\') or line.upper().startswith('SET '):
+                continue
+            if not line.upper().startswith('INSERT INTO'):
+                continue
+
+            # Strip trailing semicolon for re-adding with ON CONFLICT
+            stmt = line.rstrip(';').strip()
+            # Strip schema prefix so it works with the default search_path
+            stmt = stmt.replace('INSERT INTO public.', 'INSERT INTO ')
+            # Add ON CONFLICT DO NOTHING to make this idempotent
+            if 'ON CONFLICT' not in stmt.upper():
+                stmt += ' ON CONFLICT DO NOTHING'
+
+            try:
+                cur.execute("SAVEPOINT sp")
+                cur.execute(stmt)
+                cur.execute("RELEASE SAVEPOINT sp")
+                ok += 1
+            except Exception as e:
+                cur.execute("ROLLBACK TO SAVEPOINT sp")
+                cur.execute("RELEASE SAVEPOINT sp")
+                skipped += 1
+                if len(errors) < 5:
+                    errors.append(str(e)[:140])
+
+        raw_conn.commit()
+
+        # Reset sequences so next inserts don't collide with seeded IDs
+        serial_tables = [
+            'posts', 'earnings_amazon', 'attribution_paid', 'storefront_chat_sessions',
+            'campaigns_v3', 'click_log', 'collection_content_drafts', 'walmart_refresh_runs',
+            'walmart_product_performance_snapshots', 'walmart_affiliate_links',
+            'walmart_urlgenius_links', 'walmart_collection_items',
+            'amazon_product_performance_snapshots', 'amazon_affiliate_links',
+        ]
+        for tbl in serial_tables:
+            try:
+                cur.execute(
+                    f"SELECT setval(pg_get_serial_sequence('{tbl}','id'),COALESCE(MAX(id),1),true)"
+                    f' FROM "{tbl}"'
+                )
+                raw_conn.commit()
+            except Exception:
+                raw_conn.rollback()
+    finally:
+        raw_conn.close()
+
+    return jsonify({
+        'status': 'done',
+        'inserted': ok,
+        'skipped': skipped,
+        'sample_errors': errors[:5],
+    })
+
+
 # ── ADMIN: creator management ────────────────────────────────────────────────
 @app.route('/admin/creators', methods=['GET'])
 def admin_creators():
