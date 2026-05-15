@@ -163,7 +163,6 @@ def get_latest_draft_for_public_slug(public_slug: str) -> dict[str, Any] | None:
             WHERE source_type = ?
               AND (public_slug = ? OR published_collage_slug = ?)
             ORDER BY
-              CASE WHEN status = 'published' THEN 0 ELSE 1 END,
               updated_at DESC,
               id DESC
             LIMIT 1
@@ -263,6 +262,40 @@ def collection_from_draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
     if len(detected_retailers) == 1:
         out["retailer"] = next(iter(detected_retailers))
     return out
+
+
+def _coerce_draft_id(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_source_collection_slug(collection_slug: str, draft_id: Any = None) -> tuple[str, dict[str, Any] | None]:
+    """Resolve immutable source slug from draft state before trusting the route.
+
+    Public slugs are editable. Once a draft exists, its saved
+    source_collection_slug is the stable source-of-truth for trend context.
+    """
+    clean_draft_id = _coerce_draft_id(draft_id)
+    draft = get_draft(clean_draft_id) if clean_draft_id else None
+    source_slug = _clean_text((draft or {}).get("source_collection_slug"), 240)
+    if not source_slug:
+        source_slug = _clean_text(collection_slug, 240)
+    return source_slug, draft
+
+
+def resolve_editor_collection(collection_slug: str, draft_id: Any = None) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
+    source_slug, draft = resolve_source_collection_slug(collection_slug, draft_id)
+    collection = get_walmart_collection(source_slug) if source_slug else None
+    if not collection and draft and draft.get("product_snapshot"):
+        collection = collection_from_draft_snapshot({
+            **draft,
+            "source_collection_slug": source_slug or draft.get("source_collection_slug") or "",
+        })
+    return source_slug, collection, draft
 
 
 def walmart_product_context(collection: dict[str, Any], limit: int = 10) -> list[dict[str, str]]:
@@ -481,9 +514,10 @@ def generate_walmart_collection_content(
     audience_context: str = "busy moms looking for timely Walmart finds",
     allow_demo_fallback: bool = False,
     regenerate_target: str = "",
+    draft_id: Any = None,
 ) -> dict[str, Any]:
     """Generate strict JSON content for a Walmart trend collection."""
-    collection = get_walmart_collection(collection_slug)
+    _source_slug, collection, _draft = resolve_editor_collection(collection_slug, draft_id)
     if not collection:
         raise CollectionContentError("Walmart collection not found")
     products = walmart_product_context(collection)
@@ -578,15 +612,14 @@ def save_walmart_collection_draft(
     payload: dict[str, Any],
     status: str = "draft",
 ) -> dict[str, Any]:
-    collection = get_walmart_collection(collection_slug)
-    existing_draft = get_draft(int(payload.get("draft_id"))) if payload.get("draft_id") else None
+    source_collection_slug, collection, existing_draft = resolve_editor_collection(collection_slug, payload.get("draft_id"))
     payload_products = _payload_product_snapshot(payload)
     if payload_products is not None:
         products = payload_products
         if not collection:
             collection = collection_from_draft_snapshot({
                 **(existing_draft or {}),
-                "source_collection_slug": collection_slug,
+                "source_collection_slug": source_collection_slug,
                 "product_snapshot": products,
             })
     elif existing_draft and existing_draft.get("product_snapshot"):
@@ -606,7 +639,7 @@ def save_walmart_collection_draft(
     public_slug = slugify(
         payload.get("public_slug")
         or (existing_draft or {}).get("public_slug")
-        or f"{slug_prefix}-{collection_slug}"
+        or f"{slug_prefix}-{source_collection_slug}"
     )
     # Editor design controls (allow-list).
     valid_themes = {"coral", "peach", "sage", "sand", "midnight"}
@@ -630,8 +663,8 @@ def save_walmart_collection_draft(
     draft_id = payload.get("draft_id")
     fields = {
         "source_type": SOURCE_WALMART_TREND,
-        "source_collection_slug": collection_slug,
-        "source_collection_id": collection_slug,
+        "source_collection_slug": source_collection_slug,
+        "source_collection_id": source_collection_slug,
         "creator_id": creator_id,
         "title": title,
         "description": description,
@@ -729,6 +762,32 @@ def _archive_collage_slug(slug: str) -> None:
     try:
         conn.execute("UPDATE collages SET status = 'archived' WHERE slug = ?", (slug,))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def archive_published_page(public_slug: str) -> bool:
+    """Archive a public page and its editor draft state together."""
+    clean_slug = slugify(public_slug)
+    if not clean_slug:
+        return False
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT slug FROM collages WHERE slug = ?", (clean_slug,)).fetchone()
+        if not row:
+            return False
+        now = _now()
+        conn.execute("UPDATE collages SET status = 'archived' WHERE slug = ?", (clean_slug,))
+        conn.execute(
+            """
+            UPDATE collection_content_drafts
+            SET status = 'archived', updated_at = ?
+            WHERE public_slug = ? OR published_collage_slug = ?
+            """,
+            (now, clean_slug, clean_slug),
+        )
+        conn.commit()
+        return True
     finally:
         conn.close()
 
@@ -841,6 +900,8 @@ def publish_draft(draft_id: int) -> dict[str, str]:
     draft = get_draft(draft_id)
     if not draft:
         raise CollectionContentError("Draft not found")
+    if (draft.get("status") or "").strip().lower() == "archived":
+        raise CollectionContentError("Archived page must be saved as a draft before publishing again")
     return _upsert_collage_from_draft(draft, publish=True)
 
 

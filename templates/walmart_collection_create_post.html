@@ -454,6 +454,7 @@
         form.append('platform', document.getElementById('platform').value.trim() || 'facebook_group');
         form.append('tone', document.getElementById('tone').value.trim() || 'warm mom-to-mom');
         form.append('audience_context', `busy moms looking for timely ${RETAILER_LABEL || 'creator'} finds`);
+        if (draftId) form.append('draft_id', draftId);
         const res = await fetch(`/api/walmart/collections/${collectionSlug}/transcribe-voice`, {
           method: 'POST', headers: authHeaders(), body: form
         });

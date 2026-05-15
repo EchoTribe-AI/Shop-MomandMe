@@ -347,6 +347,109 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertEqual(self.client.get("/shop/walmart-kids-room-character-favorites").status_code, 404)
         self.assertEqual(self.client.get("/shop/walmart-kids-room-character-favorites?preview=1").status_code, 200)
 
+    def test_public_slug_edit_loads_newest_draft_not_old_published_content(self):
+        source = _walmart_collection(2)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            first = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Original Published Title",
+                "landing_intro": "Original published intro.",
+            })
+        self.assertEqual(first.status_code, 200)
+        draft_id = first.get_json()["draft_id"]
+        self.assertEqual(self.client.post(f"/api/collection-content-drafts/{draft_id}/publish").status_code, 200)
+
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            second = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Newest Draft Title",
+                "landing_intro": "Newest draft intro.",
+            })
+        self.assertEqual(second.status_code, 200)
+
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            editor = self.client.get("/collections/walmart-kids-room-character-favorites/edit")
+        self.assertEqual(editor.status_code, 200)
+        html = editor.get_data(as_text=True)
+        self.assertIn("Newest Draft Title", html)
+        self.assertNotIn("Original Published Title", html)
+
+    def test_wrong_route_slug_with_draft_id_preserves_source_slug_and_generation_context(self):
+        source = _walmart_collection(2)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Editable Page",
+                "landing_intro": "Editable intro.",
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+
+        def source_only(slug):
+            return source if slug == "kids-room-character-favorites" else None
+
+        with patch.object(self.collection_content, "get_walmart_collection", side_effect=source_only):
+            save_resp = self.client.post("/api/walmart/collections/walmart-kids-room-character-favorites/draft-page", json={
+                "draft_id": draft_id,
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Saved Through Public Slug Route",
+                "landing_intro": "Saved intro.",
+            })
+            generate_resp = self.client.post("/api/walmart/collections/walmart-kids-room-character-favorites/generate-post", json={
+                "draft_id": draft_id,
+                "voice_source_text": "These are still the same source finds.",
+            })
+        self.assertEqual(save_resp.status_code, 200)
+        self.assertEqual(generate_resp.status_code, 400)
+        self.assertIn("AI key missing", generate_resp.get_json()["error"])
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT source_collection_slug, source_collection_id FROM collection_content_drafts WHERE id = ?",
+                (draft_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row[0], "kids-room-character-favorites")
+        self.assertEqual(row[1], "kids-room-character-favorites")
+
+    def test_archiving_public_page_updates_draft_state_and_blocks_stale_republish(self):
+        source = _walmart_collection(2)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Archive Me",
+                "landing_intro": "Archive intro.",
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+        self.assertEqual(self.client.post(f"/api/collection-content-drafts/{draft_id}/publish").status_code, 200)
+
+        archive_resp = self.client.post("/archer/collage/archive", json={
+            "slug": "walmart-kids-room-character-favorites",
+        })
+        self.assertEqual(archive_resp.status_code, 200)
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            collage_status = conn.execute(
+                "SELECT status FROM collages WHERE slug = ?",
+                ("walmart-kids-room-character-favorites",),
+            ).fetchone()[0]
+            draft_status = conn.execute(
+                "SELECT status FROM collection_content_drafts WHERE id = ?",
+                (draft_id,),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(collage_status, "archived")
+        self.assertEqual(draft_status, "archived")
+
+        republish_resp = self.client.post(f"/api/collection-content-drafts/{draft_id}/publish")
+        self.assertEqual(republish_resp.status_code, 400)
+        self.assertIn("Archived page", republish_resp.get_json()["error"])
+
     def test_add_product_accepts_amazon_and_walmart_inputs_with_retailer_metadata(self):
         self.assertEqual(self.app_module._parse_collection_product_input("B0AMZN0002"), ("amazon", "B0AMZN0002"))
         self.assertEqual(

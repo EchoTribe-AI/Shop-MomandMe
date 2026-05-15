@@ -1248,21 +1248,15 @@ def archer_collage_archive():
 
     Body: { "slug": "..." }
     """
+    import collection_content as cc
     import collection_service
     data = request.get_json() or {}
     slug = (data.get('slug') or '').strip()
     if not slug:
         return jsonify({'error': 'slug is required'}), 400
     clean_slug = collection_service.normalize_slug(slug)
-    conn = collection_service._connect()
-    try:
-        row = conn.execute("SELECT slug FROM collages WHERE slug = ?", (clean_slug,)).fetchone()
-        if not row:
-            return jsonify({'error': 'collection not found'}), 404
-        conn.execute("UPDATE collages SET status = 'archived' WHERE slug = ?", (clean_slug,))
-        conn.commit()
-    finally:
-        conn.close()
+    if not cc.archive_published_page(clean_slug):
+        return jsonify({'error': 'collection not found'}), 404
     return jsonify({'ok': True, 'slug': clean_slug, 'status': 'archived'})
 
 
@@ -1778,7 +1772,9 @@ def walmart_collection_transcribe_voice(collection_slug):
         return guard
     import collection_content as cc
 
-    if not cc.get_walmart_collection(collection_slug):
+    draft_id = request.form.get('draft_id')
+    source_collection_slug, collection, _draft = cc.resolve_editor_collection(collection_slug, draft_id)
+    if not collection:
         return jsonify({'error': 'Walmart collection not found'}), 404
     if 'audio' not in request.files:
         return jsonify({'error': 'audio file is required'}), 400
@@ -1825,7 +1821,7 @@ def walmart_collection_transcribe_voice(collection_slug):
             return jsonify({'error': 'transcription returned no text'}), 502
         return jsonify({
             'transcript': transcript,
-            'collection_slug': collection_slug,
+            'collection_slug': source_collection_slug,
             'message': 'Transcription complete',
         })
     finally:
@@ -1845,6 +1841,8 @@ def walmart_collection_generate_post(collection_slug):
 
     body = request.get_json(silent=True) or {}
     try:
+        draft_id = body.get('draft_id')
+        source_collection_slug, _draft = cc.resolve_source_collection_slug(collection_slug, draft_id)
         generated = cc.generate_walmart_collection_content(
             collection_slug=collection_slug,
             creator_id=(body.get('creator_id') or 'everydaywithsteph').strip(),
@@ -1854,9 +1852,9 @@ def walmart_collection_generate_post(collection_slug):
             audience_context=body.get('audience_context') or 'busy moms looking for timely creator finds',
             allow_demo_fallback=False,
             regenerate_target=body.get('regenerate_target') or '',
+            draft_id=draft_id,
         )
-        draft_id = body.get('draft_id')
-        response = {'source_type': cc.SOURCE_WALMART_TREND, 'source_collection_slug': collection_slug, **generated}
+        response = {'source_type': cc.SOURCE_WALMART_TREND, 'source_collection_slug': source_collection_slug, **generated}
         if draft_id:
             response['draft_id'] = draft_id
         return jsonify(response)
