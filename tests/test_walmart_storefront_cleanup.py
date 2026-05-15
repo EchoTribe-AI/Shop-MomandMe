@@ -232,6 +232,31 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link active"', create_html)
         self.assertIn('href="/archer/posts/manage" class="tb-link"', create_html)
 
+    def test_collection_editor_renders_mobile_publishing_workflow(self):
+        source = _walmart_collection(2)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Mobile Workflow Title",
+                "landing_intro": "Mobile workflow intro.",
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+        self.assertEqual(self.client.post(f"/api/collection-content-drafts/{draft_id}/publish").status_code, 200)
+
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            editor = self.client.get("/collections/walmart-kids-room-character-favorites/edit")
+        self.assertEqual(editor.status_code, 200)
+        html = editor.get_data(as_text=True)
+        self.assertIn("Edit Page", html)
+        self.assertIn("Quick actions", html)
+        self.assertIn("Publishing", html)
+        self.assertIn("Save changes", html)
+        self.assertIn("Move to draft", html)
+        self.assertIn("More content tools", html)
+        self.assertNotIn("Page status", html)
+        self.assertNotIn("Apply status", html)
+
     def test_draft_product_snapshot_drives_reload_preview_publish_and_unpublish(self):
         source = _walmart_collection(4)
         edited = [

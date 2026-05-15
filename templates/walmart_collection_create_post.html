@@ -11,16 +11,35 @@
     * { box-sizing:border-box; }
     {% include 'partials/admin_header_styles.html' %}
     body { margin:0; font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:linear-gradient(180deg,var(--bg),#fff 46%); }
-    .page { max-width:1040px; margin:0 auto; padding:24px 18px 46px; }
+    .page { max-width:1040px; margin:0 auto; padding:18px 14px 46px; }
     .back { color:var(--accent); text-decoration:none; font-weight:800; font-size:13px; }
     .pill { display:inline-flex; align-items:center; border-radius:999px; padding:7px 10px; background:var(--soft); color:var(--accent); font-size:12px; font-weight:900; }
     .hero { background:rgba(255,255,255,.82); border:1px solid var(--line); border-radius:24px; padding:20px; box-shadow:0 12px 32px rgba(26,26,23,.07); }
     h1 { margin:10px 0 6px; font-size:34px; line-height:1; letter-spacing:-.04em; }
     .sub { color:var(--muted); line-height:1.5; margin:0; max-width:760px; }
-    .grid { display:grid; grid-template-columns:minmax(0,1fr); gap:18px; margin-top:18px; }
-    @media (min-width:900px) { .grid { grid-template-columns: 390px minmax(0,1fr); align-items:start; } }
+    .editor-stack { display:grid; gap:14px; max-width:720px; margin:0 auto; }
+    .content-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
+    @media (min-width:900px) { .content-grid { grid-template-columns:minmax(0,1fr) 330px; align-items:start; } }
     .panel { background:#fff; border:1px solid var(--line); border-radius:22px; padding:16px; box-shadow:0 10px 26px rgba(26,26,23,.06); }
     .panel h2 { margin:0 0 10px; font-size:18px; letter-spacing:-.02em; }
+    .editor-card { background:#fff; border:1px solid var(--line); border-radius:18px; padding:16px; box-shadow:0 8px 22px rgba(26,26,23,.05); }
+    .summary-card h1 { margin:0 0 4px; font-size:24px; line-height:1.1; letter-spacing:-.02em; }
+    .summary-subtitle { color:var(--ink); font-weight:800; font-size:14px; margin-bottom:16px; }
+    .status-line { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:900; }
+    .status-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+    .status-dot.published { background:var(--green); }
+    .status-dot.draft { background:#8a5510; }
+    .status-dot.archived { background:#a02828; }
+    .status-description { margin-top:4px; color:var(--ink); font-size:13px; }
+    .save-meta { margin-top:4px; color:var(--muted); font-size:13px; }
+    .save-meta.dirty { color:#8a5510; font-weight:900; }
+    .save-meta.saving { color:var(--accent); font-weight:900; }
+    .save-meta.saved { color:var(--green); font-weight:900; }
+    .full-width-action { width:100%; min-height:48px; border-radius:14px; font-size:14px; }
+    .quick-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+    .publishing-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+    .publishing-status { margin:8px 0 14px; display:grid; gap:4px; }
+    .status-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
     .products { display:grid; grid-template-columns:1fr; gap:10px; }
     .product { display:grid; grid-template-columns:64px minmax(0,1fr); gap:10px; align-items:center; padding:8px; border:1px solid var(--line); border-radius:16px; background:#fffdfb; }
     .product img, .ph { width:64px; height:64px; border-radius:12px; object-fit:cover; background:#f6f3ef; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:11px; text-align:center; }
@@ -48,16 +67,11 @@
     .hook { border:1px solid var(--line); border-radius:14px; padding:10px; background:#fffdfb; font-size:13px; }
     .status { display:none; margin-top:12px; border-radius:14px; padding:10px 12px; background:#eef8f4; color:var(--green); font-size:13px; font-weight:800; }
     .status.err { background:#fff0ed; color:#a02828; }
-    .workflow-state { margin-top:14px; display:grid; gap:8px; }
-    .state-row { display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid var(--line); border-radius:14px; padding:10px 12px; background:#fffdfb; font-size:12px; }
     .state-label { color:var(--muted); font-weight:900; text-transform:uppercase; letter-spacing:.06em; }
-    .state-value { color:var(--ink); font-weight:850; text-align:right; overflow-wrap:anywhere; }
-    .state-value a { color:var(--accent); text-decoration:none; }
-    .status-control { margin-top:14px; border:1px solid var(--line); border-radius:14px; padding:12px; background:#fffdfb; }
-    .status-control-row { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; align-items:end; }
-    .status-control select { width:100%; border:1px solid var(--line); border-radius:12px; padding:10px 12px; font:inherit; background:#fff; color:var(--ink); }
-    .status-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
-    .status-hint { margin-top:8px; color:var(--muted); font-size:12px; line-height:1.4; }
+    .content-panel { order:1; }
+    .product-panel { order:2; }
+    @media (min-width:900px) { .product-panel { order:2; } }
+    .status-hint { color:var(--muted); font-size:12px; line-height:1.4; }
     .fine { color:var(--muted); font-size:12px; line-height:1.45; margin-top:10px; }
     .top-alert { margin-top:14px; padding:11px 12px; border-radius:14px; background:#fff3e0; color:#a45700; font-size:13px; font-weight:800; line-height:1.4; }
     .add-product-row { display:flex; gap:6px; align-items:center; margin:8px 0 10px; }
@@ -83,7 +97,7 @@
     .lp-opt { font-size:11px; font-weight:800; padding:7px 10px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--muted); cursor:pointer; }
     .lp-opt.active { background:var(--ink); color:#fff; border-color:var(--ink); }
     @media (max-width:620px) {
-      .secondary-tools-body, .status-actions { grid-template-columns:1fr; }
+      .quick-actions, .secondary-tools-body, .status-actions { grid-template-columns:1fr; }
       button, .btn { width:100%; min-height:44px; }
     }
   </style>
@@ -94,34 +108,50 @@
   {% set current_slug = collection['slug'] %}
   {% include 'partials/admin_header.html' %}
   <main class="page">
-    <section class="hero">
-      <span class="pill">{% if _rl %}{{ _rl }} trend collection{% else %}Trend collection{% endif %}</span>
-      <h1>{{ collection['name'] }}</h1>
-      <p class="sub">{{ collection['description'] or ('Use this ' ~ (_rl ~ ' ' if _rl else '') ~ 'trend collection to create a creator-style social post and matching shoppable landing page intro.') }}</p>
-      {% if editor_mode == 'edit' %}<div class="top-alert">Editing the saved page. Product snapshot, landing intro, hooks, social copy, and shop links are preserved.</div>{% endif %}
-      {% if demo_auth_allowed %}<div class="top-alert">Demo auth is enabled for this local/Replit environment. Production still requires an admin token.</div>{% endif %}
-    </section>
-
-    <div class="grid">
-      <aside class="panel">
-        <h2>Collection products</h2>
-        {% if product_count and product_count > products|length %}
-        <p class="fine">Showing {{ products|length }} of {{ product_count }} products here. The saved preview and published page preserve the full collection.</p>
-        {% endif %}
-        {% set _trending_slug = (collection['slug'] in ['top-sellers', 'amazon-top-picks']) %}
-        {% if _trending_slug %}
-        <div class="trending-note">Trending order is preserved for this collection — reorder is disabled, but you can still add or remove items.</div>
-        {% endif %}
-        <div class="add-product-row">
-          <input id="newAsinInput" placeholder="Add Amazon ASIN/URL or Walmart SKU/URL">
-          <button class="ghost" type="button" onclick="addProductByAsin()">+ Add</button>
+    <div class="editor-stack">
+      <section class="editor-card summary-card" aria-label="Page summary">
+        <h1>{% if editor_mode == 'edit' %}Edit Page{% else %}Create Page{% endif %}</h1>
+        <div class="summary-subtitle">{{ collection['name'] }}</div>
+        <div class="status-line">
+          <span id="summaryStatusDot" class="status-dot draft"></span>
+          <span id="summaryStatusBadge">Draft</span>
         </div>
-        <div id="productList" class="products" data-trending="{{ '1' if _trending_slug else '0' }}"></div>
-        <p class="fine">Product links use the saved affiliate/URLGenius path when available.</p>
-      </aside>
+        <div id="summaryStatusDescription" class="status-description">Hidden from public shop</div>
+        <div id="saveMeta" class="save-meta">Not saved yet</div>
+        {% if editor_mode == 'edit' %}<div class="top-alert">Editing the saved page. Product snapshot, landing intro, hooks, social copy, and shop links are preserved.</div>{% endif %}
+        {% if demo_auth_allowed %}<div class="top-alert">Demo auth is enabled for this local/Replit environment. Production still requires an admin token.</div>{% endif %}
+      </section>
 
-      <section class="panel">
-        <h2>{% if editor_mode == 'edit' %}Edit page content{% else %}Create post + page intro{% endif %}</h2>
+      <button id="saveChangesBtn" class="full-width-action" onclick="saveChanges()" type="button">Save changes</button>
+
+      <section class="editor-card" aria-label="Quick actions">
+        <h2>Quick actions</h2>
+        <div class="quick-actions">
+          <button class="ghost" onclick="previewPage()" type="button">Preview</button>
+          <button id="viewLiveBtn" class="ghost" onclick="viewLivePage()" type="button" disabled>View live</button>
+        </div>
+        <div id="viewLiveHint" class="status-hint">Publish this page to make it live.</div>
+      </section>
+
+      <section class="editor-card" aria-label="Publishing">
+        <div class="publishing-top">
+          <h2 style="margin:0;">Publishing</h2>
+        </div>
+        <div class="state-label">Current status</div>
+        <div class="publishing-status">
+          <div class="status-line">
+            <span id="publishingStatusDot" class="status-dot draft"></span>
+            <span id="publishingStatusBadge">Draft</span>
+          </div>
+          <div id="publishingDescription" class="status-description">This page is hidden from the public shop.</div>
+        </div>
+        <div class="state-label">Change status</div>
+        <div id="statusActionRow" class="status-actions"></div>
+      </section>
+
+      <div class="content-grid">
+      <section class="panel content-panel">
+        <h2>Content</h2>
         <div class="row">
           <div>
             <label for="creatorId">Creator ID</label>
@@ -199,46 +229,8 @@
         <div class="primary-action-row">
           <button id="generateBtn" onclick="generatePost()" type="button">Generate post</button>
         </div>
-        <details class="secondary-tools">
-          <summary>More content tools</summary>
-          <div class="secondary-tools-body">
-            <button class="ghost" onclick="tryAnotherVersion()" type="button">New version</button>
-            <button class="ghost" onclick="copySocialPost()" type="button">Copy post</button>
-            <button id="refreshPricingBtn" class="ghost" onclick="refreshPricing()" type="button">Update pricing</button>
-          </div>
-        </details>
         <div id="pricingStatus" class="pricing-status"></div>
         <div id="status" class="status"></div>
-        <div class="status-control" aria-label="Page status">
-          <label for="pageStatus" style="margin-top:0;">Page status</label>
-          <div class="status-control-row">
-            <select id="pageStatus">
-              <option value="draft">Draft</option>
-              <option value="published">Published</option>
-              <option value="archived">Archived</option>
-            </select>
-          </div>
-          <div class="status-hint" id="pageStatusHint">Draft pages are hidden from public shop, but previews still work.</div>
-          <div class="status-actions">
-            <button class="ghost" onclick="previewPage()" type="button">Preview page</button>
-            <button id="applyStatusBtn" class="secondary" onclick="applySelectedStatus()" type="button">Save draft</button>
-          </div>
-          <a class="btn ghost" id="insightsLink" href="/insights?creator_id={{ creator_id }}" style="display:none;margin-top:8px;">View in Insights</a>
-        </div>
-        <div class="workflow-state" aria-label="Collection publishing status">
-          <div class="state-row">
-            <span class="state-label">Draft</span>
-            <span class="state-value" id="draftState">Not saved yet</span>
-          </div>
-          <div class="state-row">
-            <span class="state-label">Preview</span>
-            <span class="state-value" id="previewState">Save a draft to preview</span>
-          </div>
-          <div class="state-row">
-            <span class="state-label">Public shop</span>
-            <span class="state-value" id="publicState">Publish to create /shop link</span>
-          </div>
-        </div>
 
         <label>Hooks</label>
         <div class="hooks">
@@ -253,6 +245,34 @@
         <label for="cta">CTA</label>
         <input id="cta" value="{{ retailer_ctx.default_cta if retailer_ctx and retailer_ctx.default_cta else 'Shop these finds' }}">
       </section>
+
+      <aside class="panel product-panel">
+        <h2>Products</h2>
+        {% if product_count and product_count > products|length %}
+        <p class="fine">Showing {{ products|length }} of {{ product_count }} products here. The saved preview and published page preserve the full collection.</p>
+        {% endif %}
+        {% set _trending_slug = (collection['slug'] in ['top-sellers', 'amazon-top-picks']) %}
+        {% if _trending_slug %}
+        <div class="trending-note">Trending order is preserved for this collection — reorder is disabled, but you can still add or remove items.</div>
+        {% endif %}
+        <div class="add-product-row">
+          <input id="newAsinInput" placeholder="Add Amazon ASIN/URL or Walmart SKU/URL">
+          <button class="ghost" type="button" onclick="addProductByAsin()">+ Add</button>
+        </div>
+        <div id="productList" class="products" data-trending="{{ '1' if _trending_slug else '0' }}"></div>
+        <p class="fine">Product links use the saved affiliate/URLGenius path when available.</p>
+      </aside>
+      </div>
+
+      <details class="secondary-tools">
+        <summary>More content tools</summary>
+        <div class="secondary-tools-body">
+          <button class="ghost" onclick="tryAnotherVersion()" type="button">New version</button>
+          <button class="ghost" onclick="copySocialPost()" type="button">Copy post</button>
+          <button id="refreshPricingBtn" class="ghost" onclick="refreshPricing()" type="button">Update pricing</button>
+        </div>
+      </details>
+      <a class="btn ghost" id="insightsLink" href="/insights?creator_id={{ creator_id }}" style="display:none;">View in Insights</a>
     </div>
   </main>
 
@@ -266,6 +286,7 @@
     const RETAILER_LABEL = {{ (retailer_ctx.retailer_label if retailer_ctx and retailer_ctx.retailer_label else '')|tojson }};
     const DEFAULT_CTA = {{ (retailer_ctx.default_cta if retailer_ctx and retailer_ctx.default_cta else 'Shop these finds')|tojson }};
     const FINDS_LABEL = {{ (retailer_ctx.finds_label if retailer_ctx and retailer_ctx.finds_label else 'creator finds')|tojson }};
+    const DEFAULT_PUBLIC_SLUG = {{ default_public_slug|tojson }};
     const hookTypes = ['Fast Discovery', 'Problem → Solution', 'Creator Favorites'];
     let draftId = null;
     let previewUrl = '';
@@ -276,17 +297,148 @@
     let timerHandle = null;
     let recordingStartedAt = 0;
     let currentPageStatus = (existingDraft && existingDraft.status) || 'draft';
+    let savedPublicSlug = (existingDraft && (existingDraft.published_collage_slug || existingDraft.public_slug)) || DEFAULT_PUBLIC_SLUG;
+    let lastSavedAt = existingDraft && existingDraft.updated_at ? new Date(String(existingDraft.updated_at).replace(' ', 'T')) : null;
+    let hasUnsavedChanges = !existingDraft;
+    let isSaving = false;
 
     function setValue(id, value) {
       const el = document.getElementById(id);
       if (el) el.value = value || '';
     }
 
+    function normalizePageStatus(value) {
+      return ['draft', 'published', 'archived'].includes(value) ? value : 'draft';
+    }
+
+    function publicSlugValue() {
+      return (document.getElementById('publicSlug')?.value || DEFAULT_PUBLIC_SLUG || '').trim();
+    }
+
+    function liveUrl() {
+      const slug = currentPageStatus === 'published' && savedPublicSlug ? savedPublicSlug : publicSlugValue();
+      return slug ? `https://${shopSubdomain}/${slug}` : '';
+    }
+
+    function formatSavedTime(value) {
+      if (!value || Number.isNaN(value.getTime())) return 'Not saved yet';
+      return `Last saved ${value.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}`;
+    }
+
+    function statusSummary(status) {
+      if (status === 'published') {
+        return {
+          label: 'Published',
+          short: 'Live in public shop',
+          long: 'This page is visible in the public shop and can be shared.',
+        };
+      }
+      if (status === 'archived') {
+        return {
+          label: 'Archived',
+          short: 'Hidden and archived',
+          long: 'This page is hidden from the public shop and removed from active management.',
+        };
+      }
+      return {
+        label: 'Draft',
+        short: 'Hidden from public shop',
+        long: 'This page is hidden from the public shop.',
+      };
+    }
+
+    function markDirty() {
+      if (isSaving) return;
+      hasUnsavedChanges = true;
+      renderEditorChrome();
+    }
+
+    function markSaved(status) {
+      currentPageStatus = normalizePageStatus(status || currentPageStatus);
+      hasUnsavedChanges = false;
+      isSaving = false;
+      savedPublicSlug = publicSlugValue() || savedPublicSlug;
+      lastSavedAt = new Date();
+      renderEditorChrome('saved');
+    }
+
+    function renderEditorChrome(saveState='idle') {
+      currentPageStatus = normalizePageStatus(currentPageStatus);
+      const summary = statusSummary(currentPageStatus);
+      const statusDots = [
+        document.getElementById('summaryStatusDot'),
+        document.getElementById('publishingStatusDot'),
+      ];
+      statusDots.forEach((dot) => {
+        if (dot) dot.className = `status-dot ${currentPageStatus}`;
+      });
+      const summaryBadge = document.getElementById('summaryStatusBadge');
+      const publishingBadge = document.getElementById('publishingStatusBadge');
+      if (summaryBadge) summaryBadge.textContent = summary.label;
+      if (publishingBadge) publishingBadge.textContent = summary.label;
+      const summaryDescription = document.getElementById('summaryStatusDescription');
+      const publishingDescription = document.getElementById('publishingDescription');
+      if (summaryDescription) summaryDescription.textContent = summary.short;
+      if (publishingDescription) publishingDescription.textContent = summary.long;
+
+      const saveMeta = document.getElementById('saveMeta');
+      if (saveMeta) {
+        saveMeta.className = 'save-meta';
+        if (isSaving || saveState === 'saving') {
+          saveMeta.textContent = 'Saving...';
+          saveMeta.classList.add('saving');
+        } else if (hasUnsavedChanges) {
+          saveMeta.textContent = 'Unsaved changes';
+          saveMeta.classList.add('dirty');
+        } else if (saveState === 'saved') {
+          saveMeta.textContent = 'Changes saved';
+          saveMeta.classList.add('saved');
+        } else {
+          saveMeta.textContent = formatSavedTime(lastSavedAt);
+        }
+      }
+
+      const saveBtn = document.getElementById('saveChangesBtn');
+      if (saveBtn) {
+        saveBtn.disabled = isSaving || !hasUnsavedChanges;
+        saveBtn.textContent = isSaving ? 'Saving...' : (hasUnsavedChanges ? 'Save changes' : 'Changes saved');
+      }
+
+      const viewLiveBtn = document.getElementById('viewLiveBtn');
+      const viewLiveHint = document.getElementById('viewLiveHint');
+      if (viewLiveBtn) viewLiveBtn.disabled = currentPageStatus !== 'published';
+      if (viewLiveHint) {
+        viewLiveHint.textContent = currentPageStatus === 'published'
+          ? 'This opens the public shop page.'
+          : 'Publish this page to make it live.';
+      }
+
+      const statusRow = document.getElementById('statusActionRow');
+      if (statusRow) {
+        if (currentPageStatus === 'published') {
+          statusRow.innerHTML = `
+            <button class="ghost" onclick="moveToDraft()" type="button" ${isSaving ? 'disabled' : ''}>Move to draft</button>
+            <button class="danger" onclick="archivePage()" type="button" ${isSaving ? 'disabled' : ''}>Archive</button>
+          `;
+        } else if (currentPageStatus === 'archived') {
+          statusRow.innerHTML = `
+            <button onclick="restoreToDraft()" type="button" ${isSaving ? 'disabled' : ''}>Restore to draft</button>
+          `;
+        } else {
+          const publishClass = hasUnsavedChanges ? 'secondary' : '';
+          statusRow.innerHTML = `
+            <button class="${publishClass}" onclick="publishPage()" type="button" ${isSaving ? 'disabled' : ''}>${hasUnsavedChanges ? 'Save & publish' : 'Publish page'}</button>
+            <button class="danger" onclick="archivePage()" type="button" ${isSaving ? 'disabled' : ''}>Archive</button>
+          `;
+        }
+      }
+    }
+
     function initializeExistingDraft() {
       if (!existingDraft) return;
       draftId = existingDraft.id || null;
       setValue('creatorId', existingDraft.creator_id || 'everydaywithsteph');
-      setValue('publicSlug', existingDraft.public_slug || {{ default_public_slug|tojson }});
+      setValue('publicSlug', existingDraft.public_slug || DEFAULT_PUBLIC_SLUG);
       setValue('title', existingDraft.title || {{ collection['name']|tojson }});
       setValue('voice', existingDraft.voice_source_text || '');
       setValue('cleanedTranscript', existingDraft.cleaned_transcript || existingDraft.voice_raw_transcript || '');
@@ -298,22 +450,16 @@
       setValue('cta', existingDraft.cta || DEFAULT_CTA);
       if (existingDraft.theme) setTheme(existingDraft.theme);
       if (existingDraft.layout) setLayout(existingDraft.layout);
-      const pageStatus = existingDraft.status || 'draft';
+      const pageStatus = normalizePageStatus(existingDraft.status || 'draft');
       currentPageStatus = pageStatus;
-      setPageStatus(pageStatus);
       (existingDraft.hooks || []).slice(0,3).forEach((hook, i) => {
         setValue(`hook${i}`, typeof hook === 'string' ? hook : (hook.text || ''));
       });
-      const slug = existingDraft.public_slug || {{ default_public_slug|tojson }};
+      const slug = existingDraft.public_slug || DEFAULT_PUBLIC_SLUG;
+      savedPublicSlug = existingDraft.published_collage_slug || slug;
       previewUrl = `/shop/${slug}?preview=1`;
-      setStateLink('draftState', `Draft #${draftId} loaded`, null);
-      setStateLink('previewState', previewUrl, previewUrl);
-      if (pageStatus === 'published') {
-        setStateLink('publicState', `https://${shopSubdomain}/${slug}`, `https://${shopSubdomain}/${slug}`);
-      } else if (pageStatus === 'archived') {
-        setStateLink('publicState', 'Archived (hidden from public shop)', null);
-      }
       switchVoiceTab((existingDraft.voice_source_text || '').trim() ? 'paste' : 'record');
+      renderEditorChrome();
     }
 
     function authHeaders(extra={}) {
@@ -330,49 +476,6 @@
       box.style.display = 'block';
     }
 
-    function setStateLink(id, label, url) {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.textContent = '';
-      if (url) {
-        const link = document.createElement('a');
-        link.href = url;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.textContent = label;
-        el.appendChild(link);
-      } else {
-        el.textContent = label;
-      }
-    }
-
-    function setPageStatus(value) {
-      const status = ['draft', 'published', 'archived'].includes(value) ? value : 'draft';
-      const select = document.getElementById('pageStatus');
-      const hint = document.getElementById('pageStatusHint');
-      const applyBtn = document.getElementById('applyStatusBtn');
-      if (select) select.value = status;
-      if (status === 'published') {
-        if (hint) hint.textContent = 'Published pages are live on the public shop. Republish saves current edits first.';
-        if (applyBtn) {
-          applyBtn.textContent = currentPageStatus === 'published' ? 'Republish page' : 'Publish page';
-          applyBtn.className = 'secondary';
-        }
-      } else if (status === 'archived') {
-        if (hint) hint.textContent = 'Archived pages are hidden from public shop and preserved for history. Preview still works.';
-        if (applyBtn) {
-          applyBtn.textContent = 'Archive page';
-          applyBtn.className = 'danger';
-        }
-      } else {
-        if (hint) hint.textContent = 'Draft pages are hidden from public shop, but previews still work.';
-        if (applyBtn) {
-          applyBtn.textContent = 'Save draft';
-          applyBtn.className = 'secondary';
-        }
-      }
-    }
-
     function switchVoiceTab(tab) {
       document.getElementById('recordPanel').style.display = tab === 'record' ? 'block' : 'none';
       document.getElementById('pastePanel').style.display = tab === 'paste' ? 'block' : 'none';
@@ -381,6 +484,7 @@
     function useStephSampleVoice() {
       const retailerWord = RETAILER_LABEL || 'creator';
       document.getElementById('voice').value = `Steph voice: I’d tell the group these are easy ${retailerWord} finds I’d check before the weekend. I love when I can pull together practical stuff in one place — a few things for the yard, a few things for the kids, and the kind of random home finds that make life feel a little more put together without spending a fortune.`;
+      markDirty();
       setStatus('Steph sample voice added. Click Generate from pasted notes.');
     }
 
@@ -422,6 +526,7 @@
       document.getElementById('socialPost').value = data.social_post || '';
       document.getElementById('landingIntro').value = data.landing_intro || '';
       document.getElementById('cta').value = data.cta || DEFAULT_CTA;
+      markDirty();
     }
 
     // --- Theme + layout pickers (Issue 4) ---
@@ -440,10 +545,10 @@
       });
     }
     document.querySelectorAll('#themePicker .tp-opt').forEach((el) => {
-      el.addEventListener('click', () => setTheme(el.getAttribute('data-theme')));
+      el.addEventListener('click', () => { setTheme(el.getAttribute('data-theme')); markDirty(); });
     });
     document.querySelectorAll('#layoutPicker .lp-opt').forEach((el) => {
-      el.addEventListener('click', () => setLayout(el.getAttribute('data-layout')));
+      el.addEventListener('click', () => { setLayout(el.getAttribute('data-layout')); markDirty(); });
     });
     setTheme('peach');
     setLayout('layout-2');
@@ -579,14 +684,6 @@
           productsState = data.draft.product_snapshot;
           renderProductList();
         }
-        setStateLink('draftState', `Draft #${draftId} saved`, null);
-        setStateLink('previewState', previewUrl, previewUrl);
-        if (data.draft && data.draft.published_collage_slug) {
-          const publicSlug = data.draft.published_collage_slug || data.public_slug;
-          setStateLink('publicState', `https://${shopSubdomain}/${publicSlug}`, `https://${shopSubdomain}/${publicSlug}`);
-        } else {
-          setStateLink('publicState', 'Publish to create /shop link', null);
-        }
         return data;
       } catch (err) {
         setStatus(`Save failed: ${err.message}`, true);
@@ -594,75 +691,117 @@
       }
     }
 
-    async function saveDraft() {
-      const saved = await saveCurrentDraftOnly('draft');
-      if (!saved) return null;
+    function setSaving(value) {
+      isSaving = Boolean(value);
+      renderEditorChrome(isSaving ? 'saving' : 'idle');
+    }
+
+    async function saveChanges() {
+      if (isSaving) return null;
+      if (currentPageStatus === 'published') return publishPage({fromSave: true});
+      if (currentPageStatus === 'archived') return archivePage({fromSave: true});
+      return moveToDraft({fromSave: true});
+    }
+
+    async function moveToDraft(options={}) {
+      setSaving(true);
       try {
+        const saved = await saveCurrentDraftOnly('draft');
+        if (!saved) return null;
         const res = await fetch(`/api/collection-content-drafts/${draftId}/unpublish`, { method:'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-        currentPageStatus = 'draft';
-        setPageStatus('draft');
-        setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
-        setStateLink('publicState', 'Draft (hidden from public shop)', null);
-        setStatus(`Draft saved. Preview: ${data.preview_url || previewUrl}`);
+        previewUrl = data.preview_url || previewUrl;
+        markSaved('draft');
+        setStatus(options.restore ? 'Restored to draft. Preview is still available.' : 'Saved as draft. Hidden from public shop.');
         return data;
       } catch (err) {
-        setStatus(`Save draft failed: ${err.message}`, true);
+        setStatus(`Move to draft failed: ${err.message}`, true);
         return null;
+      } finally {
+        if (isSaving) setSaving(false);
       }
     }
 
     async function previewPage() {
-      const data = await saveCurrentDraftOnly(currentPageStatus || 'draft');
-      if (data) setStatus(`Preview saved: ${data.preview_url}`);
-      if (data && data.preview_url) window.open(data.preview_url, '_blank', 'noopener');
+      if (isSaving) return;
+      setSaving(true);
+      try {
+        const wasDirty = hasUnsavedChanges;
+        const data = await saveCurrentDraftOnly(currentPageStatus || 'draft');
+        if (data && data.preview_url) {
+          previewUrl = data.preview_url;
+          if (wasDirty) {
+            hasUnsavedChanges = true;
+            setStatus('Preview updated. Save changes when you are ready.');
+          }
+          window.open(data.preview_url, '_blank', 'noopener');
+        }
+      } finally {
+        setSaving(false);
+        renderEditorChrome();
+      }
     }
 
-    async function publishPage() {
-      const saved = await saveCurrentDraftOnly('draft');
-      if (!saved) return;
+    async function publishPage(options={}) {
+      if (isSaving) return null;
+      if (currentPageStatus === 'archived') {
+        setStatus('Restore this page to draft before publishing.', true);
+        return null;
+      }
+      setSaving(true);
       try {
+        const saved = await saveCurrentDraftOnly('draft');
+        if (!saved) return null;
         const res = await fetch(`/api/collection-content-drafts/${draftId}/publish`, { method:'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-        currentPageStatus = 'published';
-        setPageStatus('published');
-        setStateLink('draftState', `Draft #${draftId} published`, null);
-        setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
-        setStateLink('publicState', data.public_url, data.public_url);
-        setStatus(`Published: ${data.public_url}`);
+        previewUrl = data.preview_url || previewUrl;
+        markSaved('published');
+        setStatus(options.fromSave ? 'Changes saved to the live page.' : 'Published. This page is live in the public shop.');
         const insights = document.getElementById('insightsLink');
         if (insights) { insights.href = data.insights_url || insights.href; insights.style.display = 'inline-flex'; }
-        window.open(data.public_url, '_blank', 'noopener');
+        return data;
       } catch (err) {
         setStatus(`Publish failed: ${err.message}`, true);
+        return null;
+      } finally {
+        if (isSaving) setSaving(false);
       }
     }
 
-    async function archivePage() {
-      const saved = await saveCurrentDraftOnly('archived');
-      if (!saved) return;
+    async function archivePage(options={}) {
+      if (isSaving) return null;
+      setSaving(true);
       try {
+        const saved = await saveCurrentDraftOnly('archived');
+        if (!saved) return null;
         const res = await fetch(`/api/collection-content-drafts/${draftId}/archive`, { method:'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-        currentPageStatus = 'archived';
-        setPageStatus('archived');
-        setStateLink('draftState', `Draft #${draftId} archived`, null);
-        setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
-        setStateLink('publicState', 'Archived (hidden from public shop)', null);
-        setStatus(`Archived. Preview: ${data.preview_url || previewUrl}`);
+        previewUrl = data.preview_url || previewUrl;
+        markSaved('archived');
+        setStatus(options.fromSave ? 'Archived changes saved.' : 'Archived. Hidden from public shop.');
+        return data;
       } catch (err) {
         setStatus(`Archive failed: ${err.message}`, true);
+        return null;
+      } finally {
+        if (isSaving) setSaving(false);
       }
     }
 
-    async function applySelectedStatus() {
-      const status = document.getElementById('pageStatus')?.value || 'draft';
-      if (status === 'published') return publishPage();
-      if (status === 'archived') return archivePage();
-      return saveDraft();
+    async function restoreToDraft() {
+      return moveToDraft({restore: true});
+    }
+
+    function viewLivePage() {
+      if (currentPageStatus !== 'published') {
+        setStatus('Publish this page to make it live.', true);
+        return;
+      }
+      const url = liveUrl();
+      if (url) window.open(url, '_blank', 'noopener');
     }
 
     async function copySocialPost() {
@@ -763,6 +902,7 @@
             productsState[i] = tmp;
           }
           renderProductList();
+          markDirty();
           schedulePersistProducts();
         });
       });
@@ -816,6 +956,7 @@
         if (!res.ok || data.error) throw new Error(data.message || data.error || `HTTP ${res.status}`);
         productsState = data.products || productsState;
         renderProductList();
+        markDirty();
         input.value = '';
         const addedId = (data.added && (data.added.asin || data.added.sku)) || productInput;
         setStatus(`Added ${addedId}.`);
@@ -843,6 +984,7 @@
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
         productsState = data.products || productsState;
         renderProductList();
+        markDirty();
         const total = (productsState || []).length;
         const checkedAt = (data.last_checked_at || '').replace(' ', ' ').slice(-8, -3);
         statusEl.className = 'pricing-status';
@@ -858,11 +1000,19 @@
       }
     }
 
+    function bindDirtyTracking() {
+      document.querySelectorAll('.content-panel input, .content-panel textarea').forEach((el) => {
+        el.addEventListener('input', markDirty);
+        el.addEventListener('change', markDirty);
+      });
+    }
+
     switchVoiceTab('record');
-    document.getElementById('pageStatus')?.addEventListener('change', (event) => setPageStatus(event.target.value));
-    setPageStatus('draft');
+    renderEditorChrome();
     initializeExistingDraft();
     renderProductList();
+    bindDirtyTracking();
+    renderEditorChrome();
   </script>
 </body>
 </html>
