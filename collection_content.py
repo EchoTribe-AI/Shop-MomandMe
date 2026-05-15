@@ -504,7 +504,7 @@ def generate_walmart_collection_content(
             generated = _demo_generation(collection, voice_source_text)
             generated["warning"] = "ANTHROPIC_API_KEY not configured; visible demo fallback generated editable draft copy."
             return generated
-        raise CollectionContentError("AI key missing: ANTHROPIC_API_KEY is not configured. Enable Demo fallback or add the key to generate with Claude.")
+        raise CollectionContentError("AI key missing: ANTHROPIC_API_KEY is not configured. Add the key to generate with Claude.")
 
     retailer_key_value = _collection_retailer(collection)
     retailer_label_text = _retailer_label(retailer_key_value) or "Walmart"
