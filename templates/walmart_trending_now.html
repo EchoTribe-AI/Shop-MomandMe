@@ -122,8 +122,11 @@
       </div>
       {% if admin_mode %}
         <div class="admin-bar">
-          <div class="admin-note">Admin workflow: choose a section, create a collection draft, preview it, then publish to the public shop.</div>
-          <a class="admin-link" href="/archer/organic">Organic</a>
+          <div class="admin-note">Choose a section below → click <strong>Create post</strong> → add your voice → Save draft → Preview → Publish.</div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            {% set hub_link_class = "admin-link" %}
+            {% include 'partials/hub_nav.html' %}
+          </div>
         </div>
         <div class="workbook-panel">
           <div class="workbook-panel-label">Workbook Import</div>

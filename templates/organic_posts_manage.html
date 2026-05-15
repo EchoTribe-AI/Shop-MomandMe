@@ -39,12 +39,8 @@
 <div class="topbar">
   <div class="dot"></div><strong>EchoTribe</strong><span style="color:var(--text3);">Organic Operations</span>
   <div class="tb-right">
-    <a href="/archer/organic" class="tb-link">Organic</a>
-    <a href="/archer/posts/manage" class="tb-link active">Manage</a>
-    <a href="/archer/campaigns" class="tb-link">Campaigns</a>
-    <a href="/archer/collage" class="tb-link">Collage</a>
-    <a href="/insights" class="tb-link">Insights</a>
-    <a href="/admin/creators" class="tb-link">Creators</a>
+    {% set hub_link_class = "tb-link" %}
+    {% include 'partials/hub_nav.html' %}
   </div>
 </div>
 <main class="page">

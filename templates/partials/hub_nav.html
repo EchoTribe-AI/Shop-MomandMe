@@ -1,0 +1,11 @@
+{# Hub nav — include this in any admin template.
+   Caller can set:  hub_link_class  (default "hub-nav-link")
+   Active page is detected automatically from request.path. #}
+{% set _cls   = hub_link_class if hub_link_class is defined else 'hub-nav-link' %}
+{% set _p     = request.path %}
+{% set _hub   = _p == '/hub' %}
+{% set _crt   = 'trending' in _p or 'create-post' in _p %}
+{% set _mgmt  = 'manage' in _p %}
+<a href="/hub"                              class="{{ _cls }}{% if _hub  %} active{% endif %}">Home</a>
+<a href="/walmart/trending-now?admin=1"     class="{{ _cls }}{% if _crt  %} active{% endif %}">Create</a>
+<a href="/archer/posts/manage"              class="{{ _cls }}{% if _mgmt %} active{% endif %}">Manage</a>

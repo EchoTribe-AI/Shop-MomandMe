@@ -74,9 +74,12 @@
 <body>
   <main class="page">
     <div class="topbar">
-      <a class="back" href="/walmart/trending-now?admin=1{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">← Back to Trends</a>
-      <a class="back" href="/archer/organic">Organic</a>
-      <span class="pill">{% if editor_mode == 'edit' %}{{ _rlabel }} page editor{% else %}Creator Voice · Paste-first demo{% endif %}</span>
+      <a class="back" href="/walmart/trending-now?admin=1{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">← Trending Now</a>
+      <span class="pill">{% if editor_mode == 'edit' %}{{ _rlabel }} page editor{% else %}Collection Editor{% endif %}</span>
+      <div style="display:flex;gap:6px;margin-left:auto;">
+        {% set hub_link_class = "back" %}
+        {% include 'partials/hub_nav.html' %}
+      </div>
     </div>
 
     <section class="hero">
