@@ -689,7 +689,7 @@ class WalmartTrendStore:
                 """,
                 (sku, product_url),
             ).fetchone()
-            return row[0] if row else ""
+            return row['impact_url'] if row else ""
         finally:
             conn.close()
 

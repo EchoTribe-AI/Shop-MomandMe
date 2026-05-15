@@ -335,7 +335,7 @@ class AmazonTrendStore:
                 """,
                 (limit,),
             ).fetchall()
-            return [r[0] for r in rows]
+            return [r['asin'] for r in rows]
         finally:
             conn.close()
 
@@ -424,13 +424,13 @@ class AmazonTrendStore:
                 """,
                 (asin,),
             ).fetchone()
-            if row and row[0]:
-                return row[0]
+            if row and row['affiliate_url']:
+                return row['affiliate_url']
             vended = conn.execute(
                 "SELECT detail_page_url FROM amazon_trend_products WHERE asin = ?",
                 (asin,),
             ).fetchone()
-            return (vended[0] if vended and vended[0] else "") or ""
+            return (vended['detail_page_url'] if vended and vended['detail_page_url'] else "") or ""
         finally:
             conn.close()
 

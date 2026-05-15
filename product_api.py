@@ -864,7 +864,7 @@ class ArcherAPI:
         conn.close()
         if not row:
             return False
-        last_sync = datetime.fromisoformat(row[0])
+        last_sync = datetime.fromisoformat(row['value'])
         return datetime.now() - last_sync < timedelta(hours=self.CACHE_TTL_HOURS)
 
     def sync_catalog(self, force=False):

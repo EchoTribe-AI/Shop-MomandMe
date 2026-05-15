@@ -122,15 +122,18 @@ def migrate_table(sc, pc, table: str, pk: str | list[str], *, batch: int = 500) 
                 if isinstance(v, bytes):
                     v = v.decode("utf-8", errors="replace")
                 values.append(v)
+            # Use a savepoint so a single bad row only rolls back itself,
+            # not the entire batch that was already inserted.
             try:
+                cur.execute("SAVEPOINT sp_row")
                 cur.execute(sql, values)
                 if cur.rowcount:
                     inserted += 1
+                cur.execute("RELEASE SAVEPOINT sp_row")
             except Exception as e:
-                pc.rollback()
+                cur.execute("ROLLBACK TO SAVEPOINT sp_row")
+                cur.execute("RELEASE SAVEPOINT sp_row")
                 logging.warning(f"  WARN  {table} row skipped: {e}")
-                # re-open cursor after rollback
-                cur = pc.cursor()
                 continue
         pc.commit()
         logging.info(f"  {table}: batch {i//batch + 1} committed ({min(i+batch, len(rows))}/{len(rows)})")
