@@ -180,6 +180,49 @@ for table, pk in TABLES:
     total += n
 
 sc.close()
+
+# ── Reset PostgreSQL SERIAL sequences to max(id) so next inserts don't collide ─
+# Tables with SERIAL PRIMARY KEY on column 'id' need their sequences advanced
+# after we bulk-inserted rows with explicit id values.
+SERIAL_TABLES = [
+    "posts",
+    "earnings_amazon",
+    "attribution_paid",
+    "storefront_chat_sessions",
+    "campaigns_v3",
+    "click_log",
+    "collection_content_drafts",
+    "walmart_refresh_runs",
+    "walmart_product_performance_snapshots",
+    "walmart_affiliate_links",
+    "walmart_urlgenius_links",
+    "walmart_collection_items",
+    "amazon_product_performance_snapshots",
+    "amazon_affiliate_links",
+]
+
+logging.info("\nResetting PostgreSQL sequences …")
+seq_cur = pc.cursor()
+for table in SERIAL_TABLES:
+    if not table_exists_pg(pc, table):
+        continue
+    try:
+        seq_cur.execute(
+            f"SELECT setval("
+            f"  pg_get_serial_sequence('{table}', 'id'),"
+            f"  COALESCE(MAX(id), 1),"
+            f"  true"
+            f") FROM \"{table}\""
+        )
+        row = seq_cur.fetchone()
+        new_val = row[0] if row else '?'
+        pc.commit()
+        logging.info(f"  reset {table}.id sequence → {new_val}")
+    except Exception as e:
+        pc.rollback()
+        logging.warning(f"  WARN  could not reset sequence for {table}: {e}")
+
+seq_cur.close()
 pc.close()
 
 logging.info(f"\nMigration complete. Total rows inserted: {total}")

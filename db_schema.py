@@ -176,10 +176,11 @@ class _PGConn:
             pass
 
     def close(self):
-        try:
-            self._conn.commit()
-        except Exception:
-            pass
+        """
+        Close the underlying connection.  Any uncommitted work is rolled back
+        implicitly by psycopg2, preserving explicit-commit semantics.
+        Callers must call .commit() themselves before .close() to persist data.
+        """
         try:
             self._conn.close()
         except Exception:
