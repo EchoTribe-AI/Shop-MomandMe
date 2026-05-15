@@ -1,9 +1,10 @@
 {% set _active = active if active is defined else '' %}
 {% set _page_title = page_title if page_title is defined else '' %}
 {% set _token = admin_token if admin_token is defined and admin_token else '' %}
-{% set _home_href = '/walmart/trending-now?admin=1' ~ ('&admin_token=' ~ (_token|urlencode) if _token else '') %}
+{% set _home_href = '/hub' ~ ('?admin_token=' ~ (_token|urlencode) if _token else '') %}
+{% set _default_create_href = '/walmart/trending-now?admin=1' ~ ('&admin_token=' ~ (_token|urlencode) if _token else '') %}
 {% set _create_slug = current_slug if current_slug is defined and current_slug else '' %}
-{% set _create_href = ('/collections/' ~ _create_slug ~ '/create-post' ~ ('?admin_token=' ~ (_token|urlencode) if _token else '')) if _create_slug else _home_href %}
+{% set _create_href = ('/collections/' ~ _create_slug ~ '/create-post' ~ ('?admin_token=' ~ (_token|urlencode) if _token else '')) if _create_slug else _default_create_href %}
 <div class="topbar">
   <div class="dot"></div>
   <strong>EchoTribe</strong>

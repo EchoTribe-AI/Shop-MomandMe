@@ -219,6 +219,19 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertIn("CONCETTA", public_html)
         self.assertIn("CONCETTA", admin_html)
 
+    def test_admin_header_links_distinguish_hub_create_and_manage(self):
+        hub_html = self.client.get("/hub").get_data(as_text=True)
+        self.assertIn('href="/hub" class="tb-link active"', hub_html)
+        self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link"', hub_html)
+        self.assertIn('href="/archer/posts/manage" class="tb-link"', hub_html)
+        self.assertIn("Content Hub", hub_html)
+
+        with patch("walmart_trends.get_trending_page_data", return_value={"last_refreshed": "Today", "collections": []}):
+            create_html = self.client.get("/walmart/trending-now?admin=1").get_data(as_text=True)
+        self.assertIn('href="/hub" class="tb-link"', create_html)
+        self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link active"', create_html)
+        self.assertIn('href="/archer/posts/manage" class="tb-link"', create_html)
+
     def test_draft_product_snapshot_drives_reload_preview_publish_and_unpublish(self):
         source = _walmart_collection(4)
         edited = [
