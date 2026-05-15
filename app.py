@@ -1542,12 +1542,18 @@ def _require_walmart_trends_admin():
         or os.environ.get('ADMIN_API_TOKEN')
         or os.environ.get('ADMIN_SECRET')
     )
+    # Allow requests from the Replit dashboard host without a token
+    if _walmart_content_demo_allowed():
+        return None
     if not expected:
         return jsonify({'error': 'Walmart trends admin token is not configured'}), 503
     supplied = request.headers.get('X-Walmart-Trends-Admin-Token', '')
     auth = request.headers.get('Authorization', '')
     if not supplied and auth.lower().startswith('bearer '):
         supplied = auth.split(' ', 1)[1].strip()
+    # Also accept token via query parameter for convenience
+    if not supplied:
+        supplied = (request.args.get('admin_token') or '').strip()
     import hmac as hmac_lib
     if not supplied or not hmac_lib.compare_digest(supplied, expected):
         return jsonify({'error': 'unauthorized'}), 401
@@ -1564,6 +1570,7 @@ def _walmart_content_demo_allowed() -> bool:
         or host in {'localhost', '127.0.0.1'}
         or host.endswith('.replit.dev')
         or host.endswith('.repl.co')
+        or host.endswith('.replit.app')
     )
 
 
