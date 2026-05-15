@@ -2479,7 +2479,8 @@ def shop_sitemap():
     parts.append(f'  <url><loc>{base}/collections</loc><changefreq>daily</changefreq><priority>0.9</priority></url>')
     parts.append(f'  <url><loc>{base}/trends</loc><changefreq>daily</changefreq><priority>0.8</priority></url>')
     parts.append(f'  <url><loc>{base}/posts</loc><changefreq>daily</changefreq><priority>0.8</priority></url>')
-    for slug, updated in rows:
+    for row in rows:
+        slug, updated = row['slug'], row['updated']
         lastmod = _fmt_date(updated)
         parts.append(
             f'  <url><loc>{base}/{slug}</loc>'
