@@ -327,7 +327,12 @@ def shop_chat():
 
 @app.route('/')
 def index():
-    return render_template('dashboard.html')
+    return redirect(url_for('hub'))
+
+
+@app.route('/hub')
+def hub():
+    return render_template('hub.html', shop_subdomain=SHOP_SUBDOMAIN)
 
 # ARCHIVED — see /archive/routes/
 
