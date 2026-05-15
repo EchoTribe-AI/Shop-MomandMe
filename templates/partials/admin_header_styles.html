@@ -1,0 +1,10 @@
+.topbar { min-height:56px; background:#fff; border-bottom:.5px solid var(--border, var(--line, rgba(0,0,0,.12))); display:flex; align-items:center; gap:14px; padding:10px 20px; position:sticky; top:0; z-index:10; flex-wrap:wrap; }
+.dot { width:8px; height:8px; border-radius:50%; background:var(--archer, var(--accent, #e85d26)); flex:0 0 auto; }
+.topbar-title { color:var(--text3, var(--muted, rgba(26,26,23,.62))); }
+.tb-right { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.tb-link { font-size:12px; color:var(--text3, var(--muted, rgba(26,26,23,.62))); text-decoration:none; padding:6px 10px; border:.5px solid var(--border, var(--line, rgba(0,0,0,.12))); border-radius:var(--r, 8px); background:#fff; cursor:pointer; font-weight:500; line-height:1.2; }
+.tb-link.active { color:#fff; background:var(--archer, var(--accent, #e85d26)); border-color:var(--archer, var(--accent, #e85d26)); }
+@media (max-width:900px) {
+  .topbar { align-items:flex-start; }
+  .tb-right { width:100%; margin-left:0; justify-content:flex-start; }
+}

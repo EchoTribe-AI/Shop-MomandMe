@@ -9,9 +9,9 @@
   <style>
     :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.12); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; }
     * { box-sizing:border-box; }
+    {% include 'partials/admin_header_styles.html' %}
     body { margin:0; font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:linear-gradient(180deg,var(--bg),#fff 46%); }
     .page { max-width:1040px; margin:0 auto; padding:24px 18px 46px; }
-    .topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
     .back { color:var(--accent); text-decoration:none; font-weight:800; font-size:13px; }
     .pill { display:inline-flex; align-items:center; border-radius:999px; padding:7px 10px; background:var(--soft); color:var(--accent); font-size:12px; font-weight:900; }
     .hero { background:rgba(255,255,255,.82); border:1px solid var(--line); border-radius:24px; padding:20px; box-shadow:0 12px 32px rgba(26,26,23,.07); }
@@ -45,6 +45,10 @@
     .state-label { color:var(--muted); font-weight:900; text-transform:uppercase; letter-spacing:.06em; }
     .state-value { color:var(--ink); font-weight:850; text-align:right; overflow-wrap:anywhere; }
     .state-value a { color:var(--accent); text-decoration:none; }
+    .status-control { margin-top:14px; border:1px solid var(--line); border-radius:14px; padding:12px; background:#fffdfb; }
+    .status-control-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .status-control select { flex:1; min-width:180px; border:1px solid var(--line); border-radius:12px; padding:10px 12px; font:inherit; background:#fff; color:var(--ink); }
+    .status-hint { margin-top:8px; color:var(--muted); font-size:12px; line-height:1.4; }
     .fine { color:var(--muted); font-size:12px; line-height:1.45; margin-top:10px; }
     .top-alert { margin-top:14px; padding:11px 12px; border-radius:14px; background:#fff3e0; color:#a45700; font-size:13px; font-weight:800; line-height:1.4; }
     .add-product-row { display:flex; gap:6px; align-items:center; margin:8px 0 10px; }
@@ -72,16 +76,11 @@
   </style>
 </head>
 <body>
+  {% set active = 'create' %}
+  {% set page_title = (_rlabel ~ ' page editor') if editor_mode == 'edit' else 'Collection Editor' %}
+  {% set current_slug = collection['slug'] %}
+  {% include 'partials/admin_header.html' %}
   <main class="page">
-    <div class="topbar">
-      <a class="back" href="/walmart/trending-now?admin=1{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">← Trending Now</a>
-      <span class="pill">{% if editor_mode == 'edit' %}{{ _rlabel }} page editor{% else %}Collection Editor{% endif %}</span>
-      <div style="display:flex;gap:6px;margin-left:auto;">
-        {% set hub_link_class = "back" %}
-        {% include 'partials/hub_nav.html' %}
-      </div>
-    </div>
-
     <section class="hero">
       <span class="pill">{% if _rl %}{{ _rl }} trend collection{% else %}Trend collection{% endif %}</span>
       <h1>{{ collection['name'] }}</h1>
@@ -191,11 +190,24 @@
           <button class="secondary" onclick="saveDraft()" type="button">Save draft</button>
           <button class="ghost" onclick="previewPage()" type="button">Preview landing page</button>
           <button class="secondary" onclick="publishPage()" type="button">Publish page</button>
+          <button class="ghost" onclick="archivePage()" type="button">Archive page</button>
+          <button class="ghost" onclick="applySelectedStatus()" type="button">Apply status</button>
           <button id="refreshPricingBtn" class="ghost" onclick="refreshPricing()" type="button">Update pricing</button>
           <a class="btn ghost" id="insightsLink" href="/insights?creator_id={{ creator_id }}" style="display:none;">View in Insights</a>
         </div>
         <div id="pricingStatus" class="pricing-status"></div>
         <div id="status" class="status"></div>
+        <div class="status-control" aria-label="Page status">
+          <label for="pageStatus" style="margin-top:0;">Page status</label>
+          <div class="status-control-row">
+            <select id="pageStatus">
+              <option value="draft">Draft</option>
+              <option value="published">Published</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+          <div class="status-hint" id="pageStatusHint">Draft pages are hidden from public shop, but previews still work.</div>
+        </div>
         <div class="workflow-state" aria-label="Collection publishing status">
           <div class="state-row">
             <span class="state-label">Draft</span>
@@ -268,6 +280,8 @@
       setValue('cta', existingDraft.cta || DEFAULT_CTA);
       if (existingDraft.theme) setTheme(existingDraft.theme);
       if (existingDraft.layout) setLayout(existingDraft.layout);
+      const pageStatus = existingDraft.status || 'draft';
+      setPageStatus(pageStatus);
       (existingDraft.hooks || []).slice(0,3).forEach((hook, i) => {
         setValue(`hook${i}`, typeof hook === 'string' ? hook : (hook.text || ''));
       });
@@ -275,8 +289,10 @@
       previewUrl = `/shop/${slug}?preview=1`;
       setStateLink('draftState', `Draft #${draftId} loaded`, null);
       setStateLink('previewState', previewUrl, previewUrl);
-      if ((existingDraft.status || '') === 'published' || existingDraft.published_collage_slug) {
+      if (pageStatus === 'published') {
         setStateLink('publicState', `https://${shopSubdomain}/${slug}`, `https://${shopSubdomain}/${slug}`);
+      } else if (pageStatus === 'archived') {
+        setStateLink('publicState', 'Archived (hidden from public shop)', null);
       }
       switchVoiceTab((existingDraft.voice_source_text || '').trim() ? 'paste' : 'record');
     }
@@ -308,6 +324,21 @@
         el.appendChild(link);
       } else {
         el.textContent = label;
+      }
+    }
+
+    function setPageStatus(value) {
+      const status = ['draft', 'published', 'archived'].includes(value) ? value : 'draft';
+      const select = document.getElementById('pageStatus');
+      const hint = document.getElementById('pageStatusHint');
+      if (select) select.value = status;
+      if (!hint) return;
+      if (status === 'published') {
+        hint.textContent = 'Published pages are live on the public shop. Republish saves current edits first.';
+      } else if (status === 'archived') {
+        hint.textContent = 'Archived pages are hidden from public shop and preserved for history. Preview still works.';
+      } else {
+        hint.textContent = 'Draft pages are hidden from public shop, but previews still work.';
       }
     }
 
@@ -502,10 +533,12 @@
       }
     }
 
-    async function saveDraft() {
+    async function saveCurrentDraftOnly(statusOverride) {
       try {
+        const body = payload();
+        if (statusOverride) body.status = statusOverride;
         const res = await fetch(`/api/walmart/collections/${collectionSlug}/draft-page`, {
-          method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(payload())
+          method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(body)
         });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
@@ -523,7 +556,6 @@
         } else {
           setStateLink('publicState', 'Publish to create /shop link', null);
         }
-        setStatus(`Draft saved. Preview: ${previewUrl}`);
         return data;
       } catch (err) {
         setStatus(`Save failed: ${err.message}`, true);
@@ -531,20 +563,39 @@
       }
     }
 
+    async function saveDraft() {
+      const saved = await saveCurrentDraftOnly('draft');
+      if (!saved) return null;
+      try {
+        const res = await fetch(`/api/collection-content-drafts/${draftId}/unpublish`, { method:'POST', headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        setPageStatus('draft');
+        setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
+        setStateLink('publicState', 'Draft (hidden from public shop)', null);
+        setStatus(`Draft saved. Preview: ${data.preview_url || previewUrl}`);
+        return data;
+      } catch (err) {
+        setStatus(`Save draft failed: ${err.message}`, true);
+        return null;
+      }
+    }
+
     async function previewPage() {
-      const data = await saveDraft();
+      const status = document.getElementById('pageStatus')?.value || (existingDraft && existingDraft.status) || 'draft';
+      const data = await saveCurrentDraftOnly(status);
+      if (data) setStatus(`Preview saved: ${data.preview_url}`);
       if (data && data.preview_url) window.open(data.preview_url, '_blank', 'noopener');
     }
 
     async function publishPage() {
-      if (!draftId) {
-        const data = await saveDraft();
-        if (!data) return;
-      }
+      const saved = await saveCurrentDraftOnly('draft');
+      if (!saved) return;
       try {
         const res = await fetch(`/api/collection-content-drafts/${draftId}/publish`, { method:'POST', headers: authHeaders() });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        setPageStatus('published');
         setStateLink('draftState', `Draft #${draftId} published`, null);
         setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
         setStateLink('publicState', data.public_url, data.public_url);
@@ -555,6 +606,30 @@
       } catch (err) {
         setStatus(`Publish failed: ${err.message}`, true);
       }
+    }
+
+    async function archivePage() {
+      const saved = await saveCurrentDraftOnly('archived');
+      if (!saved) return;
+      try {
+        const res = await fetch(`/api/collection-content-drafts/${draftId}/archive`, { method:'POST', headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        setPageStatus('archived');
+        setStateLink('draftState', `Draft #${draftId} archived`, null);
+        setStateLink('previewState', data.preview_url || previewUrl, data.preview_url || previewUrl);
+        setStateLink('publicState', 'Archived (hidden from public shop)', null);
+        setStatus(`Archived. Preview: ${data.preview_url || previewUrl}`);
+      } catch (err) {
+        setStatus(`Archive failed: ${err.message}`, true);
+      }
+    }
+
+    async function applySelectedStatus() {
+      const status = document.getElementById('pageStatus')?.value || 'draft';
+      if (status === 'published') return publishPage();
+      if (status === 'archived') return archivePage();
+      return saveDraft();
     }
 
     async function copySocialPost() {
@@ -662,7 +737,7 @@
 
     let _persistTimer = null;
     function schedulePersistProducts() {
-      // Only persist if we have a draft id; otherwise saveDraft() is the trigger.
+      // Only persist if we have a draft id; otherwise a save action creates it.
       if (!draftId) return;
       if (_persistTimer) clearTimeout(_persistTimer);
       _persistTimer = setTimeout(persistProducts, 600);
@@ -691,7 +766,7 @@
       if (!productInput) return setStatus('Enter an Amazon ASIN/URL or Walmart SKU/URL.', true);
       // Save the draft first if we don't have an id.
       if (!draftId) {
-        const saved = await saveDraft();
+        const saved = await saveCurrentDraftOnly(document.getElementById('pageStatus')?.value || 'draft');
         if (!saved) return;
       }
       try {
@@ -720,7 +795,7 @@
       const btn = document.getElementById('refreshPricingBtn');
       const statusEl = document.getElementById('pricingStatus');
       if (!draftId) {
-        const saved = await saveDraft();
+        const saved = await saveCurrentDraftOnly(document.getElementById('pageStatus')?.value || 'draft');
         if (!saved) return;
       }
       btn.disabled = true;
@@ -751,6 +826,8 @@
     }
 
     switchVoiceTab('record');
+    document.getElementById('pageStatus')?.addEventListener('change', (event) => setPageStatus(event.target.value));
+    setPageStatus('draft');
     initializeExistingDraft();
     renderProductList();
   </script>

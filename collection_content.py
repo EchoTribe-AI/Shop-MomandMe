@@ -792,6 +792,76 @@ def archive_published_page(public_slug: str) -> bool:
         conn.close()
 
 
+def restore_archived_page(public_slug: str) -> bool:
+    """Restore an archived page to draft state without publishing it."""
+    clean_slug = slugify(public_slug)
+    if not clean_slug:
+        return False
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT slug FROM collages WHERE slug = ?", (clean_slug,)).fetchone()
+        if not row:
+            return False
+        now = _now()
+        conn.execute("UPDATE collages SET status = 'draft' WHERE slug = ?", (clean_slug,))
+        conn.execute(
+            """
+            UPDATE collection_content_drafts
+            SET status = 'draft', updated_at = ?
+            WHERE public_slug = ? OR published_collage_slug = ?
+            """,
+            (now, clean_slug, clean_slug),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def archive_draft(draft_id: int) -> dict[str, str]:
+    draft = get_draft(draft_id)
+    if not draft:
+        raise CollectionContentError("Draft not found")
+    public_slug = slugify(
+        draft.get("published_collage_slug")
+        or draft.get("public_slug")
+        or f"walmart-{draft['source_collection_slug']}"
+    )
+    conn = _connect()
+    try:
+        now = _now()
+        if public_slug:
+            conn.execute("UPDATE collages SET status = 'archived' WHERE slug = ?", (public_slug,))
+        conn.execute(
+            """
+            UPDATE collection_content_drafts
+            SET status = 'archived', public_slug = ?, published_collage_slug = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (public_slug, public_slug, now, draft_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "public_slug": public_slug,
+        "public_url": f"/shop/{public_slug}?preview=1",
+        "preview_url": f"/shop/{public_slug}?preview=1",
+        "insights_url": f"/insights?creator_id={draft.get('creator_id') or DEFAULT_CREATOR_ID}",
+        "status": "archived",
+        "warnings": [],
+    }
+
+
+def publish_latest_draft_for_public_slug(public_slug: str) -> dict[str, str] | None:
+    """Publish the latest editor draft for a public slug, if one exists."""
+    draft = get_latest_draft_for_public_slug(public_slug)
+    if not draft:
+        return None
+    return publish_draft(int(draft["id"]))
+
+
 def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str, str]:
     products = draft.get("product_snapshot") or []
     if not products:

@@ -106,7 +106,7 @@ def get_collage(slug: str) -> dict[str, Any] | None:
 def list_collages(status: str = "published", limit: int = 50) -> list[dict[str, Any]]:
     status_filter = (status or "published").strip().lower()
     params: list[Any] = []
-    where = "COALESCE(status,'published') != 'archived'"
+    where = "1 = 1" if status_filter == "all" else "COALESCE(status,'published') != 'archived'"
     if status_filter != "all":
         normalize_status(status_filter)
         where = "COALESCE(status,'published') = ?"

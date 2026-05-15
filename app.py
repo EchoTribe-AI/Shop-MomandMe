@@ -1216,10 +1216,22 @@ def archer_collage_publish():
 
     Body: { "slug": "..." }
     """
+    import collection_content as cc
     import collection_service
     from product_api import ArcherAPI
     data = request.get_json() or {}
     slug = data.get('slug')
+    clean_slug = collection_service.normalize_slug(slug or '')
+    if not clean_slug:
+        return jsonify({'error': 'slug is required'}), 400
+
+    try:
+        draft_result = cc.publish_latest_draft_for_public_slug(clean_slug)
+        if draft_result:
+            return jsonify(draft_result)
+    except cc.CollectionContentError as exc:
+        return jsonify({'error': str(exc)}), 400
+
     archer = None
 
     def generate_link(asin, label):
@@ -1230,7 +1242,7 @@ def archer_collage_publish():
 
     try:
         result = collection_service.publish_collage(
-            slug,
+            clean_slug,
             shop_subdomain=SHOP_SUBDOMAIN,
             link_generator=generate_link,
         )
@@ -1258,6 +1270,21 @@ def archer_collage_archive():
     if not cc.archive_published_page(clean_slug):
         return jsonify({'error': 'collection not found'}), 404
     return jsonify({'ok': True, 'slug': clean_slug, 'status': 'archived'})
+
+
+@app.route('/archer/collage/restore', methods=['POST'])
+def archer_collage_restore():
+    """Restore an archived collage to draft status without publishing it."""
+    import collection_content as cc
+    import collection_service
+    data = request.get_json() or {}
+    slug = (data.get('slug') or '').strip()
+    if not slug:
+        return jsonify({'error': 'slug is required'}), 400
+    clean_slug = collection_service.normalize_slug(slug)
+    if not cc.restore_archived_page(clean_slug):
+        return jsonify({'error': 'collection not found'}), 404
+    return jsonify({'ok': True, 'slug': clean_slug, 'status': 'draft'})
 
 
 @app.route('/archer/collage/<slug>', methods=['GET'])
@@ -1874,7 +1901,10 @@ def walmart_collection_draft_page(collection_slug):
 
     body = request.get_json(silent=True) or {}
     try:
-        draft = cc.save_walmart_collection_draft(collection_slug, body, status='draft')
+        requested_status = (body.get('status') or 'draft').strip().lower()
+        if requested_status not in {'draft', 'published', 'archived'}:
+            requested_status = 'draft'
+        draft = cc.save_walmart_collection_draft(collection_slug, body, status=requested_status)
         preview = cc.materialize_preview(int(draft['id']))
         return jsonify({
             'draft_id': draft['id'],
@@ -1921,6 +1951,23 @@ def collection_content_draft_unpublish(draft_id):
         return jsonify({'error': str(exc)}), 400
     except Exception as exc:
         logging.exception('[WALMART_CONTENT] unpublish failed')
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/collection-content-drafts/<int:draft_id>/archive', methods=['POST'])
+def collection_content_draft_archive(draft_id):
+    guard = _require_walmart_admin_if_configured()
+    if guard:
+        return guard
+    import collection_content as cc
+
+    try:
+        result = cc.archive_draft(draft_id)
+        return jsonify(result)
+    except cc.CollectionContentError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        logging.exception('[WALMART_CONTENT] archive failed')
         return jsonify({'error': str(exc)}), 500
 
 

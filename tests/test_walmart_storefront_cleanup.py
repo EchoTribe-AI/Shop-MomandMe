@@ -450,6 +450,136 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertEqual(republish_resp.status_code, 400)
         self.assertIn("Archived page", republish_resp.get_json()["error"])
 
+    def test_republish_after_edit_updates_public_page_with_current_draft(self):
+        source = _walmart_collection(2)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Original Live Title",
+                "landing_intro": "Original live intro.",
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+        self.assertEqual(self.client.post(f"/api/collection-content-drafts/{draft_id}/publish").status_code, 200)
+
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            save_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "draft_id": draft_id,
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Republished Current Title",
+                "landing_intro": "Republished current intro.",
+            })
+        self.assertEqual(save_resp.status_code, 200)
+        before_republish = self.client.get("/shop/walmart-kids-room-character-favorites").get_data(as_text=True)
+        self.assertIn("Original Live Title", before_republish)
+        self.assertNotIn("Republished Current Title", before_republish)
+
+        republish_resp = self.client.post(f"/api/collection-content-drafts/{draft_id}/publish")
+        self.assertEqual(republish_resp.status_code, 200)
+        after_republish = self.client.get("/shop/walmart-kids-room-character-favorites").get_data(as_text=True)
+        self.assertIn("Republished Current Title", after_republish)
+        self.assertIn("Republished current intro.", after_republish)
+
+    def test_manage_publish_uses_latest_collection_editor_draft(self):
+        source = _walmart_collection(2)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Manage Original Title",
+                "landing_intro": "Manage original intro.",
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+        self.assertEqual(self.client.post(f"/api/collection-content-drafts/{draft_id}/publish").status_code, 200)
+
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            save_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "draft_id": draft_id,
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Manage Current Draft Title",
+                "landing_intro": "Manage current draft intro.",
+                "status": "draft",
+            })
+        self.assertEqual(save_resp.status_code, 200)
+        public_before = self.client.get("/shop/walmart-kids-room-character-favorites").get_data(as_text=True)
+        self.assertIn("Manage Original Title", public_before)
+        self.assertNotIn("Manage Current Draft Title", public_before)
+
+        manage_publish = self.client.post("/archer/collage/publish", json={
+            "slug": "walmart-kids-room-character-favorites",
+        })
+        self.assertEqual(manage_publish.status_code, 200)
+        public_after = self.client.get("/shop/walmart-kids-room-character-favorites").get_data(as_text=True)
+        self.assertIn("Manage Current Draft Title", public_after)
+        self.assertIn("Manage current draft intro.", public_after)
+
+    def test_unpublish_to_draft_hides_public_page_but_keeps_preview(self):
+        source = _walmart_collection(2)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Draft Toggle Title",
+                "landing_intro": "Draft toggle intro.",
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+        self.assertEqual(self.client.post(f"/api/collection-content-drafts/{draft_id}/publish").status_code, 200)
+
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            save_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "draft_id": draft_id,
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Hidden Draft Title",
+                "landing_intro": "Hidden draft intro.",
+                "status": "draft",
+            })
+        self.assertEqual(save_resp.status_code, 200)
+        unpublish_resp = self.client.post(f"/api/collection-content-drafts/{draft_id}/unpublish")
+        self.assertEqual(unpublish_resp.status_code, 200)
+        self.assertEqual(self.client.get("/shop/walmart-kids-room-character-favorites").status_code, 404)
+        preview = self.client.get("/shop/walmart-kids-room-character-favorites?preview=1")
+        self.assertEqual(preview.status_code, 200)
+        self.assertIn("Hidden Draft Title", preview.get_data(as_text=True))
+
+    def test_archive_draft_endpoint_hides_public_and_edit_loads_archived_state(self):
+        source = _walmart_collection(2)
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            draft_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Archive Endpoint Title",
+                "landing_intro": "Archive endpoint intro.",
+            })
+        self.assertEqual(draft_resp.status_code, 200)
+        draft_id = draft_resp.get_json()["draft_id"]
+        self.assertEqual(self.client.post(f"/api/collection-content-drafts/{draft_id}/publish").status_code, 200)
+
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            save_resp = self.client.post("/api/walmart/collections/kids-room-character-favorites/draft-page", json={
+                "draft_id": draft_id,
+                "public_slug": "walmart-kids-room-character-favorites",
+                "title": "Archived Current Title",
+                "landing_intro": "Archived current intro.",
+                "status": "archived",
+            })
+        self.assertEqual(save_resp.status_code, 200)
+        archive_resp = self.client.post(f"/api/collection-content-drafts/{draft_id}/archive")
+        self.assertEqual(archive_resp.status_code, 200)
+        self.assertEqual(self.client.get("/shop/walmart-kids-room-character-favorites").status_code, 404)
+        preview = self.client.get("/shop/walmart-kids-room-character-favorites?preview=1")
+        self.assertEqual(preview.status_code, 200)
+        self.assertIn("Archived Current Title", preview.get_data(as_text=True))
+
+        with patch.object(self.collection_content, "get_walmart_collection", return_value=source):
+            editor = self.client.get("/collections/walmart-kids-room-character-favorites/edit")
+        self.assertEqual(editor.status_code, 200)
+        self.assertIn("Archived Current Title", editor.get_data(as_text=True))
+
+        manage = self.client.get("/archer/posts/manage")
+        self.assertEqual(manage.status_code, 200)
+        manage_html = manage.get_data(as_text=True)
+        self.assertIn("archived", manage_html)
+        self.assertIn("Restore", manage_html)
+
     def test_add_product_accepts_amazon_and_walmart_inputs_with_retailer_metadata(self):
         self.assertEqual(self.app_module._parse_collection_product_input("B0AMZN0002"), ("amazon", "B0AMZN0002"))
         self.assertEqual(

@@ -8,12 +8,10 @@
   *, *::before, *::after { box-sizing: border-box; }
   :root { --bg:#f7f7f5; --surface:#fff; --surface2:#f2f2ef; --border:rgba(0,0,0,.12); --text:#1a1a17; --text3:#606058; --text4:#999890; --archer:#e85d26; --green:#27693a; --green-light:#e6f4eb; --amber:#8a5510; --amber-light:#fbeedd; --red:#a02828; --blue:#1c5fa6; --blue-light:#e8f2fc; --r:8px; --mono:'SF Mono','Fira Mono',monospace; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
-  .topbar { min-height:56px; background:var(--surface); border-bottom:.5px solid var(--border); display:flex; align-items:center; gap:14px; padding:10px 20px; position:sticky; top:0; z-index:10; flex-wrap:wrap; }
-  .dot { width:8px; height:8px; border-radius:50%; background:var(--archer); }
+  {% include 'partials/admin_header_styles.html' %}
   .page { max-width:1160px; margin:0 auto; padding:24px; }
-  .tb-right { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-  .tb-link, .btn { font-size:12px; color:var(--text3); text-decoration:none; padding:6px 10px; border:.5px solid var(--border); border-radius:var(--r); background:var(--surface); cursor:pointer; }
-  .tb-link.active, .btn.primary { color:#fff; background:var(--archer); border-color:var(--archer); }
+  .btn { font-size:12px; color:var(--text3); text-decoration:none; padding:6px 10px; border:.5px solid var(--border); border-radius:var(--r); background:var(--surface); cursor:pointer; }
+  .btn.primary { color:#fff; background:var(--archer); border-color:var(--archer); }
   .btn.green { color:var(--green); background:var(--green-light); border-color:rgba(39,105,58,.25); }
   .btn.blue { color:var(--blue); background:var(--blue-light); border-color:rgba(28,95,166,.25); }
   .btn.red { color:var(--red); }
@@ -41,8 +39,6 @@
   .actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
   .empty { padding:28px; color:var(--text4); text-align:center; }
   @media (max-width:900px) {
-    .topbar { align-items:flex-start; }
-    .tb-right { width:100%; margin-left:0; justify-content:flex-start; }
     .search-panel { align-items:stretch; flex-direction:column; }
     .row { grid-template-columns:1fr; gap:8px; padding:12px; }
     .header-row { display:none; }
@@ -53,13 +49,9 @@
 </style>
 </head>
 <body>
-<div class="topbar">
-  <div class="dot"></div><strong>EchoTribe</strong><span style="color:var(--text3);">Organic Operations</span>
-  <div class="tb-right">
-    {% set hub_link_class = "tb-link" %}
-    {% include 'partials/hub_nav.html' %}
-  </div>
-</div>
+{% set active = 'manage' %}
+{% set page_title = 'Organic Operations' %}
+{% include 'partials/admin_header.html' %}
 <main class="page">
   <div class="h1">Saved Posts & Collections</div>
   <div class="sub">Edit posts without touching the build queue. Manage collection drafts and published pages from the same Organic operations surface.</div>
@@ -79,6 +71,7 @@
       <div class="row collection-row header-row"><div>Status</div><div>Collection</div><div>Products</div><div>Created</div><div>Actions</div></div>
       {% for c in collages %}
       {% set is_draft = (c.status or 'published') != 'published' %}
+      {% set is_archived = (c.status or 'published') == 'archived' %}
       {% set campaign_text = (c.campaign_types or [])|join(' ') %}
       <div class="row collection-row searchable-row" data-search="{{ (c.slug ~ ' ' ~ (c.theme or '') ~ ' ' ~ (c.status or 'published') ~ ' ' ~ campaign_text ~ ' ' ~ (c.created_at or ''))|lower|e }}">
         <div class="cell" data-label="Status"><span class="pill {{ c.status or 'published' }}">{{ c.status or 'published' }}</span></div>
@@ -92,8 +85,12 @@
           <a class="btn primary" href="/archer/collage?collection={{ c.slug }}">Edit</a>
           {% endif %}
           <a class="btn" href="/shop/{{ c.slug }}{% if is_draft %}?preview=1{% endif %}" target="_blank">{% if is_draft %}Preview{% else %}View{% endif %}</a>
+          {% if is_archived %}
+          <button class="btn green" onclick="restoreCollection('{{ c.slug }}', this)">Restore</button>
+          {% else %}
           {% if is_draft %}<button class="btn green" onclick="publishCollection('{{ c.slug }}', this)">Publish</button>{% endif %}
           <button class="btn red" onclick="archiveCollection('{{ c.slug }}', this)">Archive</button>
+          {% endif %}
         </div>
       </div>
       {% else %}
@@ -200,6 +197,22 @@ async function archiveCollection(slug, btn) {
   } else {
     btn.closest('.row').remove();
     filterManageRows();
+  }
+}
+async function restoreCollection(slug, btn) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Restoring...';
+  const res = await fetch('/archer/collage/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    alert('Restore failed: ' + (d.error || res.status));
+    btn.disabled = false; btn.textContent = old;
+  } else {
+    location.reload();
   }
 }
 </script>

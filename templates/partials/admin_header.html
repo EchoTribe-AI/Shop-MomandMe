@@ -1,0 +1,16 @@
+{% set _active = active if active is defined else '' %}
+{% set _page_title = page_title if page_title is defined else '' %}
+{% set _token = admin_token if admin_token is defined and admin_token else '' %}
+{% set _home_href = '/walmart/trending-now?admin=1' ~ ('&admin_token=' ~ (_token|urlencode) if _token else '') %}
+{% set _create_slug = current_slug if current_slug is defined and current_slug else '' %}
+{% set _create_href = ('/collections/' ~ _create_slug ~ '/create-post' ~ ('?admin_token=' ~ (_token|urlencode) if _token else '')) if _create_slug else _home_href %}
+<div class="topbar">
+  <div class="dot"></div>
+  <strong>EchoTribe</strong>
+  {% if _page_title %}<span class="topbar-title">{{ _page_title }}</span>{% endif %}
+  <nav class="tb-right" aria-label="Admin navigation">
+    <a href="{{ _home_href }}" class="tb-link{% if _active == 'home' %} active{% endif %}">Home</a>
+    <a href="{{ _create_href }}" class="tb-link{% if _active == 'create' %} active{% endif %}">Create</a>
+    <a href="/archer/posts/manage" class="tb-link{% if _active == 'manage' %} active{% endif %}">Manage</a>
+  </nav>
+</div>

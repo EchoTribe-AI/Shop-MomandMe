@@ -21,14 +21,19 @@
   <style>
     :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; --amazon:#ff9900; --amazon-soft:#fff4e0; }
     * { box-sizing: border-box; }
+    {% include 'partials/admin_header_styles.html' %}
     body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:linear-gradient(180deg, var(--bg), #fff 42%); }
     .page { max-width: 520px; margin:0 auto; padding-bottom: 34px; }
     .hero { padding: 22px 18px 14px; position: sticky; top: 0; z-index: 5; background: rgba(255,248,246,.94); backdrop-filter: blur(12px); border-bottom:1px solid var(--line); }
+    .admin-mode .hero { position:static; top:auto; background:transparent; backdrop-filter:none; border-bottom:0; padding-top:18px; }
     .eyebrow { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:var(--soft); color:var(--accent); font-size:12px; font-weight:800; letter-spacing:.02em; }
+    .admin-mode .eyebrow { display:none; }
     h1 { margin:12px 0 6px; font-size:32px; line-height: .98; letter-spacing:-.04em; }
+    .admin-mode h1 { margin-top:0; font-size:26px; line-height:1.05; }
     .subhead { margin:0; color:var(--muted); font-size:14px; line-height:1.45; }
     .refreshed { margin-top:10px; color:rgba(26,26,23,.45); font-size:11px; }
     .admin-bar { margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-top:1px solid var(--line); padding-top:10px; }
+    .admin-mode .admin-bar { display:block; border-top:0; padding-top:0; margin-top:10px; }
     .admin-note { color:rgba(26,26,23,.58); font-size:11px; line-height:1.35; font-weight:750; }
     .admin-link { flex:0 0 auto; text-decoration:none; color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; }
     .workbook-panel { margin-top:10px; border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:8px; }
@@ -107,14 +112,19 @@
     .lp-chat-send { border: none; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; font-size: 12px; padding: 0 12px; cursor: pointer; }
   </style>
 </head>
-<body>
+<body class="{% if admin_mode %}admin-mode{% endif %}">
+  {% if admin_mode %}
+    {% set active = 'home' %}
+    {% set page_title = 'Trends' %}
+    {% include 'partials/admin_header.html' %}
+  {% endif %}
   <main class="page">
     <header class="hero">
       <div class="eyebrow">🔥 The Mommy &amp; Me Collective · Top Finds</div>
       <h1>What’s Trending Now <span style="font-size:0.55em;font-weight:600;opacity:.65;">· The Mommy &amp; Me Collective</span></h1>
       <p class="subhead">Fresh finds from Walmart and Amazon, hand-picked by The Mommy &amp; Me Collective — home upgrades, kids’ picks, everyday deals, and more.</p>
       <div class="refreshed">Updated: {{ data['last_refreshed'] or 'Today' }}</div>
-      {% include 'partials/public_shop_nav.html' %}
+      {% if not admin_mode %}{% include 'partials/public_shop_nav.html' %}{% endif %}
       <div class="retailer-tabs" role="group" aria-label="Filter by retailer">
         <button class="retailer-tab tab-all" aria-pressed="true" onclick="filterRetailer('all', this)">All</button>
         <button class="retailer-tab tab-walmart" aria-pressed="false" onclick="filterRetailer('walmart', this)">Walmart</button>
@@ -123,10 +133,6 @@
       {% if admin_mode %}
         <div class="admin-bar">
           <div class="admin-note">Choose a section below → click <strong>Create post</strong> → add your voice → Save draft → Preview → Publish.</div>
-          <div style="display:flex;gap:6px;flex-shrink:0;">
-            {% set hub_link_class = "admin-link" %}
-            {% include 'partials/hub_nav.html' %}
-          </div>
         </div>
         <div class="workbook-panel">
           <div class="workbook-panel-label">Workbook Import</div>
