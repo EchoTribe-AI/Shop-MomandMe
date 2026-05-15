@@ -1593,6 +1593,9 @@ def walmart_trending_now_page():
     admin_mode = request.args.get('admin') == '1'
     admin_token = (request.args.get('admin_token') or '').strip()
     workbooks = discover_workbooks() if admin_mode else []
+    shop_nav_items = _public_shop_nav('trends')
+    if admin_mode:
+        shop_nav_items = [item for item in shop_nav_items if item['key'] == 'trends']
     return render_template(
         'walmart_trending_now.html',
         data=data,
@@ -1600,7 +1603,7 @@ def walmart_trending_now_page():
         admin_token=admin_token,
         workbooks=workbooks,
         shop_subdomain=SHOP_SUBDOMAIN,
-        public_nav_items=_public_shop_nav('trends'),
+        public_nav_items=shop_nav_items,
         nav_active='trends',
     )
 
@@ -1833,7 +1836,7 @@ def walmart_collection_generate_post(collection_slug):
             platform=body.get('platform') or 'facebook_group',
             tone=body.get('tone') or 'warm mom-to-mom',
             audience_context=body.get('audience_context') or 'busy moms looking for timely creator finds',
-            allow_demo_fallback=bool(body.get('demo_fallback')),
+            allow_demo_fallback=False,
             regenerate_target=body.get('regenerate_target') or '',
         )
         draft_id = body.get('draft_id')

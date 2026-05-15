@@ -172,9 +172,6 @@
           <div class="actions">
             <button class="ghost" onclick="useStephSampleVoice()" type="button">Use Steph sample voice</button>
             <button onclick="generateFromPaste()" type="button">Generate from pasted notes</button>
-            <label style="display:flex;align-items:center;gap:8px;margin:0;text-transform:none;letter-spacing:0;font-size:12px;color:var(--muted);">
-              <input id="demoFallback" type="checkbox" style="width:auto;" checked> Demo fallback if AI key is missing or errors
-            </label>
           </div>
         </div>
         <div class="row">
@@ -488,7 +485,6 @@
         const body = payload();
         if (options.voiceText) body.voice_source_text = options.voiceText;
         if (options.regenerateTarget) body.regenerate_target = options.regenerateTarget;
-        body.demo_fallback = document.getElementById('demoFallback')?.checked || false;
         body.audience_context = `busy moms looking for timely ${RETAILER_LABEL || 'creator'} finds`;
         const res = await fetch(`/api/walmart/collections/${collectionSlug}/generate-post`, {
           method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify(body)
