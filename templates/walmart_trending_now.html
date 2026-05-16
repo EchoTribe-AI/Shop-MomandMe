@@ -186,7 +186,7 @@
             {% if display_description %}<p class="section-desc">{{ display_description }}</p>{% endif %}
           </div>
           {% if admin_mode %}
-            <a class="admin-action" href="/collections/{{ collection['slug'] }}/create-post?creator_id=everydaywithsteph{% if admin_token %}&admin_token={{ admin_token|urlencode }}{% endif %}">Create post</a>
+            <a class="admin-action" href="/collections/{{ collection['slug'] }}/create-post?creator_id=everydaywithsteph">Create post</a>
           {% endif %}
         </div>
         {% if collection['items'] %}
@@ -365,8 +365,10 @@
         const resp = await fetch('/admin/walmart-trends/bootstrap', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'X-Walmart-Trends-Admin-Token': '{{ admin_token|e }}'
+            'Content-Type': 'application/json'
+            // Auth: signed session cookie travels automatically with
+            // same-origin fetch. Legacy X-Walmart-Trends-Admin-Token
+            // header remains accepted server-side for external automation.
           },
           body: JSON.stringify({ workbook: path })
         });

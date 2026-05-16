@@ -278,7 +278,10 @@
 
   <script>
     const collectionSlug = {{ collection['slug']|tojson }};
-    const adminToken = {{ admin_token|tojson }};
+    // Auth now travels via signed Flask session cookie set at /admin/login.
+    // The legacy adminToken / X-Walmart-Trends-Admin-Token header path is
+    // retained server-side for backwards compatibility but is no longer
+    // embedded in templates (see feature/pg-launch admin-auth refactor).
     const demoAuthAllowed = {{ demo_auth_allowed|tojson }};
     const existingDraft = {{ existing_draft|tojson }};
     const shopSubdomain = {{ shop_subdomain|tojson }};
@@ -463,8 +466,11 @@
     }
 
     function authHeaders(extra={}) {
+      // Session cookie travels automatically with same-origin fetch.
+      // We still send the demo header in dev contexts so the back-compat
+      // code path keeps working when the session isn't set (e.g. an old
+      // tab open before sign-in completed).
       const headers = {...extra};
-      if (adminToken) headers['X-Walmart-Trends-Admin-Token'] = adminToken;
       if (demoAuthAllowed) headers['X-Walmart-Content-Demo'] = '1';
       return headers;
     }
