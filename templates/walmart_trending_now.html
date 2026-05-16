@@ -46,6 +46,7 @@
     .workbook-status { font-size:11px; line-height:1.4; color:rgba(26,26,23,.6); min-height:14px; }
     .workbook-status.ok { color:var(--green); font-weight:750; }
     .workbook-status.err { color:#c0392b; font-weight:750; }
+    .admin-error { margin-top:10px; padding:10px 12px; border:1px solid #ffd1c7; background:#fff0ed; color:#a02828; border-radius:14px; font-size:12px; font-weight:800; line-height:1.4; }
     .workbook-none { font-size:11px; color:rgba(26,26,23,.5); font-style:italic; }
     .public-shop-nav { margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .public-shop-link { color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; text-decoration:none; }
@@ -134,6 +135,9 @@
         <div class="admin-bar">
           <div class="admin-note">Choose a section below → click <strong>Create post</strong> → add your voice → Save draft → Preview → Publish.</div>
         </div>
+        {% if admin_error %}
+          <div class="admin-error">{{ admin_error }}</div>
+        {% endif %}
         <div class="workbook-panel">
           <div class="workbook-panel-label">Workbook Import</div>
           {% if workbooks %}
@@ -364,6 +368,7 @@
       try {
         const resp = await fetch('/admin/walmart-trends/bootstrap', {
           method: 'POST',
+          credentials: 'same-origin',
           headers: {
             'Content-Type': 'application/json'
             // Auth: signed session cookie travels automatically with

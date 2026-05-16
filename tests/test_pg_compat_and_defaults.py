@@ -401,6 +401,42 @@ class FreshPgLaunchSafetyTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_data(as_text=True), "ok")
 
+    def test_app_import_has_no_bootstrap_or_legacy_prompt_constant_reads(self):
+        src = (self.repo / "app.py").read_text()
+
+        self.assertNotIn("db_schema.bootstrap()", src)
+        self.assertNotIn("STEPH_CAPTION_PROMPT", src)
+        self.assertNotIn("STEPH_AD_COPY_PROMPT", src)
+        self.assertNotIn("STEPH_ORGANIC_POSTS_PROMPT", src)
+        self.assertNotIn("STEPH_CAMPAIGN_PACKAGE_PROMPT", src)
+        self.assertIn("build_caption_prompt()", src)
+        self.assertIn("build_ad_copy_prompt()", src)
+
+    def test_workbook_import_fetch_sends_same_origin_credentials(self):
+        src = (self.repo / "templates" / "walmart_trending_now.html").read_text()
+
+        self.assertIn("fetch('/admin/walmart-trends/bootstrap'", src)
+        self.assertIn("credentials: 'same-origin'", src)
+
+    def test_admin_trends_page_surfaces_loader_errors_instead_of_500(self):
+        import app
+
+        # Make sure a prior test did not mark the app schema as already ready
+        # against a different temporary database.
+        app._SCHEMA_READY = True
+
+        client = app.app.test_client()
+        with client.session_transaction() as sess:
+            sess["admin_authed"] = True
+
+        with patch("walmart_trends.get_trending_page_data", side_effect=RuntimeError("boom")):
+            resp = client.get("/walmart/trending-now?admin=1")
+
+        self.assertEqual(resp.status_code, 200)
+        html = resp.get_data(as_text=True)
+        self.assertIn("Trending data could not load: boom", html)
+        self.assertIn("Workbook Import", html)
+
     def test_admin_trends_page_renders_with_empty_tables(self):
         tmp = tempfile.TemporaryDirectory()
         db_path = os.path.join(tmp.name, "empty-trends.db")

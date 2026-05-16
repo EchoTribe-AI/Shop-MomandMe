@@ -5,29 +5,20 @@ import logging
 import sqlite3
 import time
 import tempfile
+import threading
 import requests as req
 from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for, session
 from datetime import timedelta as _admin_timedelta
 from dotenv import load_dotenv
 import anthropic
 
-# ── Multi-creator schema migrations + Steph seed (idempotent) ────────────────
-# CRITICAL: bootstrap MUST run before importing prompts. The legacy STEPH_*
-# constants in prompts.py are PEP-562 lazy attrs that resolve via DB queries
-# on first import — if the creators table doesn't exist yet, the prompts
-# import crashes the whole app at boot. Bootstrap creates the tables first.
 import db_schema
-try:
-    db_schema.bootstrap()
-except Exception as _e:
-    logging.warning(f"[BOOT] db_schema.bootstrap failed: {_e}")
-
 import storefront_chat
 from product_api import ProductResolver, detect_category
 from prompts import (
     build_chat_prompt, build_chat_products,
-    STEPH_CAPTION_PROMPT, STEPH_AD_COPY_PROMPT,
-    STEPH_ORGANIC_POSTS_PROMPT, STEPH_CAMPAIGN_PACKAGE_PROMPT,
+    build_caption_prompt, build_ad_copy_prompt,
+    build_organic_posts_prompt, build_campaign_package_prompt,
 )
 
 load_dotenv()  # loads .env locally; Replit Secrets override in production
@@ -76,6 +67,25 @@ def _fmt_date(v) -> str:
     if hasattr(v, 'date'):
         return str(v.date())
     return str(v)[:10]
+
+
+_SCHEMA_READY = False
+_SCHEMA_READY_LOCK = threading.Lock()
+
+
+def _ensure_schema_ready() -> None:
+    """Create/patch schema lazily without blocking app import or /healthz."""
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
+    with _SCHEMA_READY_LOCK:
+        if _SCHEMA_READY:
+            return
+        started = time.time()
+        db_schema.init_schema()
+        db_schema.seed_default_creator()
+        _SCHEMA_READY = True
+        logging.info("[BOOT] schema ready in %.2fs", time.time() - started)
 
 
 def _public_shop_nav(active: str = '') -> list[dict]:
@@ -170,6 +180,7 @@ def chat():
         return jsonify({'error': 'message is required'}), 400
 
     try:
+        _ensure_schema_ready()
         system_prompt, chat_products = _get_chat_context()
         client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
         message = client.messages.create(
@@ -653,6 +664,7 @@ def archer_get_product(asin):
 
 @app.route('/archer/generate_caption', methods=['POST'])
 def archer_generate_caption():
+    _ensure_schema_ready()
     data = request.get_json() or {}
     products_str = data.get('products', '')
     product_list = data.get('product_list', [])   # [{asin, product_name, brand, ...}, ...]
@@ -661,7 +673,7 @@ def archer_generate_caption():
         message = client.messages.create(
             model='claude-sonnet-4-6',
             max_tokens=200,
-            system=STEPH_CAPTION_PROMPT,
+            system=build_caption_prompt(),
             messages=[{"role": "user", "content": f"Write a caption for these products: {products_str}"}]
         )
         caption = message.content[0].text.strip()
@@ -754,11 +766,12 @@ def archer_generate_organic_posts():
             }
 
     try:
+        _ensure_schema_ready()
         client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
         message = client.messages.create(
             model='claude-sonnet-4-6',
             max_tokens=6000,
-            system=STEPH_ORGANIC_POSTS_PROMPT,
+            system=build_organic_posts_prompt(),
             messages=[{
                 "role": "user",
                 "content": (
@@ -1054,11 +1067,12 @@ def archer_generate_campaign_package():
         )
 
     try:
+        _ensure_schema_ready()
         client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
         message = client.messages.create(
             model='claude-sonnet-4-6',
             max_tokens=8000,
-            system=STEPH_CAMPAIGN_PACKAGE_PROMPT,
+            system=build_campaign_package_prompt(),
             messages=[{
                 "role": "user",
                 "content": (
@@ -1760,9 +1774,29 @@ def walmart_trending_now_page():
 
     from walmart_trends import get_trending_page_data, discover_workbooks
 
-    data = get_trending_page_data()
+    admin_error = ''
+    try:
+        _ensure_schema_ready()
+        started = time.time()
+        data = get_trending_page_data()
+        logging.info(
+            "[TRENDING] loaded page data in %.2fs collections=%s",
+            time.time() - started,
+            len(data.get('collections') or []),
+        )
+    except Exception as exc:
+        logging.exception("[TRENDING] failed to load page data")
+        data = {'last_refreshed': '', 'collections': []}
+        admin_error = f"Trending data could not load: {exc}"
     admin_token = (request.args.get('admin_token') or '').strip()
-    workbooks = discover_workbooks() if admin_mode else []
+    workbooks = []
+    if admin_mode:
+        try:
+            workbooks = discover_workbooks()
+        except Exception as exc:
+            logging.exception("[TRENDING] failed to discover workbooks")
+            msg = f"Workbook discovery failed: {exc}"
+            admin_error = f"{admin_error} {msg}".strip() if admin_error else msg
     shop_nav_items = _public_shop_nav('trends')
     if admin_mode:
         shop_nav_items = [item for item in shop_nav_items if item['key'] == 'trends']
@@ -1775,6 +1809,7 @@ def walmart_trending_now_page():
         shop_subdomain=SHOP_SUBDOMAIN,
         public_nav_items=shop_nav_items,
         nav_active='trends',
+        admin_error=admin_error,
     )
 
 
@@ -1783,6 +1818,7 @@ def shop_trends():
     """Public Walmart trends home for the shop subdomain/menu."""
     from walmart_trends import get_trending_page_data
     try:
+        _ensure_schema_ready()
         data = get_trending_page_data()
     except Exception as exc:
         logging.warning("[WALMART_TRENDS] public trends unavailable: %s", exc)
@@ -1796,6 +1832,7 @@ def shop_trends():
         shop_subdomain=SHOP_SUBDOMAIN,
         public_nav_items=_public_shop_nav('trends'),
         nav_active='trends',
+        admin_error='',
     )
 
 
@@ -1804,6 +1841,7 @@ def walmart_trending_now_api():
     """JSON source for the Walmart What's Trending Now page."""
     from walmart_trends import get_trending_page_data
 
+    _ensure_schema_ready()
     return jsonify(get_trending_page_data())
 
 
@@ -1828,6 +1866,7 @@ def _editor_retailer_context(collection):
 
 def _render_collection_create_post(collection_slug):
     """Shared handler for the (retailer-agnostic) create-post editor."""
+    _ensure_schema_ready()
     import collection_content as cc
 
     collection = cc.get_walmart_collection(collection_slug)
@@ -1862,6 +1901,7 @@ def _render_collection_create_post(collection_slug):
 
 def _render_collection_page_edit(public_slug):
     """Shared handler for the (retailer-agnostic) page editor."""
+    _ensure_schema_ready()
     import collection_content as cc
 
     draft = cc.get_latest_draft_for_public_slug(public_slug)
@@ -2390,6 +2430,7 @@ def admin_walmart_trends_bootstrap():
     guard = _require_walmart_trends_admin()
     if guard:
         return guard
+    _ensure_schema_ready()
     from walmart_trends import (
         DEFAULT_WORKBOOK, RefreshAlreadyRunning, WalmartTrendRefreshService,
         discover_workbooks, parse_workbook_filename,
@@ -2785,6 +2826,7 @@ def archer_posts_manage_page():
     guard = _require_admin_page()
     if guard:
         return guard
+    _ensure_schema_ready()
     import collection_service
     import posts as _posts
     creator_id = request.args.get('creator_id', 'everydaywithsteph')
@@ -3451,6 +3493,7 @@ def admin_creator_get(creator_id):
 
 @app.route('/archer/generate_ad_copy', methods=['POST'])
 def archer_generate_ad_copy():
+    _ensure_schema_ready()
     from product_api import ArcherAPI
     data = request.get_json() or {}
     products = data.get('products', '')
@@ -3464,7 +3507,7 @@ def archer_generate_ad_copy():
         message = client.messages.create(
             model='claude-sonnet-4-6',
             max_tokens=800,
-            system=STEPH_AD_COPY_PROMPT,
+            system=build_ad_copy_prompt(),
             messages=[{
                 "role": "user",
                 "content": f"Write 3 ad copy variants for a {campaign_type} linking to {routing}. Products: {products}"
