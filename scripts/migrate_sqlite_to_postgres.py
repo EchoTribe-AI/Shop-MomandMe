@@ -144,7 +144,8 @@ def migrate_table(sc, pc, table: str, pk: str | list[str], *, batch: int = 500) 
 # ── Bootstrap PostgreSQL schema first ─────────────────────────────────────────
 logging.info("Bootstrapping PostgreSQL schema …")
 import db_schema
-db_schema.bootstrap()
+db_schema.init_schema()
+db_schema.seed_default_creator()
 logging.info("Schema ready.")
 
 # ── Migrate tables ─────────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ wheels/
 .env
 
 # Data files with PII / earnings
+data/archer_catalog.db
 data/Amazon_Earnings_2026.csv
 data/2025-Q12026 amazon asin earnings.csv
 data/levanta_matches.json

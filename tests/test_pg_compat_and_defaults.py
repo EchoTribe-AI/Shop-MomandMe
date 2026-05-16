@@ -15,7 +15,9 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -342,6 +344,89 @@ class PostSmartLinkDefaultCampaignTest(_CollectionContentBaseCase):
         # The fallback derivation order: collection_slug → angle → post id.
         self.assertIn("val('collection_slug') || val('angle') || `organic-post-${postId}`", html,
                       "defaultCampaign must derive from slug → angle → post id")
+
+
+class FreshPgLaunchSafetyTest(unittest.TestCase):
+    """Clean PG launch must not auto-copy historical SQLite data at startup."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.repo = pathlib.Path(__file__).resolve().parents[1]
+
+    def test_bootstrap_does_not_auto_seed_from_sqlite(self):
+        import inspect
+        import db_schema
+
+        bootstrap_src = inspect.getsource(db_schema.bootstrap)
+        full_src = pathlib.Path(db_schema.__file__).read_text()
+
+        self.assertIn("init_schema()", bootstrap_src)
+        self.assertIn("seed_default_creator()", bootstrap_src)
+        self.assertNotIn("_seed_from_sqlite_snapshot", full_src)
+        self.assertNotIn("_seed_thread_started", full_src)
+        self.assertNotIn("_SQLITE_SEED_TABLES", full_src)
+        self.assertNotIn("threading.Thread", bootstrap_src)
+        self.assertNotIn("os.path.exists(DB_PATH)", bootstrap_src)
+
+    def test_migration_script_uses_explicit_schema_setup_not_bootstrap(self):
+        script = self.repo / "scripts" / "migrate_sqlite_to_postgres.py"
+        src = script.read_text()
+
+        self.assertIn("db_schema.init_schema()", src)
+        self.assertIn("db_schema.seed_default_creator()", src)
+        self.assertNotIn("db_schema.bootstrap()", src)
+
+    def test_sqlite_catalog_is_ignored_and_not_tracked(self):
+        gitignore = (self.repo / ".gitignore").read_text()
+        self.assertIn("data/archer_catalog.db", gitignore)
+
+        tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "data/archer_catalog.db"],
+            cwd=self.repo,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertNotEqual(
+            tracked.returncode,
+            0,
+            "data/archer_catalog.db must not be tracked on the fresh PG launch branch",
+        )
+
+    def test_healthz_returns_ok_without_auth(self):
+        import app
+
+        client = app.app.test_client()
+        resp = client.get("/healthz")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_data(as_text=True), "ok")
+
+    def test_admin_trends_page_renders_with_empty_tables(self):
+        tmp = tempfile.TemporaryDirectory()
+        db_path = os.path.join(tmp.name, "empty-trends.db")
+        saved_db_url = os.environ.pop("DATABASE_URL", None)
+        os.environ["CACHE_DB_PATH"] = db_path
+        try:
+            import db_schema
+            import walmart_trends
+            import app
+
+            db_schema.DB_PATH = db_path
+            walmart_trends.DB_PATH = db_path
+            db_schema.bootstrap()
+
+            client = app.app.test_client()
+            with client.session_transaction() as sess:
+                sess["admin_authed"] = True
+            resp = client.get("/walmart/trending-now?admin=1")
+            self.assertEqual(resp.status_code, 200)
+            html = resp.get_data(as_text=True)
+            self.assertIn("EchoTribe", html)
+            self.assertIn("Home", html)
+        finally:
+            if saved_db_url is not None:
+                os.environ["DATABASE_URL"] = saved_db_url
+            tmp.cleanup()
 
 
 if __name__ == "__main__":
