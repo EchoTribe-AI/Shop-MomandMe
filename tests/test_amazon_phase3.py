@@ -134,6 +134,54 @@ class TestUpdateProductEnrichment(unittest.TestCase):
         product = self.store.get_product("B001")
         self.assertEqual(product["brand"], "TestBrand")
 
+    # --- product_title regression (Issue 2: enrichment said "30 updated"
+    # but cards still showed "Amazon find") --------------------------------
+
+    def test_update_writes_product_title_from_enrichment_payload(self):
+        # Without this write, cards in /trends fall back to the literal
+        # "Amazon find" placeholder forever, even after enrichment runs.
+        self.store.update_product_enrichment(
+            "B001",
+            {"product_title": "Live Title From Creators API"},
+            status="ok",
+        )
+        product = self.store.get_product("B001")
+        self.assertEqual(product["product_title"], "Live Title From Creators API")
+
+    def test_update_preserves_existing_title_when_payload_is_blank(self):
+        # Enrichment runs that don't have a title (rare but possible) must
+        # NOT clobber a populated workbook title with an empty string.
+        self.store.update_product_enrichment(
+            "B001",
+            {"product_title": "Real Title"},
+            status="ok",
+        )
+        self.store.update_product_enrichment(
+            "B001",
+            {"product_title": ""},  # empty — should preserve
+            status="ok",
+        )
+        product = self.store.get_product("B001")
+        self.assertEqual(product["product_title"], "Real Title")
+
+    def test_update_returns_rowcount_one_for_existing_asin(self):
+        # Rowcount visibility lets the admin enrich button distinguish
+        # "30 real updates" from "30 successful no-ops on missing rows".
+        rows = self.store.update_product_enrichment(
+            "B001", {"image_url": "https://x.com/a.jpg"}, status="ok",
+        )
+        self.assertEqual(rows, 1)
+
+    def test_update_returns_rowcount_zero_when_asin_does_not_exist(self):
+        # Missing-row case — surfaces the "import never inserted this ASIN"
+        # data gap that previously hid behind the success counter.
+        rows = self.store.update_product_enrichment(
+            "B999_DOES_NOT_EXIST",
+            {"image_url": "https://x.com/a.jpg"},
+            status="ok",
+        )
+        self.assertEqual(rows, 0)
+
 
 # ---------------------------------------------------------------------------
 # AmazonURLGeniusLinkService
@@ -236,6 +284,23 @@ class TestAmazonProductEnricher(unittest.TestCase):
         self.assertEqual(product["image_url"], "https://img.amazon.com/b010.jpg")
         self.assertEqual(product["brand"], "WidgetCo")
 
+    def test_enrich_via_crawlbase_writes_product_title_from_name_field(self):
+        # Crawlbase typically returns `name` (sometimes `title`). The mapping
+        # in _enrich_via_crawlbase must lift that into the data dict so the
+        # PG row gets product_title populated. Same regression class as the
+        # Creators-side fix: without this, cards render "Amazon find" even
+        # after enrichment.
+        self.enricher.client.token = "fake-token"
+        self.enricher.client.get_amazon_product = MagicMock(return_value={
+            "name": "Crawlbase Scraped Title",
+            "imageUrl": "https://img.amazon.com/b010.jpg",
+            "price": "9.99",
+        })
+        self.enricher.enrich("B010")
+        product = self.store.get_product("B010")
+        self.assertEqual(product["product_title"], "Crawlbase Scraped Title")
+        self.assertEqual(product["enrichment_status"], "ok")
+
     def test_enrich_sets_pending_when_crawlbase_returns_none(self):
         self.enricher.client.token = "fake-token"
         self.enricher.client.get_amazon_product = MagicMock(return_value=None)
@@ -290,6 +355,16 @@ class TestAmazonEnrichBatch(unittest.TestCase):
         counts = self.enricher.enrich_batch(["B011", "B012"])
         self.assertIn("skipped", counts)
         self.assertIn("pending", counts)
+
+    def test_batch_counts_include_missing_rows_field(self):
+        # The missing_rows counter is what surfaces "the API said success
+        # but the ASIN didn't exist in PG" — the class of bug that made
+        # /admin/amazon-trends/enrich report "30 updated" while the page
+        # still showed defaults.
+        self.enricher.client.token = None
+        counts = self.enricher.enrich_batch(["B012"])
+        self.assertIn("missing_rows", counts)
+        self.assertEqual(counts["missing_rows"], 0)
 
 
 # ---------------------------------------------------------------------------

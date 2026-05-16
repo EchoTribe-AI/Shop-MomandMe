@@ -440,20 +440,27 @@ class AmazonTrendStore:
         data: dict[str, Any],
         status: str = "ok",
         error: str = "",
-    ) -> None:
+    ) -> int:
         """Update display metadata on an existing amazon_trend_products row.
 
         Never overwrites a non-empty field with an empty value — callers pass
         whatever they have and COALESCE preserves the best-known value.
         Persists the Creators API fields (availability_type, availability_message,
         parent_asin, detail_page_url) when present.
+
+        Returns the number of rows actually updated. Zero means the ASIN row
+        didn't exist yet — caller should treat that as a data gap (typically
+        means the workbook import never inserted this ASIN). Surfaced so the
+        admin enrichment button can distinguish "30 successful writes" from
+        "30 successful no-ops because no rows matched".
         """
         conn = _connect()
         try:
-            conn.execute(
+            cur = conn.execute(
                 """
                 UPDATE amazon_trend_products
                 SET
+                    product_title        = COALESCE(NULLIF(?, ''), product_title),
                     image_url            = COALESCE(NULLIF(?, ''), image_url),
                     current_price        = COALESCE(?, current_price),
                     price_display        = COALESCE(NULLIF(?, ''), price_display),
@@ -470,6 +477,7 @@ class AmazonTrendStore:
                 WHERE asin = ?
                 """,
                 (
+                    data.get("product_title") or "",
                     data.get("image_url") or "",
                     data.get("current_price"),
                     data.get("price_display") or "",
@@ -484,7 +492,14 @@ class AmazonTrendStore:
                     asin,
                 ),
             )
+            updated = int(getattr(cur, "rowcount", 0) or 0)
             conn.commit()
+            if updated == 0:
+                logging.warning(
+                    "[AMAZON_TRENDS] enrichment update affected 0 rows for asin=%s "
+                    "(row may not exist in amazon_trend_products yet)", asin,
+                )
+            return updated
         finally:
             conn.close()
 
@@ -667,11 +682,15 @@ class AmazonProductEnricher:
         Primary path is Creators API GetItems in batches of 10. Any ASIN that
         is missing from the Creators response OR lacks critical fields (no
         image AND no price) is routed to Crawlbase concurrently.
-        Returns counts {ok, pending, fallback, skipped, creators, crawlbase}.
+        Returns counts {ok, pending, fallback, skipped, creators, crawlbase,
+        missing_rows}. `missing_rows` increments when an UPDATE affects zero
+        rows in amazon_trend_products — useful for detecting "enrichment
+        succeeded but the ASIN row never existed" (workbook gap) so the
+        admin UI can surface that distinct from real successes.
         """
         counts: dict[str, int] = {
             "ok": 0, "pending": 0, "fallback": 0, "skipped": 0,
-            "creators": 0, "crawlbase": 0,
+            "creators": 0, "crawlbase": 0, "missing_rows": 0,
         }
         to_run: list[str] = []
         for asin in asins:
@@ -718,8 +737,14 @@ class AmazonProductEnricher:
             parsed = creators_results.get(asin)
             if parsed and self._has_critical_fields(parsed):
                 try:
-                    self.store.update_product_enrichment(asin, parsed, "ok")
-                    counts["creators"] += 1
+                    rows = self.store.update_product_enrichment(asin, parsed, "ok")
+                    if rows == 0:
+                        # API returned good data but no row to put it in. Falling
+                        # through to Crawlbase won't help — same problem. Surface
+                        # via the missing_rows counter instead.
+                        counts["missing_rows"] += 1
+                    else:
+                        counts["creators"] += 1
                 except Exception as exc:
                     logging.warning("[AMAZON_TRENDS] persist failed for %s: %s", asin, exc)
                     fallback_asins.append(asin)
@@ -781,6 +806,7 @@ class AmazonProductEnricher:
                 return existing
             price_value = _to_float(item.get("current_price") or item.get("price"))
             data = {
+                "product_title": item.get("name") or item.get("title") or item.get("product_title") or "",
                 "image_url": item.get("image_url") or item.get("imageUrl") or item.get("image") or "",
                 "current_price": price_value,
                 "price_display": _price_display(price_value)

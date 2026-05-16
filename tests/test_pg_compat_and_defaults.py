@@ -544,5 +544,98 @@ class FreshPgLaunchSafetyTest(unittest.TestCase):
             tmp.cleanup()
 
 
+class TrendsCreatePostNarrowQueryTest(unittest.TestCase):
+    """Issue 1: opening /collections/<slug>/create-post was taking 6+s because
+    cc.get_walmart_collection delegated to get_trending_page_data() which loads
+    every active collection. The fix routes through a narrow per-slug query in
+    WalmartTrendStore.get_collection_by_slug instead."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp.name, "narrow-query.db")
+        self._saved_db_url = os.environ.pop("DATABASE_URL", None)
+        os.environ["CACHE_DB_PATH"] = self.db_path
+
+        import db_schema
+        import walmart_trends
+        db_schema.DB_PATH = self.db_path
+        walmart_trends.DB_PATH = self.db_path
+        db_schema.bootstrap()
+        self.db_schema = db_schema
+        self.walmart_trends = walmart_trends
+
+    def tearDown(self):
+        if self._saved_db_url is not None:
+            os.environ["DATABASE_URL"] = self._saved_db_url
+        self.tmp.cleanup()
+
+    def _seed_walmart_collection(self, slug: str = "checkpoint-coll"):
+        conn = self.walmart_trends._connect()
+        conn.execute(
+            "INSERT OR REPLACE INTO walmart_products "
+            "(sku, item_name, brand) VALUES ('WM_X', 'Product X', 'BrandX')"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO walmart_collections "
+            "(slug, name, source_type, is_active, display_order, metadata_json, retailer) "
+            f"VALUES ('{slug}', 'Checkpoint', 'workbook_bootstrap', 1, 1, '{{}}', 'walmart')"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO walmart_collection_items "
+            "(collection_slug, sku, display_order, badges_json, retailer) "
+            f"VALUES ('{slug}', 'WM_X', 0, '[]', 'walmart')"
+        )
+        conn.commit()
+        conn.close()
+
+    def test_get_walmart_collection_does_not_load_landing_page_data(self):
+        # The whole point of the perf fix: NEVER hit landing_page_data() just
+        # to look up one collection.
+        from unittest.mock import patch
+        import collection_content as cc
+
+        self._seed_walmart_collection("perf-test")
+        with patch.object(
+            self.walmart_trends.WalmartTrendStore,
+            "landing_page_data",
+        ) as mock_landing:
+            mock_landing.return_value = {"collections": []}
+            cc.get_walmart_collection("perf-test")
+        mock_landing.assert_not_called()
+
+    def test_get_collection_by_slug_returns_correct_collection(self):
+        self._seed_walmart_collection("alpha")
+        store = self.walmart_trends.WalmartTrendStore()
+        out = store.get_collection_by_slug("alpha")
+        self.assertIsNotNone(out)
+        self.assertEqual(out["slug"], "alpha")
+        self.assertEqual(out["retailer"], "walmart")
+        self.assertEqual(len(out["items"]), 1)
+        self.assertEqual(out["items"][0]["sku"], "WM_X")
+
+    def test_get_collection_by_slug_returns_none_for_missing(self):
+        store = self.walmart_trends.WalmartTrendStore()
+        self.assertIsNone(store.get_collection_by_slug("does-not-exist"))
+        self.assertIsNone(store.get_collection_by_slug(""))
+        self.assertIsNone(store.get_collection_by_slug(None))
+
+    def test_get_collection_by_slug_skips_inactive_collections(self):
+        # An inactive (archived/deactivated) collection slug must not be
+        # accidentally surfaced — same semantics as landing_page_data.
+        self._seed_walmart_collection("active-one")
+        conn = self.walmart_trends._connect()
+        conn.execute(
+            "INSERT OR REPLACE INTO walmart_collections "
+            "(slug, name, source_type, is_active, display_order, metadata_json, retailer) "
+            "VALUES ('archived-one', 'Archived', 'workbook_bootstrap', 0, 2, '{}', 'walmart')"
+        )
+        conn.commit()
+        conn.close()
+
+        store = self.walmart_trends.WalmartTrendStore()
+        self.assertIsNotNone(store.get_collection_by_slug("active-one"))
+        self.assertIsNone(store.get_collection_by_slug("archived-one"))
+
+
 if __name__ == "__main__":
     unittest.main()

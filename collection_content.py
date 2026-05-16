@@ -137,18 +137,23 @@ def _normalize_generated(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 def get_walmart_collection(collection_slug: str) -> dict[str, Any] | None:
-    """Return one active Walmart Trending collection from the existing page data."""
-    from walmart_trends import get_trending_page_data
+    """Return one active trend collection by slug.
 
+    Uses ``WalmartTrendStore.get_collection_by_slug`` so we only query the
+    rows for that one collection instead of loading every active collection
+    via ``get_trending_page_data()`` and iterating in Python. The create-post
+    editor at ``/collections/<slug>/create-post`` was previously taking 6+
+    seconds because it was indirectly hydrating all 31 collections to find
+    one — this path is now ~4 small scoped queries.
+    """
     slug = (collection_slug or "").strip()
+    if not slug:
+        return None
     try:
-        data = get_trending_page_data()
+        from walmart_trends import WalmartTrendStore
+        return WalmartTrendStore().get_collection_by_slug(slug)
     except Exception:
         return None
-    for collection in data.get("collections", []):
-        if collection.get("slug") == slug:
-            return collection
-    return None
 
 
 def get_latest_draft_for_public_slug(public_slug: str) -> dict[str, Any] | None:

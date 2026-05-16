@@ -1234,6 +1234,187 @@ class WalmartTrendStore:
         finally:
             conn.close()
 
+    def get_collection_by_slug(self, slug: str) -> dict[str, Any] | None:
+        """Return ONE active collection by slug with all rendering data joined.
+
+        Same output shape as a single entry from ``landing_page_data()["collections"]``,
+        but with queries scoped to just the requested slug rather than loading
+        every active collection. Used by the create-post editor at
+        ``/collections/<slug>/create-post``, which only needs one collection's
+        worth of data and was previously waiting 6+ seconds for
+        ``landing_page_data()`` to assemble all 31 active collections.
+
+        Returns None if no active collection matches the slug. Reuses the same
+        ``_build_walmart_item_from_rows`` / ``_build_amazon_item_from_rows``
+        helpers as ``landing_page_data()`` so the per-item output stays in
+        lockstep.
+        """
+        clean_slug = (slug or "").strip()
+        if not clean_slug:
+            return None
+        conn = _connect()
+        try:
+            coll_row = conn.execute(
+                "SELECT * FROM walmart_collections WHERE slug = ? AND is_active = 1 LIMIT 1",
+                (clean_slug,),
+            ).fetchone()
+            if not coll_row:
+                return None
+            cd = dict(coll_row)
+            collection_retailer = cd.get("retailer") or "walmart"
+
+            item_rows = [
+                dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT *
+                    FROM walmart_collection_items
+                    WHERE collection_slug = ?
+                    ORDER BY display_order ASC, id ASC
+                    """,
+                    (clean_slug,),
+                ).fetchall()
+            ]
+            if not item_rows:
+                return {
+                    "slug": cd["slug"],
+                    "name": cd["name"],
+                    "description": cd.get("description") or "",
+                    "retailer": collection_retailer,
+                    "items": [],
+                    "metadata": json.loads(cd.get("metadata_json") or "{}"),
+                }
+
+            walmart_skus = [
+                r.get("sku") for r in item_rows
+                if (r.get("retailer") or "walmart") != "amazon"
+            ]
+            amazon_asins = [
+                r.get("sku") for r in item_rows
+                if (r.get("retailer") or "walmart") == "amazon"
+            ]
+
+            walmart_products: dict[str, dict[str, Any]] = {}
+            ph, params = self._in_clause(walmart_skus)
+            if ph:
+                walmart_products = {
+                    row["sku"]: row
+                    for row in (
+                        dict(r) for r in conn.execute(
+                            f"SELECT * FROM walmart_products WHERE sku IN ({ph})",
+                            params,
+                        ).fetchall()
+                    )
+                    if row.get("sku")
+                }
+
+            amazon_products: dict[str, dict[str, Any]] = {}
+            ph, params = self._in_clause(amazon_asins)
+            if ph:
+                amazon_products = {
+                    row["asin"]: row
+                    for row in (
+                        dict(r) for r in conn.execute(
+                            f"SELECT * FROM amazon_trend_products WHERE asin IN ({ph})",
+                            params,
+                        ).fetchall()
+                    )
+                    if row.get("asin")
+                }
+
+            walmart_affiliates: dict[str, dict[str, Any]] = {}
+            ph, params = self._in_clause(walmart_skus)
+            if ph:
+                walmart_affiliates = self._first_by_key(
+                    (dict(r) for r in conn.execute(
+                        f"""
+                        SELECT sku, impact_url, status
+                        FROM walmart_affiliate_links
+                        WHERE sku IN ({ph})
+                          AND status IN ('active', 'fallback', 'workbook')
+                        ORDER BY sku ASC,
+                                 CASE status WHEN 'active' THEN 0 WHEN 'fallback' THEN 1 ELSE 2 END,
+                                 updated_at DESC, id DESC
+                        """,
+                        params,
+                    ).fetchall()),
+                    "sku",
+                )
+
+            amazon_affiliates: dict[str, dict[str, Any]] = {}
+            ph, params = self._in_clause(amazon_asins)
+            if ph:
+                amazon_affiliates = self._first_by_key(
+                    (dict(r) for r in conn.execute(
+                        f"""
+                        SELECT asin, affiliate_url, status
+                        FROM amazon_affiliate_links
+                        WHERE asin IN ({ph})
+                        ORDER BY asin ASC,
+                                 CASE status WHEN 'active' THEN 0 WHEN 'workbook' THEN 1 ELSE 2 END,
+                                 updated_at DESC, id DESC
+                        """,
+                        params,
+                    ).fetchall()),
+                    "asin",
+                )
+
+            destinations = (
+                [r.get("impact_url") for r in walmart_affiliates.values()]
+                + [r.get("affiliate_url") for r in amazon_affiliates.values()]
+                + [r.get("amazon_link") for asin, r in amazon_products.items()
+                   if asin not in amazon_affiliates]
+            )
+            genius_by_destination: dict[str, dict[str, Any]] = {}
+            ph, params = self._in_clause(destinations)
+            if ph:
+                genius_by_destination = self._first_by_key(
+                    (dict(r) for r in conn.execute(
+                        f"""
+                        SELECT destination_url, genius_url, status
+                        FROM walmart_urlgenius_links
+                        WHERE destination_url IN ({ph})
+                          AND status IN ('active', 'fallback')
+                        ORDER BY destination_url ASC,
+                                 CASE status WHEN 'active' THEN 0 ELSE 1 END,
+                                 updated_at DESC, id DESC
+                        """,
+                        params,
+                    ).fetchall()),
+                    "destination_url",
+                )
+
+            items = []
+            for ci in item_rows:
+                item_retailer = ci.get("retailer") or "walmart"
+                if item_retailer == "amazon":
+                    built = self._build_amazon_item_from_rows(
+                        ci,
+                        amazon_products.get(ci.get("sku") or "") or {},
+                        amazon_affiliates.get(ci.get("sku") or ""),
+                        genius_by_destination,
+                    )
+                else:
+                    built = self._build_walmart_item_from_rows(
+                        ci,
+                        walmart_products.get(ci.get("sku") or ""),
+                        walmart_affiliates.get(ci.get("sku") or ""),
+                        genius_by_destination,
+                    )
+                if built:
+                    items.append(built)
+
+            return {
+                "slug": cd["slug"],
+                "name": cd["name"],
+                "description": cd.get("description") or "",
+                "retailer": collection_retailer,
+                "items": items,
+                "metadata": json.loads(cd.get("metadata_json") or "{}"),
+            }
+        finally:
+            conn.close()
+
     def landing_page_data(self) -> dict[str, Any]:
         conn = _connect()
         try:
