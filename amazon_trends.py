@@ -801,7 +801,7 @@ class AmazonTrendRefreshService:
     """Orchestrate a full Amazon workbook bootstrap."""
 
     def __init__(self) -> None:
-        db_schema.bootstrap()
+        db_schema.init_schema()
         self.store = AmazonTrendStore()
         self.builder = AmazonCollectionBuilder()
         self.urlgenius = AmazonURLGeniusLinkService(self.store)

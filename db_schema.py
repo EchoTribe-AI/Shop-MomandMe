@@ -1016,6 +1016,9 @@ def _seed_from_sqlite_snapshot(sqlite_path: str) -> None:
     logging.info("[DB_SEED] Seed complete. Total rows inserted: %d", total)
 
 
+_seed_thread_started = False
+
+
 def bootstrap() -> None:
     """One-shot initialiser called at app boot.
 
@@ -1023,10 +1026,16 @@ def bootstrap() -> None:
     _seed_from_sqlite_snapshot runs in a daemon thread so gunicorn workers
     become ready immediately and pass Cloud Run health checks while the
     bulk import proceeds in the background.
+
+    Safe to call multiple times — the seed thread is guarded by a per-process
+    flag so it starts at most once regardless of how many times bootstrap() is
+    invoked (e.g. from walmart_trends, amazon_trends, etc.).
     """
+    global _seed_thread_started
     init_schema()
     seed_default_creator()
-    if _USE_PG and os.path.exists(DB_PATH):
+    if _USE_PG and os.path.exists(DB_PATH) and not _seed_thread_started:
+        _seed_thread_started = True
         import threading
         t = threading.Thread(
             target=_seed_from_sqlite_snapshot,

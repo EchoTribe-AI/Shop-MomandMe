@@ -1821,7 +1821,7 @@ class ImpactPerformanceService:
 
 class WalmartTrendRefreshService:
     def __init__(self):
-        db_schema.bootstrap()
+        db_schema.init_schema()
         self.store = WalmartTrendStore()
         self.builder = CollectionBuilder()
         self.enricher = WalmartProductEnricher(self.store)
@@ -1954,5 +1954,4 @@ class WalmartTrendRefreshService:
 
 
 def get_trending_page_data() -> dict[str, Any]:
-    db_schema.bootstrap()
     return WalmartTrendStore().landing_page_data()
