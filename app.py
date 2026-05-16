@@ -54,6 +54,10 @@ THEMES = {
     'bold':     {'bg': '#fff8f6', 'accent': '#e85d26', 'btn': '#a02828', 'text': '#1a1a17'},
     'sage':     {'bg': '#f0f4f0', 'accent': '#3a7a4a', 'btn': '#2d6b3c', 'text': '#1a1a17'},
     'sand':     {'bg': '#fdf8f0', 'accent': '#8a6a3a', 'btn': '#7a5a2a', 'text': '#1a1a17'},
+    # "Mommy & Me Collective" — warm pink palette matched to the default
+    # creator's brand_label (db_schema.DEFAULT_CREATOR). Tweak hex values
+    # in coordination with brand guidelines before launch.
+    'mommyme':  {'bg': '#fef6ee', 'accent': '#e85d8f', 'btn': '#c44a78', 'text': '#3a2a2a'},
 }
 
 PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
