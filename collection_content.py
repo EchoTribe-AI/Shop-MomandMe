@@ -444,7 +444,7 @@ def collage_from_draft_for_shop(draft: dict[str, Any]) -> dict[str, Any]:
         "slug": public_slug,
         "products": products,
         "layout": (draft.get("layout") or "").strip() or ("layout-3" if len(products) >= 6 else "layout-2"),
-        "theme": (draft.get("theme") or "").strip() or "peach",
+        "theme": (draft.get("theme") or "").strip() or "mommyme",
         "caption": draft.get("landing_intro") or "",
         "direct_to_amazon": False,
         "creator_id": draft.get("creator_id") or DEFAULT_CREATOR_ID,
@@ -644,9 +644,9 @@ def save_walmart_collection_draft(
     # Editor design controls (allow-list).
     valid_themes = {"coral", "peach", "sage", "sand", "midnight", "mommyme"}
     valid_layouts = {"layout-2", "layout-3", "layout-4", "layout-featured"}
-    theme = _clean_text(payload.get("theme"), 40) or "peach"
+    theme = _clean_text(payload.get("theme"), 40) or "mommyme"
     if theme not in valid_themes:
-        theme = "peach"
+        theme = "mommyme"
     layout = _clean_text(payload.get("layout"), 40) or "layout-2"
     if layout not in valid_layouts:
         layout = "layout-2"
@@ -897,7 +897,7 @@ def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str
         campaign_types = [SOURCE_WALMART_TREND]
         retailer_for_subtitle = ""
 
-    draft_theme = (draft.get("theme") or "").strip() or "peach"
+    draft_theme = (draft.get("theme") or "").strip() or "mommyme"
     draft_layout = (draft.get("layout") or "").strip() or ("layout-3" if len(products) >= 6 else "layout-2")
     try:
         result = collection_service.save_collage(
@@ -927,15 +927,18 @@ def _upsert_collage_from_draft(draft: dict[str, Any], publish: bool) -> dict[str
     conn = _connect()
     try:
         now = _now()
+        # PostgreSQL doesn't coerce int → bool inside CASE WHEN ?, so the
+        # condition must be a real boolean. SQLite accepts both. The
+        # explicit "= TRUE" makes the intent unambiguous on both backends.
         conn.execute(
             """
             UPDATE collection_content_drafts
             SET status = ?, public_slug = ?, published_collage_slug = ?,
-                published_at = CASE WHEN ? THEN ? ELSE published_at END,
+                published_at = CASE WHEN ? = TRUE THEN ? ELSE published_at END,
                 updated_at = ?
             WHERE id = ?
             """,
-            (status, public_slug, public_slug, 1 if publish else 0, now, now, draft["id"]),
+            (status, public_slug, public_slug, bool(publish), now, now, draft["id"]),
         )
         conn.commit()
     finally:

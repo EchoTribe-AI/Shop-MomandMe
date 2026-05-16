@@ -70,8 +70,39 @@ DEFAULT_CREATOR = {
 import datetime as _dt
 
 
+_DATETIME_NOW_RE = _re.compile(
+    r"""datetime\(\s*'now'\s*(?:,\s*'(?P<sign>[+-]?)\s*(?P<num>\d+)\s+(?P<unit>second|seconds|minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)\s*'\s*)?\)""",
+    _re.IGNORECASE,
+)
+
+
 def _adapt_sql(sql: str) -> str:
-    """Convert SQLite ? placeholders to PostgreSQL %s placeholders."""
+    """Adapt SQLite-flavoured SQL to PostgreSQL.
+
+    Handles three differences transparently so callers can keep their
+    sqlite3-style query strings without per-backend branching:
+
+      1. `?` placeholders → `%s` (psycopg2 paramstyle).
+      2. `datetime('now')` and `datetime('now', '<+|-N unit>')` →
+         `NOW()` / `NOW() ± INTERVAL 'N unit'`.
+      3. `BEGIN IMMEDIATE` → `SELECT 1` no-op. PostgreSQL is implicitly
+         in a transaction whenever a statement runs; SQLite's exclusive
+         lock has no direct PG equivalent. Real row locking should use
+         explicit `SELECT ... FOR UPDATE` on the rows that matter.
+    """
+    # 1. BEGIN IMMEDIATE alone — swap for a no-op so callers don't crash.
+    if _re.match(r'^\s*BEGIN\s+IMMEDIATE\s*$', sql, _re.IGNORECASE):
+        return "SELECT 1"
+    # 2. datetime('now') and datetime('now', '-2 hours') and friends.
+    def _dt_sub(m):
+        if not m.group('num'):
+            return "NOW()"
+        sign = (m.group('sign') or '').strip() or '+'
+        op = '-' if sign == '-' else '+'
+        return f"(NOW() {op} INTERVAL '{m.group('num')} {m.group('unit')}')"
+    sql = _DATETIME_NOW_RE.sub(_dt_sub, sql)
+    # 3. ? → %s. Done last so we don't accidentally translate ?-shaped
+    #    artifacts that might appear in earlier replacements.
     return _re.sub(r'\?', '%s', sql)
 
 

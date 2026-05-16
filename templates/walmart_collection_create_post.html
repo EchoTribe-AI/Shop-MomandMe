@@ -170,6 +170,7 @@
           <div class="design-col">
             <div class="design-label">Theme</div>
             <div class="theme-picker" id="themePicker">
+              <button type="button" class="tp-opt" data-theme="mommyme" title="Mommy & Me" style="background:linear-gradient(135deg,#fef6ee,#fcdfe8)"></button>
               <button type="button" class="tp-opt" data-theme="peach" title="Peach" style="background:linear-gradient(135deg,#fbeedd,#fdf0ea)"></button>
               <button type="button" class="tp-opt" data-theme="coral" title="Coral" style="background:linear-gradient(135deg,#ff6b6b,#ffa500)"></button>
               <button type="button" class="tp-opt" data-theme="sage" title="Sage" style="background:linear-gradient(135deg,#cfe3d0,#e9f3e5)"></button>
@@ -186,7 +187,7 @@
             </div>
           </div>
         </div>
-        <input id="themeValue" type="hidden" value="peach">
+        <input id="themeValue" type="hidden" value="mommyme">
         <input id="layoutValue" type="hidden" value="layout-2">
         <div class="voice-tabs" style="display:flex;gap:8px;margin-top:14px;">
           <button class="ghost" id="recordTabBtn" onclick="switchVoiceTab('record')" type="button">Record voice</button>
@@ -517,7 +518,7 @@
         landing_intro: document.getElementById('landingIntro').value.trim(),
         hooks,
         cta: document.getElementById('cta').value.trim() || DEFAULT_CTA,
-        theme: (document.getElementById('themeValue').value || 'peach'),
+        theme: (document.getElementById('themeValue').value || 'mommyme'),
         layout: (document.getElementById('layoutValue').value || 'layout-2'),
         product_snapshot: productsState,
         draft_id: draftId,
@@ -537,7 +538,7 @@
 
     // --- Theme + layout pickers (Issue 4) ---
     function setTheme(value) {
-      const v = (value || 'peach').toLowerCase();
+      const v = (value || 'mommyme').toLowerCase();
       document.getElementById('themeValue').value = v;
       document.querySelectorAll('#themePicker .tp-opt').forEach((el) => {
         el.classList.toggle('active', el.getAttribute('data-theme') === v);
@@ -556,7 +557,7 @@
     document.querySelectorAll('#layoutPicker .lp-opt').forEach((el) => {
       el.addEventListener('click', () => { setLayout(el.getAttribute('data-layout')); markDirty(); });
     });
-    setTheme('peach');
+    setTheme('mommyme');
     setLayout('layout-2');
 
     function setRecordingTimer() {

@@ -144,11 +144,17 @@ function esc(s) {
 function slugify(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'organic';
 }
+function defaultCampaign() {
+  // /urlgenius/smart_link rejects requests with a blank campaign, so we
+  // always provide a stable fallback derived from collection slug, angle,
+  // or post id (in that priority). Matches the user-visible input default.
+  return slugify(val('collection_slug') || val('angle') || `organic-post-${postId}`);
+}
 function getUtm() {
   return {
     source: val('utm_source'),
     medium: val('utm_medium'),
-    campaign: val('utm_campaign'),
+    campaign: val('utm_campaign') || defaultCampaign(),
     content: val('utm_content') || `organic_${slugify(val('angle'))}_static`,
     term: val('utm_term'),
   };
@@ -269,9 +275,29 @@ async function copyPost() {
   navigator.clipboard?.writeText(`${val('copy')}\n\n${link}`);
   toast('Copied');
 }
-['angle','utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(id => {
+['angle','utm_source','utm_medium','utm_campaign','utm_content','utm_term','collection_slug'].forEach(id => {
   document.getElementById(id)?.addEventListener('input', refreshPreview);
 });
+// Surface the campaign fallback in the input so the user sees what will be
+// used (still editable). Only fill if blank — never clobber a saved value.
+function syncCampaignDefault() {
+  const el = document.getElementById('utm_campaign');
+  if (el && !el.value.trim()) {
+    el.value = defaultCampaign();
+    refreshPreview();
+  }
+}
+['collection_slug','angle'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', () => {
+    // Only auto-update the campaign default while it still matches the
+    // previously-computed fallback (i.e. the user hasn't manually edited).
+    const camp = document.getElementById('utm_campaign');
+    if (!camp) return;
+    const current = camp.value.trim();
+    if (!current) { camp.value = defaultCampaign(); refreshPreview(); }
+  });
+});
+syncCampaignDefault();
 refreshPreview();
 if (!val('smart_link') && asin) {
   createSmartLink(false);
