@@ -871,10 +871,156 @@ def add_campaign_type_to_collage(slug: str, campaign_type: str) -> None:
         conn.close()
 
 
+_SQLITE_SEED_TABLES: list[tuple[str, str | list]] = [
+    ("creators",                  "id"),
+    ("collages",                  "slug"),
+    ("posts",                     "id"),
+    ("earnings_amazon",           "id"),
+    ("attribution_paid",          "id"),
+    ("storefront_chat_sessions",  "id"),
+    ("campaigns_v3",              "id"),
+    ("products",                  "asin"),
+    ("cache_meta",                "key"),
+    ("click_log",                 "id"),
+    ("campaigns",                 "slug"),
+    ("collection_content_drafts", "id"),
+    ("walmart_refresh_runs",      "id"),
+    ("walmart_products",          "sku"),
+    ("walmart_product_performance_snapshots", ["refresh_run_id", "sku", "source_list_type", "collection_name"]),
+    ("walmart_affiliate_links",   ["sku", "product_url"]),
+    ("walmart_urlgenius_links",   "destination_url"),
+    ("walmart_collections",       "slug"),
+    ("walmart_collection_items",  ["collection_slug", "sku"]),
+    ("amazon_trend_products",     "asin"),
+    ("amazon_product_performance_snapshots", ["refresh_run_id", "asin", "source_list_type", "collection_name"]),
+    ("amazon_affiliate_links",    "asin"),
+]
+
+_SERIAL_TABLES = [
+    "posts", "earnings_amazon", "attribution_paid", "storefront_chat_sessions",
+    "campaigns_v3", "click_log", "collection_content_drafts", "walmart_refresh_runs",
+    "walmart_product_performance_snapshots", "walmart_affiliate_links",
+    "walmart_urlgenius_links", "walmart_collection_items",
+    "amazon_product_performance_snapshots", "amazon_affiliate_links",
+]
+
+
+def _seed_from_sqlite_snapshot(sqlite_path: str) -> None:
+    """
+    Copy rows from a SQLite snapshot into the PostgreSQL database.
+    Uses ON CONFLICT DO NOTHING so it is safe to call multiple times.
+    Only runs when PostgreSQL is active and walmart_products is empty.
+    """
+    import sqlite3 as _sqlite3
+
+    if not _USE_PG:
+        return
+    if not os.path.exists(sqlite_path):
+        logging.info("[DB_SEED] SQLite snapshot not found at %s — skipping seed.", sqlite_path)
+        return
+
+    pg = _connect()
+    try:
+        row = pg.execute("SELECT COUNT(*) as n FROM walmart_products").fetchone()
+        count = row['n'] if row else 0
+    except Exception:
+        count = 0
+    finally:
+        pg.close()
+
+    if count > 0:
+        logging.info("[DB_SEED] walmart_products already has %d rows — skipping seed.", count)
+        return
+
+    logging.info("[DB_SEED] Seeding PostgreSQL from SQLite snapshot %s …", sqlite_path)
+
+    sc = _sqlite3.connect(sqlite_path, timeout=30)
+    sc.row_factory = _sqlite3.Row
+    pc = _connect()
+
+    total = 0
+    try:
+        for table, pk in _SQLITE_SEED_TABLES:
+            sl_exists = sc.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone()
+            if not sl_exists:
+                continue
+
+            rows = sc.execute(f"SELECT * FROM {table}").fetchall()
+            if not rows:
+                continue
+
+            sl_cols = list(rows[0].keys())
+
+            pg_cur = pc._conn.cursor()
+            pg_cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema='public' AND table_name=%s", (table,)
+            )
+            pg_cols = {r[0] for r in pg_cur.fetchall()}
+            cols = [c for c in sl_cols if c in pg_cols]
+            if not cols:
+                continue
+
+            pks = [pk] if isinstance(pk, str) else pk
+            conflict = ", ".join(f'"{c}"' for c in pks)
+            col_str  = ", ".join(f'"{c}"' for c in cols)
+            placeholders = ", ".join(["%s"] * len(cols))
+            sql = (
+                f'INSERT INTO "{table}" ({col_str}) VALUES ({placeholders}) '
+                f"ON CONFLICT ({conflict}) DO NOTHING"
+            )
+
+            inserted = 0
+            cur = pc._conn.cursor()
+            for row in rows:
+                vals = []
+                for c in cols:
+                    v = row[c]
+                    if isinstance(v, bytes):
+                        v = v.decode("utf-8", errors="replace")
+                    vals.append(v)
+                try:
+                    cur.execute("SAVEPOINT sp")
+                    cur.execute(sql, vals)
+                    if cur.rowcount:
+                        inserted += 1
+                    cur.execute("RELEASE SAVEPOINT sp")
+                except Exception as e:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp")
+                    cur.execute("RELEASE SAVEPOINT sp")
+                    logging.debug("[DB_SEED] %s row skipped: %s", table, e)
+
+            pc._conn.commit()
+            total += inserted
+            logging.info("[DB_SEED]   %s: %d rows inserted", table, inserted)
+
+        logging.info("[DB_SEED] Resetting sequences …")
+        seq_cur = pc._conn.cursor()
+        for table in _SERIAL_TABLES:
+            try:
+                seq_cur.execute(
+                    f"SELECT setval(pg_get_serial_sequence('{table}','id'),"
+                    f"COALESCE(MAX(id),1),true) FROM \"{table}\""
+                )
+                pc._conn.commit()
+            except Exception as e:
+                pc._conn.rollback()
+                logging.debug("[DB_SEED] sequence reset skipped for %s: %s", table, e)
+
+    finally:
+        sc.close()
+        pc.close()
+
+    logging.info("[DB_SEED] Seed complete. Total rows inserted: %d", total)
+
+
 def bootstrap() -> None:
     """One-shot initialiser called at app boot."""
     init_schema()
     seed_default_creator()
+    _seed_from_sqlite_snapshot(DB_PATH)
 
 
 if __name__ == '__main__':
