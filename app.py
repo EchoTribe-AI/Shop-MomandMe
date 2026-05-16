@@ -6,7 +6,8 @@ import sqlite3
 import time
 import tempfile
 import requests as req
-from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for
+from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for, session
+from datetime import timedelta as _admin_timedelta
 from dotenv import load_dotenv
 import anthropic
 
@@ -32,6 +33,15 @@ from prompts import (
 load_dotenv()  # loads .env locally; Replit Secrets override in production
 
 app = Flask(__name__)
+
+# ── Admin session auth ────────────────────────────────────────────────────────
+# Single shared password for now (default 'dan', override via ADMIN_PASSWORD).
+# Auth state lives in a signed Flask session cookie (signed with SECRET_KEY).
+# API mutation routes also accept the legacy X-Walmart-Trends-Admin-Token
+# header for backwards compatibility with any external automation.
+app.secret_key = os.environ.get('SECRET_KEY') or os.environ.get('FLASK_SECRET_KEY') or 'echotribe-dev-secret-please-change-in-prod'
+app.permanent_session_lifetime = _admin_timedelta(days=30)
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'dan')
 
 THEMES = {
     'coral':    {'bg': '#fff5f5', 'accent': '#ff6b6b', 'btn': '#e85d26', 'text': '#1a1a17'},
@@ -341,6 +351,9 @@ def index():
 
 @app.route('/hub')
 def hub():
+    guard = _require_admin_page()
+    if guard:
+        return guard
     return render_template('hub.html', shop_subdomain=SHOP_SUBDOMAIN)
 
 # ARCHIVED — see /archive/routes/
@@ -610,6 +623,9 @@ def archer_generate_link():
 
 @app.route('/archer/collage')
 def archer_collage():
+    guard = _require_admin_page()
+    if guard:
+        return guard
     return render_template('archer_collage.html')
 
 @app.route('/archer/product/<asin>')
@@ -1552,18 +1568,25 @@ def shop_posts():
 
 
 def _require_walmart_trends_admin():
-    """Protect Walmart trend mutation endpoints with an env-backed token.
+    """Protect Walmart trend mutation endpoints.
 
-    Existing admin pages in this app are hidden but not authenticated, so these
-    API mutation routes use a stricter Replit Secret guard. Send the token as
-    `X-Walmart-Trends-Admin-Token` or `Authorization: Bearer <token>`.
+    Accepts (in priority order):
+      1. Server-issued admin session cookie (set via /admin/login).
+      2. `X-Walmart-Trends-Admin-Token` header / `Authorization: Bearer <token>`.
+      3. Dev/Replit-dev demo mode (per `_walmart_content_demo_allowed`).
+
+    Returns None on success; a (Response, status) tuple on failure.
     """
+    # 1. Session cookie — primary path going forward.
+    if _admin_session_authed():
+        return None
+    # 2. Legacy token header / Authorization Bearer / ?admin_token=.
     expected = (
         os.environ.get('WALMART_TRENDS_ADMIN_TOKEN')
         or os.environ.get('ADMIN_API_TOKEN')
         or os.environ.get('ADMIN_SECRET')
     )
-    # Allow requests from the Replit dashboard host without a token
+    # 3. Dev/Replit-dev allowance (NO production .replit.app — see helper).
     if _walmart_content_demo_allowed():
         return None
     if not expected:
@@ -1572,7 +1595,6 @@ def _require_walmart_trends_admin():
     auth = request.headers.get('Authorization', '')
     if not supplied and auth.lower().startswith('bearer '):
         supplied = auth.split(' ', 1)[1].strip()
-    # Also accept token via query parameter for convenience
     if not supplied:
         supplied = (request.args.get('admin_token') or '').strip()
     import hmac as hmac_lib
@@ -1582,7 +1604,14 @@ def _require_walmart_trends_admin():
 
 
 def _walmart_content_demo_allowed() -> bool:
-    """Allow demo mutations without a secret only in local/Replit dev contexts."""
+    """Allow demo mutations without a secret only in local/Replit DEV contexts.
+
+    NOTE: `.replit.app` (production Replit deploy domain) was intentionally
+    REMOVED from this allow-list. Production deployments must authenticate
+    via server session (password 'dan' or `ADMIN_PASSWORD`) or the explicit
+    `X-Walmart-Trends-Admin-Token` header. The previous allow-list silently
+    elevated every visitor to admin on production Replit URLs.
+    """
     host = (request.host or '').split(':')[0].lower()
     return bool(
         os.environ.get('FLASK_ENV') == 'development'
@@ -1591,12 +1620,99 @@ def _walmart_content_demo_allowed() -> bool:
         or host in {'localhost', '127.0.0.1'}
         or host.endswith('.replit.dev')
         or host.endswith('.repl.co')
-        or host.endswith('.replit.app')
+        # Removed: host.endswith('.replit.app') — see docstring above.
     )
 
 
+# ── Admin session helpers ────────────────────────────────────────────────────
+
+def _admin_session_authed() -> bool:
+    """True if the current request has a valid server-issued admin session."""
+    return bool(session.get('admin_authed'))
+
+
+def _admin_session_check_password(supplied: str) -> bool:
+    """Constant-time compare against ADMIN_PASSWORD; case-insensitive."""
+    import hmac as _hmac
+    a = (supplied or '').strip().lower().encode('utf-8')
+    b = (ADMIN_PASSWORD or '').strip().lower().encode('utf-8')
+    return bool(a) and bool(b) and _hmac.compare_digest(a, b)
+
+
+def _wants_json() -> bool:
+    """Best-effort check whether this request expects a JSON (API) response."""
+    if request.path.startswith('/api/') or request.path.startswith('/admin/walmart-trends/'):
+        return True
+    if request.is_json:
+        return True
+    accept = (request.headers.get('Accept') or '').lower()
+    if 'application/json' in accept and 'text/html' not in accept:
+        return True
+    return False
+
+
+def _require_admin_page():
+    """Page-level admin guard. Returns a redirect response if not authed, else None.
+
+    Use at the top of admin-only page handlers:
+        guard = _require_admin_page()
+        if guard:
+            return guard
+    """
+    if _admin_session_authed():
+        return None
+    # Also honor the legacy URL admin_token / header token so any in-flight
+    # bookmarks or external links keep working through the transition.
+    legacy_token = (request.args.get('admin_token') or '').strip() or request.headers.get('X-Walmart-Trends-Admin-Token', '').strip()
+    expected = os.environ.get('WALMART_TRENDS_ADMIN_TOKEN') or os.environ.get('ADMIN_API_TOKEN') or os.environ.get('ADMIN_SECRET')
+    if legacy_token and expected:
+        import hmac as _hmac
+        if _hmac.compare_digest(legacy_token, expected):
+            session.permanent = True
+            session['admin_authed'] = True
+            return None
+    # Redirect to login, preserving original path + query so we can bounce back.
+    full_path = request.path
+    if request.query_string:
+        full_path = f"{request.path}?{request.query_string.decode('utf-8', errors='ignore')}"
+    return redirect(url_for('admin_login', next=full_path))
+
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    """Single-password admin login. Sets a signed-cookie session on success."""
+    error = None
+    next_url = (request.args.get('next') or request.form.get('next') or '/hub').strip() or '/hub'
+    # Don't allow open-redirects: only same-origin paths
+    if not next_url.startswith('/'):
+        next_url = '/hub'
+    if request.method == 'POST':
+        supplied = request.form.get('password') or ''
+        if _admin_session_check_password(supplied):
+            session.permanent = True
+            session['admin_authed'] = True
+            return redirect(next_url)
+        error = 'Incorrect password.'
+    if _admin_session_authed():
+        return redirect(next_url)
+    return render_template('admin_login.html', error=error, next=next_url)
+
+
+@app.route('/admin/logout', methods=['GET', 'POST'])
+def admin_logout():
+    session.pop('admin_authed', None)
+    return redirect(url_for('admin_login'))
+
+
 def _require_walmart_admin_if_configured():
-    """Protect content mutations while allowing explicit local/Replit demo mode."""
+    """Protect content mutations while allowing explicit local/Replit demo mode.
+
+    Accepts session cookie OR header token; in dev contexts allows the demo
+    header (`X-Walmart-Content-Demo: 1`) without credentials.
+    """
+    # Session cookie — primary path.
+    if _admin_session_authed():
+        return None
     expected = (
         os.environ.get('WALMART_TRENDS_ADMIN_TOKEN')
         or os.environ.get('ADMIN_API_TOKEN')
@@ -1614,7 +1730,7 @@ def _require_walmart_admin_if_configured():
             return None
         return jsonify({
             'error': 'unauthorized',
-            'message': 'Admin token required. Open the page with ?admin_token=<token> or enable demo mode in a local/Replit dev environment.',
+            'message': 'Admin session required. Log in at /admin/login or send X-Walmart-Trends-Admin-Token.',
         }), 401
     if _walmart_content_demo_allowed():
         return None
@@ -1623,11 +1739,19 @@ def _require_walmart_admin_if_configured():
 
 @app.route('/walmart/trending-now')
 def walmart_trending_now_page():
-    """Mobile-first Walmart What's Trending Now landing page."""
+    """Mobile-first Walmart What's Trending Now landing page.
+
+    Public when no ?admin=1; requires admin session when ?admin=1.
+    """
+    admin_mode = request.args.get('admin') == '1'
+    if admin_mode:
+        guard = _require_admin_page()
+        if guard:
+            return guard
+
     from walmart_trends import get_trending_page_data, discover_workbooks
 
     data = get_trending_page_data()
-    admin_mode = request.args.get('admin') == '1'
     admin_token = (request.args.get('admin_token') or '').strip()
     workbooks = discover_workbooks() if admin_mode else []
     shop_nav_items = _public_shop_nav('trends')
@@ -1762,12 +1886,18 @@ def _render_collection_page_edit(public_slug):
 @app.route('/collections/<collection_slug>/create-post')
 def collection_create_post(collection_slug):
     """Canonical creator-voice editor for a trend collection (Walmart, Amazon, mixed)."""
+    guard = _require_admin_page()
+    if guard:
+        return guard
     return _render_collection_create_post(collection_slug)
 
 
 @app.route('/collections/<public_slug>/edit')
 def collection_page_edit(public_slug):
     """Canonical editor for a published collection page."""
+    guard = _require_admin_page()
+    if guard:
+        return guard
     return _render_collection_page_edit(public_slug)
 
 
@@ -2643,6 +2773,9 @@ def archer_posts_export_csv():
 @app.route('/archer/posts/manage', methods=['GET'])
 def archer_posts_manage_page():
     """Dedicated operations page for saved organic posts and collections."""
+    guard = _require_admin_page()
+    if guard:
+        return guard
     import collection_service
     import posts as _posts
     creator_id = request.args.get('creator_id', 'everydaywithsteph')
@@ -2659,6 +2792,9 @@ def archer_posts_manage_page():
 @app.route('/archer/posts/<int:post_id>/edit', methods=['GET'])
 def archer_post_edit_page(post_id):
     """Edit a single saved organic post without loading the build queue."""
+    guard = _require_admin_page()
+    if guard:
+        return guard
     import posts as _posts
     post = _posts.get_post(post_id)
     if not post:
@@ -3265,7 +3401,10 @@ def seed_production():
 # ── ADMIN: creator management ────────────────────────────────────────────────
 @app.route('/admin/creators', methods=['GET'])
 def admin_creators():
-    """List creators + edit/create form. Hidden URL — no auth in v1."""
+    """List creators + edit/create form. Gated by admin session."""
+    guard = _require_admin_page()
+    if guard:
+        return guard
     creators = db_schema.list_creators()
     return render_template('admin_creators.html', creators=creators)
 

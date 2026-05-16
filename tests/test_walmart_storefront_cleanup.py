@@ -69,6 +69,11 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.collection_content = collection_content
         self.app_module = app
         self.client = app.app.test_client()
+        # Server-side admin auth landed in feature/pg-launch — admin pages
+        # now redirect to /admin/login unless the session is authed. These
+        # tests exercise admin endpoints, so seed an authed session.
+        with self.client.session_transaction() as sess:
+            sess['admin_authed'] = True
 
     def tearDown(self):
         for key, value in self._admin_env.items():

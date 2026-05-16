@@ -33,6 +33,8 @@ class OrganicOperationsTestCase(unittest.TestCase):
         db_schema.bootstrap()
         self.app_module = app
         self.client = app.app.test_client()
+        with self.client.session_transaction() as sess:
+            sess['admin_authed'] = True
 
     def tearDown(self):
         self.tmp.cleanup()
