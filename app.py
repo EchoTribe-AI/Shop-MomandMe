@@ -353,6 +353,11 @@ def index():
     return redirect(url_for('hub'))
 
 
+@app.route('/healthz')
+def healthz():
+    return 'ok', 200
+
+
 @app.route('/hub')
 def hub():
     guard = _require_admin_page()
