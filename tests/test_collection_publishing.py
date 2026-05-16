@@ -57,6 +57,14 @@ class CollectionPublishingTestCase(unittest.TestCase):
             "status", "campaign_types", "hero_title", "hero_subtitle",
         }.issubset(columns))
 
+    @unittest.skip(
+        "Obsolete after PG migration: ArcherAPI._db_connect() now delegates to "
+        "db_schema._connect(), so ArcherAPI.CACHE_DB is no longer consulted. The "
+        "cross-DB-pollution concern this test guarded is resolved at the "
+        "architecture level — all tables now live in a single backing store "
+        "(PostgreSQL when DATABASE_URL is set, otherwise CACHE_DB_PATH SQLite). "
+        "See Replit migration commit fe27467."
+    )
     def test_archer_init_cache_does_not_create_collages(self):
         other_db = os.path.join(self.tmp.name, "archer-only.db")
         with patch.object(self.product_api.ArcherAPI, "CACHE_DB", other_db):

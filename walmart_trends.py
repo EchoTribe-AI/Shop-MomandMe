@@ -539,8 +539,9 @@ class WalmartTrendStore:
                 """,
                 (source_type, source_file, window_start or None, window_end or None, date_label or None),
             )
+            run_id = db_schema._last_id(cur)
             conn.commit()
-            return db_schema._last_id(cur)
+            return run_id
         except Exception:
             if conn.in_transaction:
                 conn.rollback()

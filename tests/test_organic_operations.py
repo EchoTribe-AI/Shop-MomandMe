@@ -130,7 +130,10 @@ class OrganicOperationsTestCase(unittest.TestCase):
         html = resp.get_data(as_text=True)
         self.assertIn("Saved Posts & Collections", html)
         self.assertIn("Dinosaur Toys Magnetic Tiles", html)
-        self.assertIn("Open Collage Builder", html)
+        # Post-redesign (cherry-pick a052459): the manage page provides a
+        # primary "Create" CTA that routes to the Trending Now flow instead
+        # of the legacy "Open Collage Builder" link.
+        self.assertIn('href="/walmart/trending-now?admin=1"', html)
 
     def test_posts_schema_has_urlgenius_metadata_columns(self):
         conn = sqlite3.connect(self.db_path)
