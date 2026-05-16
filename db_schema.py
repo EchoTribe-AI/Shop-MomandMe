@@ -1017,10 +1017,24 @@ def _seed_from_sqlite_snapshot(sqlite_path: str) -> None:
 
 
 def bootstrap() -> None:
-    """One-shot initialiser called at app boot."""
+    """One-shot initialiser called at app boot.
+
+    init_schema + seed_default_creator run synchronously (fast DDL + 1 row).
+    _seed_from_sqlite_snapshot runs in a daemon thread so gunicorn workers
+    become ready immediately and pass Cloud Run health checks while the
+    bulk import proceeds in the background.
+    """
     init_schema()
     seed_default_creator()
-    _seed_from_sqlite_snapshot(DB_PATH)
+    if _USE_PG and os.path.exists(DB_PATH):
+        import threading
+        t = threading.Thread(
+            target=_seed_from_sqlite_snapshot,
+            args=(DB_PATH,),
+            daemon=True,
+            name="sqlite-seed",
+        )
+        t.start()
 
 
 if __name__ == '__main__':
