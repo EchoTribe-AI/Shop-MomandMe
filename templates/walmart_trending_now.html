@@ -39,10 +39,13 @@
     .workbook-panel { margin-top:10px; border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:8px; }
     .workbook-panel-label { font-size:10px; font-weight:800; color:rgba(26,26,23,.5); text-transform:uppercase; letter-spacing:.06em; }
     .workbook-row { display:flex; gap:8px; align-items:center; }
+    .workbook-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .workbook-select { flex:1; font-size:11px; font-weight:700; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 12px; appearance:none; -webkit-appearance:none; cursor:pointer; outline:none; min-width:0; overflow:hidden; text-overflow:ellipsis; }
     .workbook-select:focus { border-color:var(--accent); }
     .workbook-run-btn { flex:0 0 auto; font-size:11px; font-weight:850; color:#fff; background:var(--ink); border:none; border-radius:999px; padding:7px 12px; cursor:pointer; white-space:nowrap; }
     .workbook-run-btn:disabled { opacity:.45; cursor:not-allowed; }
+    .amazon-enrich-btn { flex:0 0 auto; font-size:11px; font-weight:850; color:#1a1a17; background:var(--amazon-soft); border:1px solid rgba(179,89,0,.22); border-radius:999px; padding:7px 12px; cursor:pointer; white-space:nowrap; }
+    .amazon-enrich-btn:disabled { opacity:.45; cursor:not-allowed; }
     .workbook-status { font-size:11px; line-height:1.4; color:rgba(26,26,23,.6); min-height:14px; }
     .workbook-status.ok { color:var(--green); font-weight:750; }
     .workbook-status.err { color:#c0392b; font-weight:750; }
@@ -115,8 +118,8 @@
 </head>
 <body class="{% if admin_mode %}admin-mode{% endif %}">
   {% if admin_mode %}
-    {% set active = 'create' %}
-    {% set page_title = 'Create' %}
+    {% set active = 'home' %}
+    {% set page_title = 'Trends' %}
     {% include 'partials/admin_header.html' %}
   {% endif %}
   <main class="page">
@@ -155,6 +158,10 @@
           {% else %}
             <div class="workbook-none">No .xlsx workbook files found in attached_assets/. Drop a workbook file there and reload.</div>
           {% endif %}
+          <div class="workbook-actions">
+            <button id="amz-enrich-btn" class="amazon-enrich-btn" onclick="runAmazonEnrichment()">Enrich Amazon prices/images</button>
+          </div>
+          <div id="amazon-enrich-status" class="workbook-status"></div>
         </div>
       {% endif %}
     </header>
@@ -220,7 +227,7 @@
                 {% set retailer_label = 'Amazon' if is_amazon else 'Walmart' %}
                 <article class="card" data-item-retailer="{{ item_retailer }}">
                   <div class="image-wrap">
-                    {% set image_url = (product['image_url'] or '')|trim %}
+                    {% set image_url = (product['image_url'] or product.get('fallback_image_url') or '')|trim %}
                     {% set image_lower = image_url|lower %}
                     {% if image_url and image_url.startswith('http') and 'placeholder' not in image_lower %}
                       <img src="{{ image_url }}" alt="{{ product['title'] }}" loading="lazy" onerror="this.classList.add('is-hidden'); this.setAttribute('aria-hidden', 'true');">
@@ -354,8 +361,54 @@
       }
     }
   </script>
-  {% if admin_mode and workbooks %}
+  {% if admin_mode %}
   <script>
+    function describeAmazonEnrichment(counts) {
+      const c = counts || {};
+      const enriched = (Number(c.creators) || 0) + (Number(c.crawlbase) || 0);
+      const parts = [];
+      if (enriched) parts.push('enriched ' + enriched);
+      if (c.skipped) parts.push(c.skipped + ' already ready');
+      if (c.pending) parts.push(c.pending + ' pending');
+      if (c.fallback) parts.push(c.fallback + ' fallback');
+      if (c.fatal_reason) parts.push('needs API fix: ' + c.fatal_reason);
+      if (!parts.length && c.queued === 0) parts.push('nothing pending');
+      return parts.join(' · ') || 'complete';
+    }
+
+    async function runAmazonEnrichment(options = {}) {
+      const btn = document.getElementById('amz-enrich-btn');
+      const status = options.statusEl || document.getElementById('amazon-enrich-status') || document.getElementById('wb-status');
+      if (btn && !options.inline) btn.disabled = true;
+      if (status) {
+        status.className = 'workbook-status';
+        status.textContent = (options.prefix || '') + 'Enriching Amazon prices/images…';
+      }
+      try {
+        const resp = await fetch('/admin/amazon-trends/enrich', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit: 30, max_workers: 4 })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || resp.status);
+        if (status) {
+          status.className = data.counts && data.counts.fatal ? 'workbook-status err' : 'workbook-status ok';
+          status.textContent = (options.prefix || 'Amazon enrichment ') + describeAmazonEnrichment(data.counts || {});
+        }
+        return data;
+      } catch (e) {
+        if (status) {
+          status.className = 'workbook-status err';
+          status.textContent = (options.prefix || 'Amazon enrichment ') + 'failed: ' + e.message;
+        }
+        return null;
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
     async function runWorkbookImport() {
       const select = document.getElementById('wb-select');
       const btn = document.getElementById('wb-run-btn');
@@ -386,6 +439,13 @@
           if (c.affiliate_links) parts.push(c.affiliate_links + ' links seeded');
           status.className = 'workbook-status ok';
           status.textContent = 'Done — run #' + data.run_id + (parts.length ? ' · ' + parts.join(', ') : '') + '.';
+          if (data.source === 'Amazon') {
+            await runAmazonEnrichment({
+              inline: true,
+              statusEl: status,
+              prefix: 'Import complete. '
+            });
+          }
         } else {
           status.className = 'workbook-status err';
           status.textContent = 'Error: ' + (data.error || resp.status);

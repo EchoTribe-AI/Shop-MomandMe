@@ -355,6 +355,34 @@ class TestRetailerAwareLandingPageData(unittest.TestCase):
         self.assertEqual(amz_coll["retailer"], "amazon")
         self.assertEqual(amz_coll["items"][0]["retailer"], "amazon")
 
+    def test_amazon_item_has_widget_fallback_when_image_missing(self):
+        self._seed_amazon_collection()
+        data = self.wt.WalmartTrendStore().landing_page_data()
+        amz_coll = next(c for c in data["collections"] if c["slug"] == "amz-test")
+        item = amz_coll["items"][0]
+        self.assertEqual(item["image_url"], "")
+        self.assertIn("ws-na.amazon-adsystem.com/widgets/q", item["fallback_image_url"])
+        self.assertIn("ASIN=B099", item["fallback_image_url"])
+        self.assertEqual(item["price_display"], "")
+
+    def test_amazon_item_uses_stored_image_and_price_when_present(self):
+        self._seed_amazon_collection()
+        conn = self.wt._connect()
+        conn.execute(
+            """
+            UPDATE amazon_trend_products
+            SET image_url = ?, current_price = ?, price_display = ?
+            WHERE asin = ?
+            """,
+            ("https://images.example/b099.jpg", 19.99, "$19.99", "B099"),
+        )
+        conn.commit()
+        conn.close()
+        data = self.wt.WalmartTrendStore().landing_page_data()
+        item = next(c for c in data["collections"] if c["slug"] == "amz-test")["items"][0]
+        self.assertEqual(item["image_url"], "https://images.example/b099.jpg")
+        self.assertEqual(item["price_display"], "$19.99")
+
     def test_walmart_item_has_retailer_walmart(self):
         self._seed_walmart_collection()
         data = self.wt.WalmartTrendStore().landing_page_data()
@@ -410,6 +438,66 @@ class TestRetailerAwareLandingPageData(unittest.TestCase):
         retailer_set = {c["retailer"] for c in data["collections"]}
         self.assertIn("walmart", retailer_set)
         self.assertIn("amazon", retailer_set)
+
+    def test_landing_page_data_uses_bounded_queries_for_many_items(self):
+        conn = self.wt._connect()
+        for i in range(12):
+            sku = f"W{i:03d}"
+            conn.execute(
+                "INSERT OR IGNORE INTO walmart_products (sku, item_name, image_url, price_display) VALUES (?, ?, ?, ?)",
+                (sku, f"Walmart Product {i}", f"https://img.example/{sku}.jpg", "$9.99"),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO walmart_affiliate_links (sku, product_url, impact_url, status) VALUES (?, ?, ?, 'active')",
+                (sku, f"https://www.walmart.com/ip/{sku}", f"https://goto.walmart.com/{sku}"),
+            )
+        for i in range(12):
+            asin = f"B{i:09d}"
+            conn.execute(
+                "INSERT OR IGNORE INTO amazon_trend_products (asin, product_title, amazon_link) VALUES (?, ?, ?)",
+                (asin, f"Amazon Product {i}", f"https://amazon.com/dp/{asin}?tag=test-20"),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO amazon_affiliate_links (asin, product_url, affiliate_url, status) VALUES (?, ?, ?, 'workbook')",
+                (asin, f"https://amazon.com/dp/{asin}", f"https://amazon.com/dp/{asin}?tag=test-20"),
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO walmart_collections (slug, name, source_type, is_active, display_order, metadata_json, retailer) VALUES ('bulk-wmt', 'Bulk Walmart', 'workbook_bootstrap', 1, 1, '{}', 'walmart')"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO walmart_collections (slug, name, source_type, is_active, display_order, metadata_json, retailer) VALUES ('bulk-amz', 'Bulk Amazon', 'amazon_workbook_bootstrap', 1, 2, '{}', 'amazon')"
+        )
+        for i in range(12):
+            conn.execute(
+                "INSERT OR REPLACE INTO walmart_collection_items (collection_slug, sku, display_order, badges_json, retailer) VALUES ('bulk-wmt', ?, ?, '[]', 'walmart')",
+                (f"W{i:03d}", i),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO walmart_collection_items (collection_slug, sku, display_order, badges_json, retailer) VALUES ('bulk-amz', ?, ?, '[]', 'amazon')",
+                (f"B{i:09d}", i),
+            )
+        conn.commit()
+        conn.close()
+
+        original_connect = self.wt._connect
+        query_count = {"n": 0}
+
+        class CountingConn:
+            def __init__(self, inner):
+                self.inner = inner
+
+            def execute(self, *args, **kwargs):
+                query_count["n"] += 1
+                return self.inner.execute(*args, **kwargs)
+
+            def __getattr__(self, name):
+                return getattr(self.inner, name)
+
+        with patch.object(self.wt, "_connect", side_effect=lambda: CountingConn(original_connect())):
+            data = self.wt.WalmartTrendStore().landing_page_data()
+
+        self.assertGreaterEqual(sum(len(c["items"]) for c in data["collections"]), 24)
+        self.assertLessEqual(query_count["n"], 8)
 
 
 # ---------------------------------------------------------------------------

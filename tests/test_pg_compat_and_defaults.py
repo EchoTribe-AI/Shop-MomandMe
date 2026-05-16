@@ -418,6 +418,85 @@ class FreshPgLaunchSafetyTest(unittest.TestCase):
         self.assertIn("fetch('/admin/walmart-trends/bootstrap'", src)
         self.assertIn("credentials: 'same-origin'", src)
 
+    def test_admin_trends_template_wires_limited_amazon_enrichment(self):
+        src = (self.repo / "templates" / "walmart_trending_now.html").read_text()
+
+        self.assertIn("Enrich Amazon prices/images", src)
+        self.assertIn("fetch('/admin/amazon-trends/enrich'", src)
+        self.assertIn("data.source === 'Amazon'", src)
+        self.assertIn("limit: 30", src)
+        self.assertIn("max_workers: 4", src)
+
+    def test_admin_amazon_enrich_endpoint_requires_auth_and_returns_counts(self):
+        import app
+
+        app._SCHEMA_READY = True
+        client = app.app.test_client()
+
+        with patch("app._walmart_content_demo_allowed", return_value=False):
+            unauth = client.post(
+                "/admin/amazon-trends/enrich",
+                base_url="https://dashboard.example.com",
+                json={"limit": 30, "max_workers": 4},
+            )
+        self.assertNotEqual(unauth.status_code, 200)
+
+        with client.session_transaction() as sess:
+            sess["admin_authed"] = True
+        with patch("amazon_trends.AmazonTrendRefreshService") as svc_cls:
+            svc_cls.return_value.enrich_pending.return_value = {
+                "queued": 2,
+                "creators": 1,
+                "crawlbase": 1,
+                "pending": 0,
+            }
+            authed = client.post(
+                "/admin/amazon-trends/enrich",
+                json={"limit": 30, "max_workers": 4},
+            )
+
+        self.assertEqual(authed.status_code, 200)
+        self.assertEqual(authed.get_json()["counts"]["queued"], 2)
+        svc_cls.return_value.enrich_pending.assert_called_once_with(limit=30, max_workers=4)
+
+    def test_trends_template_renders_amazon_image_fallback_and_honest_price(self):
+        import app
+        from flask import render_template
+
+        data = {
+            "last_refreshed": "",
+            "collections": [{
+                "slug": "amazon-test",
+                "name": "Amazon Test",
+                "retailer": "amazon",
+                "items": [{
+                    "sku": "B001AMAZON",
+                    "retailer": "amazon",
+                    "title": "Amazon Test Product",
+                    "brand": "",
+                    "image_url": "",
+                    "fallback_image_url": "https://ws-na.amazon-adsystem.com/widgets/q?ASIN=B001AMAZON",
+                    "price_display": "",
+                    "badges": [],
+                    "shop_url": "https://amazon.com/dp/B001AMAZON?tag=test-20",
+                }],
+            }],
+        }
+        with app.app.test_request_context("/walmart/trending-now"):
+            html = render_template(
+                "walmart_trending_now.html",
+                data=data,
+                admin_mode=False,
+                admin_token="",
+                shop_subdomain="shop.example.com",
+                public_nav_items=[],
+                nav_active="trends",
+                admin_error="",
+            )
+
+        self.assertIn("ws-na.amazon-adsystem.com/widgets/q?ASIN=B001AMAZON", html)
+        self.assertIn("See price at Amazon", html)
+
     def test_admin_trends_page_surfaces_loader_errors_instead_of_500(self):
         import app
 

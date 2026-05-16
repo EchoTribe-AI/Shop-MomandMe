@@ -233,8 +233,8 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
 
         with patch("walmart_trends.get_trending_page_data", return_value={"last_refreshed": "Today", "collections": []}):
             create_html = self.client.get("/walmart/trending-now?admin=1").get_data(as_text=True)
-        self.assertIn('href="/hub" class="tb-link"', create_html)
-        self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link active"', create_html)
+        self.assertIn('href="/hub" class="tb-link active"', create_html)
+        self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link"', create_html)
         self.assertIn('href="/archer/posts/manage" class="tb-link"', create_html)
 
     def test_collection_editor_renders_mobile_publishing_workflow(self):

@@ -2480,6 +2480,7 @@ def admin_amazon_trends_enrich():
     guard = _require_walmart_trends_admin()
     if guard:
         return guard
+    _ensure_schema_ready()
     from amazon_trends import AmazonTrendRefreshService
 
     body = request.get_json(silent=True) or {}

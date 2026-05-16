@@ -500,6 +500,33 @@ class WorkbookTrendParser:
 
 
 class WalmartTrendStore:
+    @staticmethod
+    def _unique_nonempty(values: Iterable[Any]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for value in values:
+            text = str(value or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                result.append(text)
+        return result
+
+    @staticmethod
+    def _in_clause(values: Iterable[Any]) -> tuple[str, list[str]]:
+        unique = WalmartTrendStore._unique_nonempty(values)
+        if not unique:
+            return "", []
+        return ",".join("?" for _ in unique), unique
+
+    @staticmethod
+    def _first_by_key(rows: Iterable[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
+        selected: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            value = row.get(key)
+            if value and value not in selected:
+                selected[value] = row
+        return selected
+
     def create_run(self, source_type: str, source_file: str = "", window_start: str = "", window_end: str = "", date_label: str = "") -> int:
         conn = _connect()
         try:
@@ -1216,27 +1243,160 @@ class WalmartTrendStore:
             collection_rows = conn.execute(
                 "SELECT * FROM walmart_collections WHERE is_active = 1 ORDER BY display_order ASC, name ASC"
             ).fetchall()
+            collection_dicts = [dict(row) for row in collection_rows]
+            collection_slugs = [row["slug"] for row in collection_dicts]
+
+            item_rows: list[dict[str, Any]] = []
+            placeholders, params = self._in_clause(collection_slugs)
+            if placeholders:
+                item_rows = [
+                    dict(row)
+                    for row in conn.execute(
+                        f"""
+                        SELECT *
+                        FROM walmart_collection_items
+                        WHERE collection_slug IN ({placeholders})
+                        ORDER BY collection_slug ASC, display_order ASC, id ASC
+                        """,
+                        params,
+                    ).fetchall()
+                ]
+            items_by_collection: dict[str, list[dict[str, Any]]] = defaultdict(list)
+            for row in item_rows:
+                items_by_collection[row.get("collection_slug") or ""].append(row)
+
+            walmart_skus = [
+                row.get("sku") for row in item_rows
+                if (row.get("retailer") or "walmart") != "amazon"
+            ]
+            amazon_asins = [
+                row.get("sku") for row in item_rows
+                if (row.get("retailer") or "walmart") == "amazon"
+            ]
+
+            walmart_products: dict[str, dict[str, Any]] = {}
+            placeholders, params = self._in_clause(walmart_skus)
+            if placeholders:
+                walmart_products = {
+                    row["sku"]: row
+                    for row in (
+                        dict(row)
+                        for row in conn.execute(
+                            f"SELECT * FROM walmart_products WHERE sku IN ({placeholders})",
+                            params,
+                        ).fetchall()
+                    )
+                    if row.get("sku")
+                }
+
+            amazon_products: dict[str, dict[str, Any]] = {}
+            placeholders, params = self._in_clause(amazon_asins)
+            if placeholders:
+                amazon_products = {
+                    row["asin"]: row
+                    for row in (
+                        dict(row)
+                        for row in conn.execute(
+                            f"SELECT * FROM amazon_trend_products WHERE asin IN ({placeholders})",
+                            params,
+                        ).fetchall()
+                    )
+                    if row.get("asin")
+                }
+
+            walmart_affiliates: dict[str, dict[str, Any]] = {}
+            placeholders, params = self._in_clause(walmart_skus)
+            if placeholders:
+                walmart_affiliates = self._first_by_key(
+                    (
+                        dict(row)
+                        for row in conn.execute(
+                            f"""
+                            SELECT sku, impact_url, status
+                            FROM walmart_affiliate_links
+                            WHERE sku IN ({placeholders})
+                              AND status IN ('active', 'fallback', 'workbook')
+                            ORDER BY sku ASC,
+                                     CASE status WHEN 'active' THEN 0 WHEN 'fallback' THEN 1 ELSE 2 END,
+                                     updated_at DESC, id DESC
+                            """,
+                            params,
+                        ).fetchall()
+                    ),
+                    "sku",
+                )
+
+            amazon_affiliates: dict[str, dict[str, Any]] = {}
+            placeholders, params = self._in_clause(amazon_asins)
+            if placeholders:
+                amazon_affiliates = self._first_by_key(
+                    (
+                        dict(row)
+                        for row in conn.execute(
+                            f"""
+                            SELECT asin, affiliate_url, status
+                            FROM amazon_affiliate_links
+                            WHERE asin IN ({placeholders})
+                            ORDER BY asin ASC,
+                                     CASE status WHEN 'active' THEN 0 WHEN 'workbook' THEN 1 ELSE 2 END,
+                                     updated_at DESC, id DESC
+                            """,
+                            params,
+                        ).fetchall()
+                    ),
+                    "asin",
+                )
+
+            destinations = [
+                row.get("impact_url") for row in walmart_affiliates.values()
+            ] + [
+                row.get("affiliate_url") for row in amazon_affiliates.values()
+            ] + [
+                row.get("amazon_link") for asin, row in amazon_products.items()
+                if asin not in amazon_affiliates
+            ]
+            genius_by_destination: dict[str, dict[str, Any]] = {}
+            placeholders, params = self._in_clause(destinations)
+            if placeholders:
+                genius_by_destination = self._first_by_key(
+                    (
+                        dict(row)
+                        for row in conn.execute(
+                            f"""
+                            SELECT destination_url, genius_url, status
+                            FROM walmart_urlgenius_links
+                            WHERE destination_url IN ({placeholders})
+                              AND status IN ('active', 'fallback')
+                            ORDER BY destination_url ASC,
+                                     CASE status WHEN 'active' THEN 0 ELSE 1 END,
+                                     updated_at DESC, id DESC
+                            """,
+                            params,
+                        ).fetchall()
+                    ),
+                    "destination_url",
+                )
+
             collections = []
-            for collection in collection_rows:
-                cd = dict(collection)
+            for cd in collection_dicts:
                 collection_retailer = cd.get("retailer") or "walmart"
-                item_rows = conn.execute(
-                    """
-                    SELECT *
-                    FROM walmart_collection_items
-                    WHERE collection_slug = ?
-                    ORDER BY display_order ASC
-                    """,
-                    (cd["slug"],),
-                ).fetchall()
                 items = []
-                for row in item_rows:
-                    ci = dict(row)
+                for ci in items_by_collection.get(cd["slug"], []):
                     item_retailer = ci.get("retailer") or "walmart"
                     if item_retailer == "amazon":
-                        built = self._build_amazon_item(conn, ci)
+                        built = self._build_amazon_item_from_rows(
+                            ci,
+                            amazon_products.get(ci.get("sku") or "") or {},
+                            amazon_affiliates.get(ci.get("sku") or ""),
+                            genius_by_destination,
+                        )
                     else:
-                        built = self._build_walmart_item(conn, ci)
+                        built = self._build_walmart_item_from_rows(
+                            ci,
+                            walmart_products.get(ci.get("sku") or ""),
+                            walmart_affiliates.get(ci.get("sku") or ""),
+                            genius_by_destination,
+                        )
                     if built:
                         items.append(built)
                 collections.append({
@@ -1254,6 +1414,76 @@ class WalmartTrendStore:
             }
         finally:
             conn.close()
+
+    def _build_walmart_item_from_rows(
+        self,
+        ci: dict[str, Any],
+        rd: dict[str, Any],
+        affiliate: dict[str, Any] | None,
+        genius_by_destination: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        sku = ci.get("sku") or ""
+        if not rd:
+            return None
+        impact_url = (affiliate or {}).get("impact_url") or ""
+        genius = genius_by_destination.get(impact_url) if impact_url else None
+        genius_url = (genius or {}).get("genius_url") or ""
+        badges = json.loads(ci.get("badges_json") or "[]")
+        title = rd.get("product_title") or rd.get("item_name") or "Walmart find"
+        return {
+            "sku": sku,
+            "retailer": "walmart",
+            "title": title,
+            "brand": normalize_product_brand(rd.get("brand") or "", title),
+            "category": rd.get("category_list") or rd.get("taxonomy") or "",
+            "image_url": rd.get("image_url") or "",
+            "fallback_image_url": "",
+            "price_display": rd.get("price_display") or _price_display(rd.get("current_price")),
+            "availability": rd.get("availability") or "",
+            "rating": rd.get("rating"),
+            "review_count": rd.get("review_count"),
+            "item_count": ci.get("item_count") or 0,
+            "sale_amount": ci.get("sale_amount") or 0,
+            "total_earnings": ci.get("total_earnings") or 0,
+            "badges": badges,
+            "shop_url": genius_url or impact_url or rd.get("canonical_url") or f"https://www.walmart.com/ip/{sku}",
+        }
+
+    def _build_amazon_item_from_rows(
+        self,
+        ci: dict[str, Any],
+        rd: dict[str, Any],
+        affiliate: dict[str, Any] | None,
+        genius_by_destination: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        asin = ci.get("sku") or ""
+        affiliate_url = (affiliate or {}).get("affiliate_url") or rd.get("amazon_link") or ""
+        genius = genius_by_destination.get(affiliate_url) if affiliate_url else None
+        genius_url = (genius or {}).get("genius_url") or ""
+        badges = json.loads(ci.get("badges_json") or "[]")
+        widget_image = (
+            "https://ws-na.amazon-adsystem.com/widgets/q?"
+            f"_encoding=UTF8&ASIN={asin}&Format=_SL250_&ID=AsinImage&"
+            "MarketPlace=US&ServiceVersion=20070822&WS=1"
+        ) if asin else ""
+        return {
+            "sku": asin,
+            "retailer": "amazon",
+            "title": rd.get("product_title") or "Amazon find",
+            "brand": rd.get("brand") or "",
+            "category": rd.get("category") or "",
+            "image_url": rd.get("image_url") or "",
+            "fallback_image_url": widget_image,
+            "price_display": rd.get("price_display") or _price_display(rd.get("current_price")),
+            "availability": "",
+            "rating": None,
+            "review_count": None,
+            "item_count": ci.get("item_count") or 0,
+            "sale_amount": ci.get("sale_amount") or 0,
+            "total_earnings": ci.get("total_earnings") or 0,
+            "badges": badges,
+            "shop_url": genius_url or affiliate_url or f"https://www.amazon.com/dp/{asin}",
+        }
 
     def _build_walmart_item(self, conn, ci: dict[str, Any]) -> dict[str, Any] | None:
         sku = ci.get("sku") or ""
@@ -1286,27 +1516,14 @@ class WalmartTrendStore:
                 LIMIT 1
                 """,
                 (impact_url,),
-            ).fetchone()
+        ).fetchone()
         genius_url = genius["genius_url"] if genius else ""
-        badges = json.loads(ci.get("badges_json") or "[]")
-        title = rd.get("product_title") or rd.get("item_name") or "Walmart find"
-        return {
-            "sku": sku,
-            "retailer": "walmart",
-            "title": title,
-            "brand": normalize_product_brand(rd.get("brand") or "", title),
-            "category": rd.get("category_list") or rd.get("taxonomy") or "",
-            "image_url": rd.get("image_url") or "",
-            "price_display": rd.get("price_display") or _price_display(rd.get("current_price")),
-            "availability": rd.get("availability") or "",
-            "rating": rd.get("rating"),
-            "review_count": rd.get("review_count"),
-            "item_count": ci.get("item_count") or 0,
-            "sale_amount": ci.get("sale_amount") or 0,
-            "total_earnings": ci.get("total_earnings") or 0,
-            "badges": badges,
-            "shop_url": genius_url or impact_url or rd.get("canonical_url") or f"https://www.walmart.com/ip/{sku}",
-        }
+        return self._build_walmart_item_from_rows(
+            ci,
+            rd,
+            {"impact_url": impact_url} if impact_url else None,
+            {impact_url: {"genius_url": genius_url}} if genius_url else {},
+        )
 
     def _build_amazon_item(self, conn, ci: dict[str, Any]) -> dict[str, Any] | None:
         asin = ci.get("sku") or ""  # sku column holds ASIN for retailer='amazon' rows
@@ -1339,26 +1556,14 @@ class WalmartTrendStore:
                 LIMIT 1
                 """,
                 (affiliate_url,),
-            ).fetchone()
+        ).fetchone()
         genius_url = genius["genius_url"] if genius else ""
-        badges = json.loads(ci.get("badges_json") or "[]")
-        return {
-            "sku": asin,
-            "retailer": "amazon",
-            "title": rd.get("product_title") or "Amazon find",
-            "brand": rd.get("brand") or "",
-            "category": rd.get("category") or "",
-            "image_url": rd.get("image_url") or "",
-            "price_display": rd.get("price_display") or _price_display(rd.get("current_price")),
-            "availability": "",
-            "rating": None,
-            "review_count": None,
-            "item_count": ci.get("item_count") or 0,
-            "sale_amount": ci.get("sale_amount") or 0,
-            "total_earnings": ci.get("total_earnings") or 0,
-            "badges": badges,
-            "shop_url": genius_url or affiliate_url or f"https://www.amazon.com/dp/{asin}",
-        }
+        return self._build_amazon_item_from_rows(
+            ci,
+            rd,
+            {"affiliate_url": affiliate_url} if affiliate_url else None,
+            {affiliate_url: {"genius_url": genius_url}} if genius_url else {},
+        )
 
 
 class WalmartProductEnricher:
