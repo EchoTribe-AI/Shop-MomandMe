@@ -60,6 +60,32 @@ DEFAULT_CREATOR = {
     ),
     'theme_default':      'coral',
     'defaults_json':      json.dumps({}),
+    # P0.7 demo seed — populated by feature/demo-creator-seed (blocked
+    # behind feature/p07-creator-brand-columns merging first).
+    # Metadata fields are safe to set now (creator-confirmed, no color
+    # decisions in them).
+    'logo_url':                 'static/images/mmc-og-preview.png',
+    'shop_domain':              'shop.mommyandmecollective.com',
+    'meta_title_template':      '{collection} · The Mommy & Me Collective',
+    'meta_description_template':(
+        "{collection} — hand-picked finds from Walmart and Amazon, curated "
+        "for moms by The Mommy & Me Collective."
+    ),
+    # Brand color fields intentionally left None until Steph confirms via
+    # design/brand-overrides/mommyandme/theme_picker.html. With these None,
+    # the partials fall through to Creator Core defaults via
+    # templates/partials/_brand_vars.html. To populate once confirmed,
+    # replace the None values with hex codes from the chosen theme option.
+    #
+    # Reference (draft, NOT confirmed — see PALETTE_DRAFT.md):
+    #   Option 1 (Sage forward):   primary #7C7D6A / on #F5F2ED
+    #                              container #DDBBA4 / on #3D3A33
+    #   Option 2 (Rose forward):   primary #B98D75 / on #F5F2ED
+    #                              container #7C7D6A / on #F5F2ED
+    'brand_primary':              None,
+    'brand_on_primary':           None,
+    'brand_primary_container':    None,
+    'brand_on_primary_container': None,
 }
 
 
@@ -777,7 +803,11 @@ def init_amazon_trends_schema(conn) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def seed_default_creator() -> None:
-    """Insert the default Steph row if creators is empty. Idempotent."""
+    """Insert the default Steph row if creators is empty. Backfill NULL
+    P0.7 metadata fields on the existing default creator row if present.
+    Idempotent. Color fields (brand_primary etc.) are never overwritten —
+    only metadata fields that are demo-safe regardless of brand confirmation.
+    """
     conn = _connect()
     try:
         count = conn.execute("SELECT COUNT(*) as n FROM creators").fetchone()
@@ -791,6 +821,38 @@ def seed_default_creator() -> None:
             )
             conn.commit()
             logging.info("[DB_SCHEMA] Seeded default creator: everydaywithsteph")
+        else:
+            # Backfill demo-safe P0.7 metadata for the existing default
+            # creator row if those fields are NULL. We never touch
+            # brand_primary / brand_on_primary / brand_primary_container /
+            # brand_on_primary_container — those wait for Steph's confirmed
+            # palette from the theme picker.
+            _DEMO_SAFE_FIELDS = (
+                'logo_url', 'shop_domain',
+                'meta_title_template', 'meta_description_template',
+            )
+            updates_applied = 0
+            for field in _DEMO_SAFE_FIELDS:
+                desired = DEFAULT_CREATOR.get(field)
+                if desired is None:
+                    continue
+                # Only set when the existing row's value is NULL — don't
+                # overwrite anything an admin or seed has already set.
+                cur = conn.execute(
+                    f"UPDATE creators SET {field} = ? "
+                    f"WHERE id = ? AND ({field} IS NULL OR {field} = '')",
+                    (desired, DEFAULT_CREATOR['id']),
+                )
+                rowcount = getattr(cur, 'rowcount', 0) or 0
+                if rowcount:
+                    updates_applied += 1
+            if updates_applied:
+                conn.commit()
+                logging.info(
+                    "[DB_SCHEMA] Backfilled %d demo-safe P0.7 metadata "
+                    "field(s) for default creator",
+                    updates_applied,
+                )
     finally:
         conn.close()
 

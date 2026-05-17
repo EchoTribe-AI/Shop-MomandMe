@@ -649,6 +649,106 @@ class TrendsCreatePostNarrowQueryTest(unittest.TestCase):
         self.assertIsNone(store.get_collection_by_slug("archived-one"))
 
 
+class P07DemoCreatorSeedTest(_CollectionContentBaseCase):
+    """Demo-safe seeding of the default creator's P0.7 metadata fields.
+
+    Color fields (brand_primary etc.) must remain NULL until Steph
+    confirms her palette via the theme picker — only metadata fields
+    that are demo-safe regardless of brand confirmation are seeded.
+    """
+
+    def test_default_creator_seeded_with_demo_safe_metadata(self):
+        # Bootstrap already happened in setUp; default creator row exists.
+        conn = self.db_schema._connect()
+        try:
+            row = conn.execute(
+                "SELECT logo_url, shop_domain, meta_title_template, "
+                "meta_description_template, brand_primary, brand_on_primary, "
+                "brand_primary_container, brand_on_primary_container "
+                "FROM creators WHERE id = ?",
+                ('everydaywithsteph',),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(row, "Default creator row missing after bootstrap")
+        # Demo-safe metadata IS set
+        self.assertEqual(row[0], 'static/images/mmc-og-preview.png')
+        self.assertEqual(row[1], 'shop.mommyandmecollective.com')
+        self.assertIn('{collection}', row[2])
+        self.assertIn('{collection}', row[3])
+        # Brand color fields are explicitly NOT set — must remain NULL
+        # until Steph confirms via the theme picker. The framework falls
+        # through to Creator Core defaults via _brand_vars.html when NULL.
+        self.assertIsNone(row[4], "brand_primary should be NULL pre-Steph-confirmation")
+        self.assertIsNone(row[5], "brand_on_primary should be NULL pre-Steph-confirmation")
+        self.assertIsNone(row[6], "brand_primary_container should be NULL pre-Steph-confirmation")
+        self.assertIsNone(row[7], "brand_on_primary_container should be NULL pre-Steph-confirmation")
+
+    def test_seed_backfills_metadata_on_existing_row_with_null_fields(self):
+        # Simulate the case where the creators row pre-dates P0.7 and has
+        # NULL metadata. Reset the metadata fields, re-run seed, confirm
+        # the demo-safe fields get backfilled but color fields stay NULL.
+        conn = self.db_schema._connect()
+        try:
+            conn.execute(
+                "UPDATE creators SET logo_url = NULL, shop_domain = NULL, "
+                "meta_title_template = NULL, meta_description_template = NULL "
+                "WHERE id = ?",
+                ('everydaywithsteph',),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Re-run the seed; should backfill the NULLs.
+        self.db_schema.seed_default_creator()
+
+        conn = self.db_schema._connect()
+        try:
+            row = conn.execute(
+                "SELECT logo_url, shop_domain, meta_title_template, "
+                "brand_primary FROM creators WHERE id = ?",
+                ('everydaywithsteph',),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row[0], 'static/images/mmc-og-preview.png')
+        self.assertEqual(row[1], 'shop.mommyandmecollective.com')
+        self.assertIn('{collection}', row[2])
+        self.assertIsNone(row[3], "Color fields must never be backfilled by the seed")
+
+    def test_seed_does_not_overwrite_admin_set_brand_colors(self):
+        # If an admin has populated brand colors via SQL or via a future
+        # admin UI, the seed must NOT clobber those values on next boot.
+        conn = self.db_schema._connect()
+        try:
+            conn.execute(
+                "UPDATE creators SET brand_primary = ?, brand_on_primary = ? "
+                "WHERE id = ?",
+                ('#7C7D6A', '#F5F2ED', 'everydaywithsteph'),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Re-run seed — backfill logic should ignore color fields entirely.
+        self.db_schema.seed_default_creator()
+
+        conn = self.db_schema._connect()
+        try:
+            row = conn.execute(
+                "SELECT brand_primary, brand_on_primary "
+                "FROM creators WHERE id = ?",
+                ('everydaywithsteph',),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row[0], '#7C7D6A',
+                         "Seed must not overwrite admin-set brand_primary")
+        self.assertEqual(row[1], '#F5F2ED',
+                         "Seed must not overwrite admin-set brand_on_primary")
+
+
 class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
     """P0.7 — per-creator brand override surface.
 
