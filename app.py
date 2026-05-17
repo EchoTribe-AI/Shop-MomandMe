@@ -4224,90 +4224,13 @@ def archer_discovery_top_clicked():
         'registry_only': registry_only,
         'has_click_data': has_any_clicks,
     })
-@app.route('/urlgenius/create_link', methods=['POST'])
-@require_admin_api
-def urlgenius_create_link():
-    from product_api import URLGeniusAPI
-    body = request.get_json() or {}
-    url = body.get('url', '').strip()
-    if not url:
-        return jsonify({'error': 'url is required'}), 400
-    ug = URLGeniusAPI()
-    if not ug.api_key:
-        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
-    try:
-        result = ug.create_link(
-            destination_url=url,
-            utm_source=body.get('utm_source', 'steph-ai'),
-            utm_medium=body.get('utm_medium', 'ai-agent'),
-            utm_campaign=body.get('utm_campaign'),
-            utm_content=body.get('utm_content'),
-        )
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/urlgenius')
-@app.route('/archer/urlgenius')
-@require_admin_page
-def urlgenius_page():
-    return render_template('urlgenius_links.html')
-
-
-@app.route('/urlgenius/sync', methods=['POST'])
-@require_admin_api
-def urlgenius_sync_registry():
-    """
-    Refresh live click counts for registry entries via the documented
-    URLgenius v2 endpoint: GET /api/v2/links/<LINK_ID>.
-
-    Body params (all optional):
-      - limit: how many links to refresh in this call (1-500, default 50).
-               Each call costs ~limit*0.55s due to the 2-req/sec API limit,
-               so syncing all ~20K links happens progressively over many
-               clicks (oldest-checked first).
-      - all:   if true, ignores the 24h "stale" filter and re-checks even
-               recently-synced rows.
-    """
-    from product_api import URLGeniusAPI
-    body = request.get_json(silent=True) or {}
-    limit = body.get('limit') or request.args.get('limit', 50)
-    only_stale = not (body.get('all') or request.args.get('all') == '1')
-
-    ug = URLGeniusAPI()
-    if not ug.api_key:
-        return jsonify({'ok': False, 'error': 'URLGENIUS_API_KEY not set'}), 400
-    try:
-        result = ug.refresh_link_clicks(limit=limit, only_stale=only_stale)
-        result['ok'] = True
-        return jsonify(result)
-    except Exception as e:
-        logging.warning(f"[URLGENIUS] sync failed: {e}")
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
-
-@app.route('/urlgenius/links')
-@require_admin_api
-def urlgenius_list_links():
-    """
-    Return URLgenius deep links from the local registry.
-
-    URLgenius API v2 (per official docs) only supports POST (create) and
-    DELETE — there is no documented endpoint to list links — so the local
-    registry, populated as we create links, is the authoritative source.
-    No API key required since this reads from local disk.
-    """
-    from product_api import URLGeniusAPI
-    ug = URLGeniusAPI()
-    try:
-        limit = int(request.args.get('limit', 500))
-    except (TypeError, ValueError):
-        limit = 500
-    # Registry now holds 21K+ entries — allow loading the full set so the
-    # dashboard can show real totals/sort across the whole catalog.
-    limit = max(1, min(limit, 30000))
-    return jsonify(ug.list_links(limit=limit))
+# Legacy EchoTribe-internal URLgenius admin surfaces removed in the
+# Shop-MomandMe strip-down (2026-05-17): /urlgenius/create_link,
+# /urlgenius/sync, /urlgenius/links, /urlgenius (page), /archer/urlgenius.
+# The URLGeniusAPI class in product_api.py remains — it's used by the
+# Walmart/Amazon trends affiliate-link wrapping and by /urlgenius/smart_link
+# (KEEP). Re-introduction is scoped to a future "Seller Connections"
+# creator feature, not the current launch.
 
 
 # Legacy EchoTribe-internal Levanta surfaces removed in the Shop-MomandMe
