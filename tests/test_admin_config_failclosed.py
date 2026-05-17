@@ -224,19 +224,10 @@ class ArcherRoutesGuarded(unittest.TestCase):
     def _base_url(self):
         return f'http://{self.PROD_HOST}'
 
-    def test_archer_products_page_redirects_unauth(self):
-        """Previously returned 200 + rendered HTML. Now must redirect to
-        /admin/login (the page guard)."""
-        with _app_with_env(self.GUARDED_ENV) as app_mod:
-            client = self._client_and_prod(app_mod)
-            resp = client.get(
-                '/archer/products',
-                headers=self._prod_headers(),
-                base_url=self._base_url(),
-                follow_redirects=False,
-            )
-        self.assertEqual(resp.status_code, 302)
-        self.assertIn('/admin/login', resp.headers.get('Location', ''))
+    # test_archer_products_page_redirects_unauth removed in the
+    # Shop-MomandMe strip-down — /archer/products HTML page deleted.
+    # The /archer/product/<asin> JSON variant (KEEP) is covered by
+    # test_archer_product_json_returns_401_unauth below.
 
     def test_archer_search_returns_401_unauth(self):
         """JSON route — guard returns 401."""
@@ -262,17 +253,8 @@ class ArcherRoutesGuarded(unittest.TestCase):
             )
         self.assertEqual(resp.status_code, 401)
 
-    def test_archer_ads_page_redirects_unauth(self):
-        with _app_with_env(self.GUARDED_ENV) as app_mod:
-            client = self._client_and_prod(app_mod)
-            resp = client.get(
-                '/archer/ads',
-                headers=self._prod_headers(),
-                base_url=self._base_url(),
-                follow_redirects=False,
-            )
-        self.assertEqual(resp.status_code, 302)
-        self.assertIn('/admin/login', resp.headers.get('Location', ''))
+    # test_archer_ads_page_redirects_unauth removed in the
+    # Shop-MomandMe strip-down — /archer/ads page deleted.
 
     def test_archer_track_click_remains_public(self):
         """/archer/track_click is intentionally public — used by storefront
@@ -291,17 +273,20 @@ class ArcherRoutesGuarded(unittest.TestCase):
         self.assertNotIn(resp.status_code, (302, 401, 403))
 
     def test_authed_session_unblocks_archer(self):
-        """Sanity: with a real admin session, /archer/products renders.
+        """Sanity: with a real admin session, /archer/collage renders.
 
         Uses the default localhost host (no PROD_HOST override) so the
         Flask test client's cookie jar uses the same domain for setting
         and reading the session cookie. The session check fires before
-        the localhost dev-allowance branch in any case."""
+        the localhost dev-allowance branch in any case.
+
+        Was /archer/products pre-strip-down; switched to /archer/collage
+        which is the canonical KEEP page on Shop-MomandMe."""
         with _app_with_env(self.GUARDED_ENV) as app_mod:
             client = self._client_and_prod(app_mod)
             with client.session_transaction() as sess:
                 sess['admin_authed'] = True
-            resp = client.get('/archer/products')
+            resp = client.get('/archer/collage')
         self.assertEqual(resp.status_code, 200)
 
     def test_header_token_unblocks_archer_api(self):
