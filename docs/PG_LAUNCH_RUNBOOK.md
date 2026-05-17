@@ -104,6 +104,28 @@ psql "$DATABASE_URL" -c "SELECT current_database(), inet_server_addr(), COUNT(*)
 
 ---
 
+## Per-creator framework (planning context — implementation lands in P0.7)
+
+> **2026-05-17 architecture realignment.** The earlier split treated the storefront (`templates/shop_*`, `templates/walmart_*`, `/shop/`, `/collections/`, `/admin/login`, `templates/partials/`) as **client-only** — each creator deploy edited those files locally. That model didn't scale: improvements diverged across deploys instead of converging on a tested framework.
+>
+> The realigned model: **Echo-Dashboard hosts the storefront framework against a demo creator on `shop.echotribe.ai`.** The framework is shared upstream. Per-creator deploys (the first being Shop-MomandMe at `shop.mommyandmecollective.com`) override only what's genuinely creator-specific.
+
+**What this means operationally:**
+
+- **Echo-Dashboard's storefront is real.** Visitors to `https://shop.echotribe.ai/shop/`, `/collections/<slug>`, `/posts`, `/trends`, etc. see a working storefront rendered against the demo creator (`everydaywithsteph` row in the `creators` table). It is not a stub or a redirect — it is the framework running for development and QA.
+- **Per-creator data lives in the `creators` table.** Existing columns (`display_name`, `handle`, `brand_label`, `voice_prompt`, `theme_default`, `defaults_json`) plus the additions defined in P0.7 (`logo_url`, `primary_color`, `accent_color`, `shop_domain`, `meta_title_template`, `meta_description_template`) carry the brand identity. Templates render against the active `creator_id` resolved from subdomain / session / env default — no creator name is hardcoded.
+- **Per-deploy overrides live in a `branding/` directory** (new in P0.7) on each downstream deploy. Mommy & Me's logo, favicon, and any deploy-specific brand assets sit there. The framework reads `branding/` at render time when it exists and falls back to demo-creator defaults when it doesn't.
+- **EchoTribe-internal admin (`/archer/*`, EchoBoost, Levanta, brand-side dashboards) stays on Echo-Dashboard only.** Shop-MomandMe's strip-down PR removes those routes; the storefront framework stays.
+- **Improvements develop on Echo-Dashboard first.** A storefront template tweak gets coded and tested against the demo creator on `shop.echotribe.ai`. After merge to Echo-Dashboard `main`, the next cherry-pick sync pulls it into Shop-MomandMe, where Mommy & Me's branding overrides re-apply at render time.
+
+**P0.7 (Phase 0 planning doc, Software Architect agent)** owns the technical spec: schema additions, branding-override read path, demo-creator seed, sync-friendly conflict semantics. Until P0.7 lands, treat this section as forward-looking architecture context, not current production behavior. The runbook will note the transition when P0.7 ships.
+
+Cross-links:
+- `docs/planning/PHASE0_07_storefront_framework_boundary.md` — P0.7 implementation plan. *This file ships in the Phase 0 planning PR; once that lands the path resolves directly. Until then the spec exists in that PR's diff.*
+- Shop-MomandMe `docs/UPSTREAM_SYNC.md` — downstream-side shared-surface list (updated to match this realignment)
+
+---
+
 ## Never do this (the lessons learned)
 
 1. **Don't commit `data/archer_catalog.db`** (or any production data file) into git. It bloats the repo, ships stale data into every container, and PII-risks the history.
