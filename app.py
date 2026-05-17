@@ -87,6 +87,49 @@ if _STARTUP_MISSING:
         ', '.join(_STARTUP_MISSING),
     )
 
+
+# ── Admin guards (decorators) ────────────────────────────────────────────────
+# These are defined high in the module so route handlers below can apply
+# them as `@require_admin_api` / `@require_admin_page`. The underlying
+# functions they call (_require_walmart_trends_admin, _require_admin_page)
+# live further down with the rest of the auth helpers — they're resolved
+# at request time, not at decorator-definition time, so forward references
+# are fine.
+
+def require_admin_api(view):
+    """Decorator: refuse JSON admin endpoints unless caller is authed.
+
+    Used on /archer/* JSON routes (audit follow-up 0.5) to enforce
+    session-OR-header auth in a single line instead of three inline.
+    """
+    from functools import wraps as _wraps
+
+    @_wraps(view)
+    def wrapped(*args, **kwargs):
+        guard = _require_walmart_trends_admin()
+        if guard:
+            return guard
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def require_admin_page(view):
+    """Decorator: refuse admin HTML pages unless caller has a session.
+
+    Used on /archer/* HTML pages (audit follow-up 0.5) so the route
+    redirects unauthenticated visitors to /admin/login instead of
+    rendering the page.
+    """
+    from functools import wraps as _wraps
+
+    @_wraps(view)
+    def wrapped(*args, **kwargs):
+        guard = _require_admin_page()
+        if guard:
+            return guard
+        return view(*args, **kwargs)
+    return wrapped
+
 THEMES = {
     'coral':    {'bg': '#fff5f5', 'accent': '#ff6b6b', 'btn': '#e85d26', 'text': '#1a1a17'},
     'ocean':    {'bg': '#e8f4f8', 'accent': '#2e7dd4', 'btn': '#0a6b52', 'text': '#0f4a8a'},
@@ -522,6 +565,7 @@ def dashboard_upload_csv():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/archer/products')
+@require_admin_page
 def archer_products():
     return render_template('archer_products.html')
 
@@ -543,6 +587,7 @@ def archer_products():
 # ARCHIVED — see /archive/routes/
 
 @app.route('/archer/search')
+@require_admin_api
 def archer_search():
     """Search Archer and/or Levanta catalogs. Supports network=archer|levanta|both."""
     from product_api import ArcherAPI, LevantaAPI
@@ -680,6 +725,7 @@ def archer_search():
 # ARCHIVED — see /archive/routes/
 
 @app.route('/archer/generate_link', methods=['POST'])
+@require_admin_api
 def archer_generate_link():
     """Generate a live Archer attribution link for a given ASIN."""
     from product_api import ArcherAPI
@@ -702,6 +748,7 @@ def archer_collage():
     return render_template('archer_collage.html')
 
 @app.route('/archer/product/<asin>')
+@require_admin_api
 def archer_get_product(asin):
     from product_api import ArcherAPI
     from product_lookup_service import resolve_amazon_product
@@ -716,6 +763,7 @@ def archer_get_product(asin):
     return jsonify({"error": "Product not found"}), 404
 
 @app.route('/archer/generate_caption', methods=['POST'])
+@require_admin_api
 def archer_generate_caption():
     _ensure_schema_ready()
     data = request.get_json() or {}
@@ -766,6 +814,7 @@ def archer_generate_caption():
 
 
 @app.route('/archer/generate_organic_posts', methods=['POST'])
+@require_admin_api
 def archer_generate_organic_posts():
     """Generate 20 organic FB Group post variations for Steph.
 
@@ -886,6 +935,7 @@ def archer_generate_organic_posts():
 
 
 @app.route('/archer/generate_posts', methods=['POST'])
+@require_admin_api
 def archer_generate_posts():
     """Content builder v2 — returns Claude-generated copy WITHOUT pre-built links.
     Frontend creates smart links on-demand via /urlgenius/smart_link after reviewing UTM tags.
@@ -1068,6 +1118,7 @@ def archer_generate_posts():
 
 
 @app.route('/archer/generate_campaign_package', methods=['POST'])
+@require_admin_api
 def archer_generate_campaign_package():
     """Generate a 5-layer Meta ad campaign package + paste-ready Ryze MCP prompt.
 
@@ -1261,6 +1312,7 @@ def archer_generate_campaign_package():
 
 
 @app.route('/archer/collage/save', methods=['POST'])
+@require_admin_api
 def archer_save_collage():
     """Save (or update) a collage.
 
@@ -1302,6 +1354,7 @@ def archer_save_collage():
 
 
 @app.route('/archer/collage/publish', methods=['POST'])
+@require_admin_api
 def archer_collage_publish():
     """Promote a draft collage to published. Generates Archer attribution links
     for products that don't have them yet, then flips status to 'published'.
@@ -1344,6 +1397,7 @@ def archer_collage_publish():
         return jsonify({'error': str(exc)}), status_code
 
 @app.route('/archer/collage/archive', methods=['POST'])
+@require_admin_api
 def archer_collage_archive():
     """Soft-delete a collage by setting its status to 'archived'.
 
@@ -1365,6 +1419,7 @@ def archer_collage_archive():
 
 
 @app.route('/archer/collage/restore', methods=['POST'])
+@require_admin_api
 def archer_collage_restore():
     """Restore an archived collage to draft status without publishing it."""
     import collection_content as cc
@@ -1380,6 +1435,7 @@ def archer_collage_restore():
 
 
 @app.route('/archer/collage/<slug>', methods=['GET'])
+@require_admin_api
 def archer_collage_get(slug):
     """Return one collection's full record (used by Ad Builder auto-load
     when ?collection=<slug> deep-link is hit, and by the Mode C edit flow)."""
@@ -1395,6 +1451,7 @@ def archer_collage_get(slug):
 
 
 @app.route('/archer/collages')
+@require_admin_api
 def archer_list_collages():
     import collection_service
     status = request.args.get('status') or 'published'
@@ -2816,6 +2873,7 @@ def shop_robots():
 
 # ── POSTS QUEUE (Branch 2B) ──────────────────────────────────────────────────
 @app.route('/archer/posts', methods=['GET'])
+@require_admin_api
 def archer_posts_list():
     """List posts for the queue UI. Query: status, collection_slug, creator_id."""
     import posts as _posts
@@ -2831,6 +2889,7 @@ def archer_posts_list():
 
 
 @app.route('/archer/posts/<int:post_id>', methods=['PATCH'])
+@require_admin_api
 def archer_post_update(post_id):
     """Update a single post's editable fields (copy, angle, status, UTMs, smart_link)."""
     import posts as _posts
@@ -2842,6 +2901,7 @@ def archer_post_update(post_id):
 
 
 @app.route('/archer/posts/<int:post_id>', methods=['DELETE'])
+@require_admin_api
 def archer_post_delete(post_id):
     """Hard delete. Use bulk_status with 'archived' for soft delete."""
     import posts as _posts
@@ -2851,6 +2911,7 @@ def archer_post_delete(post_id):
 
 
 @app.route('/archer/posts/bulk', methods=['POST'])
+@require_admin_api
 def archer_posts_bulk():
     """Bulk-update status on many posts at once.
 
@@ -2867,6 +2928,7 @@ def archer_posts_bulk():
 
 
 @app.route('/archer/posts/export.csv', methods=['GET'])
+@require_admin_page
 def archer_posts_export_csv():
     """Export posts queue as CSV: created_at | angle | asin | copy | smart_link | image_note | status."""
     import csv, io
@@ -2930,12 +2992,14 @@ def archer_post_edit_page(post_id):
 
 # ── CAMPAIGN BUILDER v3 (Branch 3) ───────────────────────────────────────────
 @app.route('/archer/campaigns')
+@require_admin_page
 def archer_campaigns_page():
     """Bulk Campaign Builder page — picks N targets, generates N packages."""
     return render_template('archer_campaigns.html')
 
 
 @app.route('/archer/campaigns/list', methods=['GET'])
+@require_admin_api
 def archer_campaigns_list():
     """List persisted campaigns_v3 packages with optional filters."""
     from product_api import ArcherAPI
@@ -2972,6 +3036,7 @@ def archer_campaigns_list():
 
 
 @app.route('/archer/campaigns/<int:campaign_id>', methods=['GET'])
+@require_admin_api
 def archer_campaign_get(campaign_id):
     from product_api import ArcherAPI
     conn = ArcherAPI()._db_connect()
@@ -2993,6 +3058,7 @@ def archer_campaign_get(campaign_id):
 
 
 @app.route('/archer/campaigns/<int:campaign_id>', methods=['PATCH'])
+@require_admin_api
 def archer_campaign_update(campaign_id):
     """Update a draft package — package_json (full replace), status, asset_url, notes."""
     from product_api import ArcherAPI
@@ -3026,6 +3092,7 @@ def archer_campaign_update(campaign_id):
 
 
 @app.route('/archer/campaigns/<int:campaign_id>', methods=['DELETE'])
+@require_admin_api
 def archer_campaign_delete(campaign_id):
     from product_api import ArcherAPI
     conn = ArcherAPI()._db_connect()
@@ -3038,6 +3105,7 @@ def archer_campaign_delete(campaign_id):
 
 
 @app.route('/archer/campaigns/<int:campaign_id>/export', methods=['POST'])
+@require_admin_api
 def archer_campaign_export(campaign_id):
     """Mark a package exported and return the paste-ready Ryze MCP prompt."""
     import campaign_builder as cb
@@ -3076,6 +3144,7 @@ def archer_campaign_export(campaign_id):
 
 
 @app.route('/archer/campaigns/generate', methods=['POST'])
+@require_admin_api
 def archer_campaigns_generate():
     """Bulk-generate campaign packages.
 
@@ -3235,6 +3304,7 @@ def _generate_layer_copies(client, creator_id, target, layer_ids):
 
 
 @app.route('/archer/campaigns/boost', methods=['POST'])
+@require_admin_api
 def archer_campaigns_boost():
     """Build and persist a boost_post package.
 
@@ -3318,6 +3388,7 @@ def archer_track_click():
     return jsonify({'ok': True})
 
 @app.route('/archer/campaigns/fetch-product', methods=['POST'])
+@require_admin_api
 def archer_fetch_product():
     """Fetch product details for a single ASIN (via Crawlbase) or Walmart SKU (via Walmart API).
 
@@ -3365,6 +3436,7 @@ def archer_fetch_product():
 
 
 @app.route('/archer/image_proxy')
+@require_admin_api
 def archer_image_proxy():
     """Proxy an image URL so the browser can download it without CORS issues."""
     url = request.args.get('url', '').strip()
@@ -3386,10 +3458,12 @@ def archer_image_proxy():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/archer/ads')
+@require_admin_page
 def archer_ads():
     return render_template('archer_ads.html')
 
 @app.route('/archer/organic')
+@require_admin_page
 def archer_organic():
     post_id = request.args.get('post_id')
     if post_id and post_id.isdigit():
@@ -3572,6 +3646,7 @@ def admin_creator_get(creator_id):
     return jsonify({'creator': creator})
 
 @app.route('/archer/generate_ad_copy', methods=['POST'])
+@require_admin_api
 def archer_generate_ad_copy():
     _ensure_schema_ready()
     from product_api import ArcherAPI
@@ -3631,6 +3706,7 @@ def archer_generate_ad_copy():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/archer/ads/save', methods=['POST'])
+@require_admin_api
 def archer_save_campaign():
     from product_api import ArcherAPI
     data = request.get_json() or {}
@@ -3674,6 +3750,7 @@ def archer_save_campaign():
     return jsonify({'ok': True, 'slug': slug})
 
 @app.route('/archer/ads/campaigns')
+@require_admin_api
 def archer_list_campaigns():
     from product_api import ArcherAPI
     a = ArcherAPI()
@@ -4027,6 +4104,7 @@ def urlgenius_smart_link():
 
 
 @app.route('/archer/discovery/top_clicked', methods=['GET'])
+@require_admin_api
 def archer_discovery_top_clicked():
     """Top URLGenius-clicked Amazon products for Organic queue seeding."""
     from product_api import URLGeniusAPI, ArcherAPI
@@ -4155,6 +4233,7 @@ def urlgenius_create_link():
 
 @app.route('/urlgenius')
 @app.route('/archer/urlgenius')
+@require_admin_page
 def urlgenius_page():
     return render_template('urlgenius_links.html')
 

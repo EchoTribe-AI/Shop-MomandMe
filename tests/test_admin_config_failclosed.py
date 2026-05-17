@@ -202,6 +202,124 @@ class UrlTokenAuthRejected(unittest.TestCase):
         self.assertNotIn(resp.status_code, (401, 503))
 
 
+class ArcherRoutesGuarded(unittest.TestCase):
+    """Audit follow-up 0.5: every /archer/* route except /archer/track_click
+    must require admin auth. Previously /archer/products, /archer/search,
+    /archer/ads (and ~30 others) returned 200 unauthenticated."""
+
+    GUARDED_ENV = {
+        'DATABASE_URL': 'postgresql://fake/local',
+        'SECRET_KEY': 'test-secret',
+        'ADMIN_PASSWORD': 'test-password',
+        'WALMART_TRENDS_ADMIN_TOKEN': 'test-token',
+    }
+    PROD_HOST = 'admin.echotribe.ai'  # avoid SHOP_SUBDOMAIN rewrite
+
+    def _client_and_prod(self, app_mod):
+        return app_mod.app.test_client()
+
+    def _prod_headers(self):
+        return {'Host': self.PROD_HOST}
+
+    def _base_url(self):
+        return f'http://{self.PROD_HOST}'
+
+    def test_archer_products_page_redirects_unauth(self):
+        """Previously returned 200 + rendered HTML. Now must redirect to
+        /admin/login (the page guard)."""
+        with _app_with_env(self.GUARDED_ENV) as app_mod:
+            client = self._client_and_prod(app_mod)
+            resp = client.get(
+                '/archer/products',
+                headers=self._prod_headers(),
+                base_url=self._base_url(),
+                follow_redirects=False,
+            )
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/admin/login', resp.headers.get('Location', ''))
+
+    def test_archer_search_returns_401_unauth(self):
+        """JSON route — guard returns 401."""
+        with _app_with_env(self.GUARDED_ENV) as app_mod:
+            client = self._client_and_prod(app_mod)
+            resp = client.get(
+                '/archer/search?q=test',
+                headers=self._prod_headers(),
+                base_url=self._base_url(),
+            )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_archer_product_json_returns_401_unauth(self):
+        """The /archer/product/<asin> JSON variant is used by archer_collage's
+        JS — but archer_collage is itself session-gated, so the JS call
+        rides on the user's session. Unauthed callers must be denied."""
+        with _app_with_env(self.GUARDED_ENV) as app_mod:
+            client = self._client_and_prod(app_mod)
+            resp = client.get(
+                '/archer/product/B0TEST',
+                headers=self._prod_headers(),
+                base_url=self._base_url(),
+            )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_archer_ads_page_redirects_unauth(self):
+        with _app_with_env(self.GUARDED_ENV) as app_mod:
+            client = self._client_and_prod(app_mod)
+            resp = client.get(
+                '/archer/ads',
+                headers=self._prod_headers(),
+                base_url=self._base_url(),
+                follow_redirects=False,
+            )
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/admin/login', resp.headers.get('Location', ''))
+
+    def test_archer_track_click_remains_public(self):
+        """/archer/track_click is intentionally public — used by storefront
+        JS to log click-through events. Must NOT be guarded."""
+        with _app_with_env(self.GUARDED_ENV) as app_mod:
+            client = self._client_and_prod(app_mod)
+            resp = client.post(
+                '/archer/track_click',
+                json={'asin': 'B0TEST', 'slug': 'test-slug'},
+                headers=self._prod_headers(),
+                base_url=self._base_url(),
+            )
+        # Auth-related codes must NOT be returned. Downstream insert may
+        # fail in test env (no schema initialized) but the route should
+        # not return 401/403/503/302-to-login.
+        self.assertNotIn(resp.status_code, (302, 401, 403))
+
+    def test_authed_session_unblocks_archer(self):
+        """Sanity: with a real admin session, /archer/products renders.
+
+        Uses the default localhost host (no PROD_HOST override) so the
+        Flask test client's cookie jar uses the same domain for setting
+        and reading the session cookie. The session check fires before
+        the localhost dev-allowance branch in any case."""
+        with _app_with_env(self.GUARDED_ENV) as app_mod:
+            client = self._client_and_prod(app_mod)
+            with client.session_transaction() as sess:
+                sess['admin_authed'] = True
+            resp = client.get('/archer/products')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_header_token_unblocks_archer_api(self):
+        """Cron/automation token (header) must continue to authenticate
+        /archer/* JSON routes."""
+        with _app_with_env(self.GUARDED_ENV) as app_mod:
+            client = self._client_and_prod(app_mod)
+            resp = client.get(
+                '/archer/search?q=test',
+                headers={
+                    'Host': self.PROD_HOST,
+                    'X-Walmart-Trends-Admin-Token': 'test-token',
+                },
+                base_url=self._base_url(),
+            )
+        self.assertNotEqual(resp.status_code, 401)
+
+
 class DevModeAllowsDefaults(unittest.TestCase):
     """In dev, the fail-closed check is a no-op even with missing config."""
 
