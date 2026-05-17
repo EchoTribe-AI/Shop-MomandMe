@@ -30,9 +30,62 @@ app = Flask(__name__)
 # Auth state lives in a signed Flask session cookie (signed with SECRET_KEY).
 # API mutation routes also accept the legacy X-Walmart-Trends-Admin-Token
 # header for backwards compatibility with any external automation.
-app.secret_key = os.environ.get('SECRET_KEY') or os.environ.get('FLASK_SECRET_KEY') or 'echotribe-dev-secret-please-change-in-prod'
+#
+# Production fail-closed posture: when running under a real database
+# (DATABASE_URL set AND FLASK_ENV != 'development'), SECRET_KEY and
+# ADMIN_PASSWORD are REQUIRED. If either is missing, the app keeps serving
+# /healthz and public storefront routes, but every admin path returns 503
+# with a clear "missing production admin config" message. See
+# _admin_config_missing() and the loud startup warning below.
+_RAW_SECRET_KEY = os.environ.get('SECRET_KEY') or os.environ.get('FLASK_SECRET_KEY')
+_RAW_ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD')
+
+
+def _is_production_env() -> bool:
+    """True when the app is running against a production-style backend.
+
+    We treat 'production' as: a DATABASE_URL is set AND FLASK_ENV is not
+    explicitly 'development'. This catches Replit deployments (which auto-
+    inject DATABASE_URL) without requiring the operator to set FLASK_ENV.
+    """
+    if (os.environ.get('FLASK_ENV') or '').lower() == 'development':
+        return False
+    return bool(os.environ.get('DATABASE_URL'))
+
+
+def _admin_config_missing() -> list:
+    """Return a list of REQUIRED env vars that are missing in production.
+
+    Empty list in dev or when fully configured. Non-empty in prod means
+    admin paths should refuse to serve.
+    """
+    if not _is_production_env():
+        return []
+    missing = []
+    if not (_RAW_SECRET_KEY or '').strip():
+        missing.append('SECRET_KEY')
+    if not (_RAW_ADMIN_PASSWORD or '').strip():
+        missing.append('ADMIN_PASSWORD')
+    return missing
+
+
+# Flask still needs *some* secret to sign session cookies even during the
+# startup warning window; signed cookies are not useful here because we
+# refuse all admin paths anyway, but Flask raises if secret_key is empty.
+app.secret_key = _RAW_SECRET_KEY or 'echotribe-dev-secret-please-change-in-prod'
 app.permanent_session_lifetime = _admin_timedelta(days=30)
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'dan')
+ADMIN_PASSWORD = _RAW_ADMIN_PASSWORD or 'dan'
+
+# Loud startup warning so the missing config is visible in Replit logs the
+# first time the app boots. This runs once at module import time.
+_STARTUP_MISSING = _admin_config_missing()
+if _STARTUP_MISSING:
+    logging.error(
+        "[BOOT] PRODUCTION ADMIN CONFIG MISSING: %s. Admin routes will return "
+        "503 until these env vars are set. /healthz and public shop routes "
+        "remain available. Set these in Replit Secrets, then redeploy.",
+        ', '.join(_STARTUP_MISSING),
+    )
 
 THEMES = {
     'coral':    {'bg': '#fff5f5', 'accent': '#ff6b6b', 'btn': '#e85d26', 'text': '#1a1a17'},
@@ -1600,6 +1653,14 @@ def _require_walmart_trends_admin():
 
     Returns None on success; a (Response, status) tuple on failure.
     """
+    # 0. Production fail-closed: refuse all admin paths if required config
+    # is missing, regardless of caller credentials.
+    missing = _admin_config_missing()
+    if missing:
+        return jsonify({
+            'error': 'missing production admin config',
+            'missing': missing,
+        }), 503
     # 1. Session cookie — primary path going forward.
     if _admin_session_authed():
         return None
@@ -1682,6 +1743,18 @@ def _require_admin_page():
         if guard:
             return guard
     """
+    # Production fail-closed: refuse all admin pages if required config is
+    # missing. Render plain text 503 (no template; missing SECRET_KEY may
+    # break session-flash messages on the login page).
+    missing = _admin_config_missing()
+    if missing:
+        return (
+            "Admin unavailable: missing production config ("
+            + ', '.join(missing)
+            + "). Set these in Replit Secrets and redeploy.",
+            503,
+            {'Content-Type': 'text/plain; charset=utf-8'},
+        )
     if _admin_session_authed():
         return None
     # Also honor the legacy URL admin_token / header token so any in-flight
@@ -1704,6 +1777,17 @@ def _require_admin_page():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     """Single-password admin login. Sets a signed-cookie session on success."""
+    # Production fail-closed: don't even render the login form if required
+    # admin config is missing — submitting it would never authenticate.
+    missing = _admin_config_missing()
+    if missing:
+        return (
+            "Admin unavailable: missing production config ("
+            + ', '.join(missing)
+            + "). Set these in Replit Secrets and redeploy.",
+            503,
+            {'Content-Type': 'text/plain; charset=utf-8'},
+        )
     error = None
     next_url = (request.args.get('next') or request.form.get('next') or '/hub').strip() or '/hub'
     # Don't allow open-redirects: only same-origin paths
