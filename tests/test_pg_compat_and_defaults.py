@@ -487,7 +487,6 @@ class FreshPgLaunchSafetyTest(unittest.TestCase):
                 "walmart_trending_now.html",
                 data=data,
                 admin_mode=False,
-                admin_token="",
                 shop_subdomain="shop.example.com",
                 public_nav_items=[],
                 nav_active="trends",
