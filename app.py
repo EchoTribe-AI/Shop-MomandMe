@@ -3439,10 +3439,15 @@ def seed_production():
     """
     One-time endpoint: runs scripts/prod_seed.sql against the current DATABASE_URL.
     Safe to call multiple times — INSERT … ON CONFLICT DO NOTHING prevents duplicates.
-    Protected by ?token=SEED_MMC_2026 query parameter.
+
+    Auth: server session (set via /admin/login) OR X-Walmart-Trends-Admin-Token
+    header / Authorization: Bearer <token>. Same posture as other admin APIs.
+    Previously protected by a hardcoded ?token=SEED_MMC_2026 URL parameter,
+    which leaked through logs/history — removed in audit follow-up 0.2.
     """
-    if request.args.get('token') != 'SEED_MMC_2026':
-        return jsonify({'error': 'unauthorized'}), 403
+    guard = _require_walmart_trends_admin()
+    if guard:
+        return guard
 
     import os as _os
     sql_path = _os.path.join(_os.path.dirname(__file__), 'scripts', 'prod_seed.sql')
