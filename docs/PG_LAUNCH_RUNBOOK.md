@@ -104,7 +104,7 @@ psql "$DATABASE_URL" -c "SELECT current_database(), inet_server_addr(), COUNT(*)
 
 ---
 
-## Per-creator framework (planning context — implementation lands in P0.7)
+## Per-creator framework (P0.7 schema + partials + demo seed shipped)
 
 > **2026-05-17 architecture realignment.** The earlier split treated the storefront (`templates/shop_*`, `templates/walmart_*`, `/shop/`, `/collections/`, `/admin/login`, `templates/partials/`) as **client-only** — each creator deploy edited those files locally. That model didn't scale: improvements diverged across deploys instead of converging on a tested framework.
 >
@@ -113,16 +113,18 @@ psql "$DATABASE_URL" -c "SELECT current_database(), inet_server_addr(), COUNT(*)
 **What this means operationally:**
 
 - **Echo-Dashboard's storefront is real.** Visitors to `https://shop.echotribe.ai/shop/`, `/collections/<slug>`, `/posts`, `/trends`, etc. see a working storefront rendered against the demo creator (`everydaywithsteph` row in the `creators` table). It is not a stub or a redirect — it is the framework running for development and QA.
-- **Per-creator data lives in the `creators` table.** Existing columns (`display_name`, `handle`, `brand_label`, `voice_prompt`, `theme_default`, `defaults_json`) plus the additions defined in P0.7 (`logo_url`, `primary_color`, `accent_color`, `shop_domain`, `meta_title_template`, `meta_description_template`) carry the brand identity. Templates render against the active `creator_id` resolved from subdomain / session / env default — no creator name is hardcoded.
+- **Per-creator data lives in the `creators` table.** Existing columns (`display_name`, `handle`, `brand_label`, `voice_prompt`, `theme_default`, `defaults_json`) plus the eight P0.7 additions shipped in [PR #42](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/42) — `logo_url`, `shop_domain`, `meta_title_template`, `meta_description_template`, and the Material-Design 4-var color contract (`brand_primary`, `brand_on_primary`, `brand_primary_container`, `brand_on_primary_container`) — carry the brand identity. Templates render against the active `creator_id` resolved from subdomain / session / env default — no creator name is hardcoded.
 - **Per-deploy overrides live in a `branding/` directory** (new in P0.7) on each downstream deploy. Mommy & Me's logo, favicon, and any deploy-specific brand assets sit there. The framework reads `branding/` at render time when it exists and falls back to demo-creator defaults when it doesn't.
 - **EchoTribe-internal admin (`/archer/*`, EchoBoost, Levanta, brand-side dashboards) stays on Echo-Dashboard only.** Shop-MomandMe's strip-down PR removes those routes; the storefront framework stays.
 - **Improvements develop on Echo-Dashboard first.** A storefront template tweak gets coded and tested against the demo creator on `shop.echotribe.ai`. After merge to Echo-Dashboard `main`, the next cherry-pick sync pulls it into Shop-MomandMe, where Mommy & Me's branding overrides re-apply at render time.
 
-**P0.7 (Phase 0 planning doc, Software Architect agent)** owns the technical spec: schema additions, branding-override read path, demo-creator seed, sync-friendly conflict semantics. Until P0.7 lands, treat this section as forward-looking architecture context, not current production behavior. The runbook will note the transition when P0.7 ships.
+**P0.7 (Phase 0 planning doc, Software Architect agent)** owned the technical spec: schema additions, branding-override read path, demo-creator seed, sync-friendly conflict semantics. The schema additions ([PR #42](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/42)), the shared storefront partials ([PR #41](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/41)), the demo-creator seed ([PR #43](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/43)), and the planning-doc reconciliation erratum ([PR #44](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/44)) have all merged 2026-05-17. This section now describes current production behavior, not forward-looking architecture.
+
+**Open extension:** K1 in `OPEN_QUESTIONS_TRACKER.md` (extending the 4-variable Material-Design brand-swap contract to 6 vars by adding `--brand-surface` / `--brand-on-surface`) is the remaining decision. Needed before Mommy & Me's cream/linen canvas can render correctly; otherwise canvas stays locked to Creator Core peach. Not blocking — handled as a follow-up PR if Kelly opts in.
 
 Cross-links:
-- `docs/planning/PHASE0_07_storefront_framework_boundary.md` — P0.7 implementation plan. *This file ships in the Phase 0 planning PR; once that lands the path resolves directly. Until then the spec exists in that PR's diff.*
-- Shop-MomandMe `docs/UPSTREAM_SYNC.md` — downstream-side shared-surface list (updated to match this realignment)
+- `docs/planning/PHASE0_07_storefront_framework_boundary.md` — P0.7 implementation plan (includes the [PR #44](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/44) erratum reconciling the plan's 6-column spec with PR #42's 8-column implementation).
+- Shop-MomandMe `docs/UPSTREAM_SYNC.md` — downstream-side shared-surface list (updated to match this realignment).
 
 ---
 
