@@ -13,7 +13,7 @@
 | **Downstream (this repo)** | `EchoTribe-AI/Shop-MomandMe` — `main` branch |
 | **Direction** | One-way: upstream → downstream. **Never the reverse.** |
 | **Baseline** | Tag `baseline-v1.0` (= upstream `v1.0-pg-launch`), set 2026-05-17 |
-| **Cadence** | Weekly until launch (`shop.mommyandmecollective.com`), monthly thereafter |
+| **Cadence** | Sync runs when shared-surface changes accumulate, not on a calendar. Anchor: a recurring retrospective reviews what synced. |
 | **Method** | **Cherry-pick** (preferred), not merge — see §"Why cherry-pick" |
 
 The strategic context (why this split exists, what each app owns, agent roster) lives in:
@@ -132,7 +132,7 @@ None of that belongs in Shop-MomandMe. Merging `upstream/main` would drag all of
 
 ---
 
-## Weekly sync ritual (~30 min until launch)
+## Sync ritual
 
 ```bash
 # 1. Fetch the latest upstream
@@ -184,11 +184,11 @@ git tag -f baseline-latest upstream/main
 
 ---
 
-## Post-launch (monthly cadence)
+## Post-launch
 
-Same ritual, lower frequency. Add to the calendar so the gap doesn't quietly grow to "what did this commit even do?" range.
+Same ritual, lower demand. The volume of shared-surface commits drops once the framework stabilizes; sync when there's enough to be worth a batch. A recurring retrospective surfaces "have we synced lately?" so the gap doesn't quietly grow to "what did this commit even do?" range.
 
-If a critical fix lands upstream between scheduled syncs (security, data loss, deploy-blocker), cherry-pick that single commit immediately and tag the sync branch `sync/hotfix-<short-desc>` instead of dated.
+If a critical fix lands upstream (security, data loss, deploy-blocker), cherry-pick that single commit immediately and tag the sync branch `sync/hotfix-<short-desc>` instead of dated.
 
 ---
 
@@ -202,7 +202,7 @@ If a critical fix lands upstream between scheduled syncs (security, data loss, d
 
 ## Pointer: changes that must always sync immediately
 
-These are non-negotiable — sync within 24h of upstream merge, not at the weekly cadence:
+These are non-negotiable — sync within 24h of upstream merge, not when the next batch happens to be ready:
 
 1. Any change to admin auth (`_require_walmart_trends_admin`, `_require_admin_page`, `_walmart_content_demo_allowed`, `_admin_config_missing`, `require_admin_api`/`require_admin_page` decorators) — security
 2. Any change to `db_schema.py` that adds/alters columns — schema drift between apps is silent corruption
