@@ -1,5 +1,30 @@
 # Phase 0.7 — Storefront Framework Boundary
 
+> **Erratum (2026-05-17, post-merge):** This plan's **Schema additions** section
+> lists six columns (`logo_url`, `primary_color`, `accent_color`, `shop_domain`,
+> `meta_title_template`, `meta_description_template`). The implementation that
+> actually shipped — PR #42 *"P0.7: per-creator brand override columns on
+> creators table"* — adds **eight** columns and uses a Material-Design 4-var
+> color contract instead of the plan's `primary_color`/`accent_color` pair:
+>
+> | Plan name | PR #42 implementation |
+> |---|---|
+> | `logo_url` | `logo_url` ✓ |
+> | `shop_domain` | `shop_domain` ✓ |
+> | `meta_title_template` | `meta_title_template` ✓ |
+> | `meta_description_template` | `meta_description_template` ✓ |
+> | `primary_color` *(plan)* | `brand_primary` + `brand_on_primary` |
+> | `accent_color` *(plan)* | `brand_primary_container` + `brand_on_primary_container` |
+>
+> The 4-var color contract aligns with the CSS custom properties in
+> `templates/partials/_brand_vars.html` (PR #41) and the
+> `design/_design-system/build-conventions.md` brand-swap contract. When the
+> implementation phases below reach the "active-creator resolution" and
+> "brand context dict" work, use PR #42's column names, not this plan's.
+> A potential follow-up extends to 6 vars by adding `--brand-surface` /
+> `--brand-on-surface` for canvas swap — tracked as K1 in
+> `OPEN_QUESTIONS_TRACKER.md`.
+
 ## Context
 
 The 2026-05-17 realignment reclassified the storefront (`templates/shop_*`, `templates/walmart_*`, `hub.html`, `admin_login.html`, `partials/`, routes under `/shop/`, `/collections/<slug>`, `/admin/login`, `/admin/hub`, `/healthz`, `/api/*`) from **client-only** to **shared upstream framework**. P0.7 makes it real: adds per-creator branding columns, plumbs an active-creator resolver into render, sweeps hardcoded brand strings from templates, and defines a per-deploy `branding/` override. Unblocks Action 1 (Shop-MomandMe stops editing templates locally — overrides land via row + `branding/`) and seeds Phase 5. No multi-creator-per-deploy routing; each deploy still serves one creator.
