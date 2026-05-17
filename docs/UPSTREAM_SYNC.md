@@ -13,11 +13,10 @@
 | **Downstream (this repo)** | `EchoTribe-AI/Shop-MomandMe` — `main` branch |
 | **Direction** | One-way: upstream → downstream. **Never the reverse.** |
 | **Baseline** | Tag `baseline-v1.0` (= upstream `v1.0-pg-launch`), set 2026-05-17 |
-| **Cadence** | Sync runs when shared-surface changes accumulate, not on a calendar. Anchor: a recurring retrospective reviews what synced. |
+| **Sync trigger** | Sync runs when shared-surface changes accumulate, not on a calendar. Anchor: a recurring retrospective reviews what synced. |
 | **Method** | **Cherry-pick** (preferred), not merge — see §"Why cherry-pick" |
 
-The strategic context (why this split exists, what each app owns, agent roster) lives in:
-- `~/Documents/Claude/Projects/EchoTribe Dashboard/ARCHITECTURE_ROADMAP.md`
+The strategic context (why this split exists, what each app owns, agent roster) lives in `ARCHITECTURE_ROADMAP.md`, a planning document maintained outside the repo. Ask the project owner for the current copy if you don't already have it.
 
 ---
 
