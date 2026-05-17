@@ -1,0 +1,41 @@
+{# Brand-swap CSS variables (canonical) — locked per design/_design-system/build-conventions.md.
+
+   The 4 (or 6 — see K1 in OPEN_QUESTIONS_TRACKER) variables below are the ONLY
+   knobs a per-creator deploy is permitted to override. Per-deploy branding
+   (Shop-MomandMe etc.) overrides these via its own CSS in templates/base or
+   the deploy-specific branding/ directory.
+
+   Defaults fall through to the existing site palette (Creator Core peach +
+   bold orange) so existing screens that reference these vars Just Work
+   alongside legacy --accent / --bg vars on the same page.
+#}
+<style id="brand-vars">
+  :root {
+    /* Canonical brand-swap surface — set these per creator. */
+    --brand-primary:               var(--accent, #e85d26);
+    --brand-on-primary:            var(--card,   #ffffff);
+    --brand-primary-container:     var(--soft,   #ffe9df);
+    --brand-on-primary-container:  var(--ink,    #1a1a17);
+
+    /* Locked Creator Core — DO NOT override at deploy time without
+       widening the contract (K1 in OPEN_QUESTIONS_TRACKER). */
+    --brand-success:               #0a6b52;
+    --brand-on-success-container:  #0a6b52;
+    --brand-success-container:     rgba(10, 107, 82, 0.10);
+    --brand-warning:               #b85c00;
+    --brand-on-warning-container:  #b85c00;
+    --brand-warning-container:     rgba(184, 92, 0, 0.10);
+    --brand-danger:                #ba1a1a;
+    --brand-on-danger-container:   #93000a;
+    --brand-danger-container:      rgba(186, 26, 26, 0.10);
+
+    /* Focus ring — 2px solid primary, 2px offset (build-conventions). */
+    --focus-ring-color: var(--brand-primary);
+  }
+
+  /* Focus-visible utility used by every interactive partial. */
+  .focus-ring:focus-visible {
+    outline: 2px solid var(--focus-ring-color);
+    outline-offset: 2px;
+  }
+</style>

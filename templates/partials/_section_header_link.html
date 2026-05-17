@@ -1,0 +1,29 @@
+{# Section-header text link — enforces 44×44 tap-target floor.
+
+   Replaces ad-hoc <a class="text-primary"> patterns that fail WCAG 2.5.5.
+
+   Usage:
+     {% include 'partials/_section_header_link.html' with context %}
+
+   Required context vars:
+     href  — link destination
+     text  — link copy
+
+   Optional:
+     trailing_icon — Material Symbols name (e.g., 'chevron_right')
+#}
+<a href="{{ href }}"
+   class="section-link focus-ring"
+   style="
+     display:inline-flex; align-items:center; gap:4px;
+     padding: 12px 8px;
+     min-height: 44px;
+     font-family: Inter, sans-serif; font-size: 14px; font-weight: 600;
+     color: var(--brand-primary);
+     text-decoration: none;
+   ">
+  <span>{{ text }}</span>
+  {% if trailing_icon %}
+    <span class="material-symbols-rounded" aria-hidden="true" style="font-size:18px;">{{ trailing_icon }}</span>
+  {% endif %}
+</a>
