@@ -1651,6 +1651,10 @@ def _require_walmart_trends_admin():
       2. `X-Walmart-Trends-Admin-Token` header / `Authorization: Bearer <token>`.
       3. Dev/Replit-dev demo mode (per `_walmart_content_demo_allowed`).
 
+    URL query-string tokens (?admin_token=) are NOT accepted — query
+    strings leak through web-server logs, browser history, and Referer
+    headers. Send the token as a header instead.
+
     Returns None on success; a (Response, status) tuple on failure.
     """
     # 0. Production fail-closed: refuse all admin paths if required config
@@ -1664,7 +1668,7 @@ def _require_walmart_trends_admin():
     # 1. Session cookie — primary path going forward.
     if _admin_session_authed():
         return None
-    # 2. Legacy token header / Authorization Bearer / ?admin_token=.
+    # 2. Header-only token auth (legacy header support for cron jobs etc.).
     expected = (
         os.environ.get('WALMART_TRENDS_ADMIN_TOKEN')
         or os.environ.get('ADMIN_API_TOKEN')
@@ -1679,8 +1683,6 @@ def _require_walmart_trends_admin():
     auth = request.headers.get('Authorization', '')
     if not supplied and auth.lower().startswith('bearer '):
         supplied = auth.split(' ', 1)[1].strip()
-    if not supplied:
-        supplied = (request.args.get('admin_token') or '').strip()
     import hmac as hmac_lib
     if not supplied or not hmac_lib.compare_digest(supplied, expected):
         return jsonify({'error': 'unauthorized'}), 401
@@ -1757,16 +1759,11 @@ def _require_admin_page():
         )
     if _admin_session_authed():
         return None
-    # Also honor the legacy URL admin_token / header token so any in-flight
-    # bookmarks or external links keep working through the transition.
-    legacy_token = (request.args.get('admin_token') or '').strip() or request.headers.get('X-Walmart-Trends-Admin-Token', '').strip()
-    expected = os.environ.get('WALMART_TRENDS_ADMIN_TOKEN') or os.environ.get('ADMIN_API_TOKEN') or os.environ.get('ADMIN_SECRET')
-    if legacy_token and expected:
-        import hmac as _hmac
-        if _hmac.compare_digest(legacy_token, expected):
-            session.permanent = True
-            session['admin_authed'] = True
-            return None
+    # Page-level guard: session-only. URL/header tokens were previously
+    # honored here and would upgrade themselves to a 30-day session — a
+    # major leakage risk because the URL or header travels through any
+    # intermediate proxy log. JSON API guards still accept the header
+    # for cron-job automation, but pages require /admin/login.
     # Redirect to login, preserving original path + query so we can bounce back.
     full_path = request.path
     if request.query_string:
@@ -1872,7 +1869,6 @@ def walmart_trending_now_page():
         logging.exception("[TRENDING] failed to load page data")
         data = {'last_refreshed': '', 'collections': []}
         admin_error = f"Trending data could not load: {exc}"
-    admin_token = (request.args.get('admin_token') or '').strip()
     workbooks = []
     if admin_mode:
         try:
@@ -1888,7 +1884,6 @@ def walmart_trending_now_page():
         'walmart_trending_now.html',
         data=data,
         admin_mode=admin_mode,
-        admin_token=admin_token,
         workbooks=workbooks,
         shop_subdomain=SHOP_SUBDOMAIN,
         public_nav_items=shop_nav_items,
@@ -1912,7 +1907,6 @@ def shop_trends():
         'walmart_trending_now.html',
         data=data,
         admin_mode=False,
-        admin_token='',
         shop_subdomain=SHOP_SUBDOMAIN,
         public_nav_items=_public_shop_nav('trends'),
         nav_active='trends',
@@ -1957,7 +1951,6 @@ def _render_collection_create_post(collection_slug):
     if not collection:
         return "Collection not found", 404
     creator_id = (request.args.get('creator_id') or 'everydaywithsteph').strip()
-    admin_token = (request.args.get('admin_token') or '').strip()
     existing_draft = cc.get_latest_draft_for_source_collection(collection_slug, creator_id)
     if existing_draft and existing_draft.get('product_snapshot'):
         products = existing_draft.get('product_snapshot') or []
@@ -1974,7 +1967,6 @@ def _render_collection_create_post(collection_slug):
         product_count=product_count,
         creator_id=creator_id,
         default_public_slug=default_public_slug,
-        admin_token=admin_token,
         demo_auth_allowed=_walmart_content_demo_allowed(),
         existing_draft=existing_draft,
         editor_mode='create',
@@ -1996,7 +1988,6 @@ def _render_collection_page_edit(public_slug):
     if not collection:
         collection = cc.collection_from_draft_snapshot(draft)
     creator_id = (request.args.get('creator_id') or draft.get('creator_id') or 'everydaywithsteph').strip()
-    admin_token = (request.args.get('admin_token') or '').strip()
     products = draft.get('product_snapshot') or collection.get('items', []) or []
     rctx = _editor_retailer_context(collection)
     return render_template(
@@ -2006,7 +1997,6 @@ def _render_collection_page_edit(public_slug):
         product_count=len(products),
         creator_id=creator_id,
         default_public_slug=draft.get('public_slug') or public_slug,
-        admin_token=admin_token,
         demo_auth_allowed=_walmart_content_demo_allowed(),
         existing_draft=draft,
         editor_mode='edit',

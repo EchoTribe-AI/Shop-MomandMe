@@ -136,6 +136,72 @@ class FullyConfiguredProdAllowsAdmin(unittest.TestCase):
         self.assertNotEqual(resp.status_code, 503)
 
 
+class UrlTokenAuthRejected(unittest.TestCase):
+    """Audit follow-up 0.3: ?admin_token= URL query-string auth has been
+    removed from both _require_walmart_trends_admin (JSON API guard) and
+    _require_admin_page (HTML page guard). Only session OR header auth
+    works for the API guard; only session works for the page guard."""
+
+    URL_TOKEN_PROD_ENV = {
+        'DATABASE_URL': 'postgresql://fake/local',
+        'SECRET_KEY': 'test-secret',
+        'ADMIN_PASSWORD': 'test-password',
+        'WALMART_TRENDS_ADMIN_TOKEN': 'super-secret-trends-token',
+    }
+
+    def test_page_url_token_does_not_create_session(self):
+        """Previously /hub?admin_token=<correct-token> would set a 30-day
+        admin session. That conversion path is now removed: the request
+        must redirect to /admin/login."""
+        with _app_with_env(self.URL_TOKEN_PROD_ENV) as app_mod:
+            client = app_mod.app.test_client()
+            resp = client.get(
+                '/hub?admin_token=super-secret-trends-token',
+                follow_redirects=False,
+            )
+        # Either redirect to /admin/login (302) or some other non-200.
+        # Critically NOT 200 (which would mean URL-token auth still works).
+        self.assertNotEqual(resp.status_code, 200)
+        if resp.status_code == 302:
+            self.assertIn('/admin/login', resp.headers.get('Location', ''))
+
+    # Use a production-style Host header so _walmart_content_demo_allowed()
+    # doesn't short-circuit auth via the localhost dev branch. Avoid the
+    # SHOP_SUBDOMAIN ("shop.echotribe.ai") because that triggers the
+    # public-subdomain rewrite middleware which 404s admin paths.
+    PROD_HOST = 'admin.echotribe.ai'
+
+    def test_api_url_token_is_rejected(self):
+        """Previously POST /admin/walmart-trends/refresh?admin_token=...
+        would authenticate via query string. Now the only accepted ways
+        are session cookie or X-Walmart-Trends-Admin-Token header."""
+        with _app_with_env(self.URL_TOKEN_PROD_ENV) as app_mod:
+            client = app_mod.app.test_client()
+            resp = client.post(
+                '/admin/walmart-trends/refresh?admin_token=super-secret-trends-token',
+                headers={'Host': self.PROD_HOST},
+                base_url=f'http://{self.PROD_HOST}',
+            )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_api_header_token_still_works(self):
+        """Header-based auth must continue working for cron job automation."""
+        with _app_with_env(self.URL_TOKEN_PROD_ENV) as app_mod:
+            client = app_mod.app.test_client()
+            resp = client.post(
+                '/admin/walmart-trends/refresh',
+                headers={
+                    'X-Walmart-Trends-Admin-Token': 'super-secret-trends-token',
+                    'Host': self.PROD_HOST,
+                },
+                base_url=f'http://{self.PROD_HOST}',
+            )
+        # Auth check passes; downstream may fail because no real Impact
+        # API is wired up in test, but the response code should not be
+        # 401 (unauthorized) or 503 (missing config).
+        self.assertNotIn(resp.status_code, (401, 503))
+
+
 class DevModeAllowsDefaults(unittest.TestCase):
     """In dev, the fail-closed check is a no-op even with missing config."""
 
