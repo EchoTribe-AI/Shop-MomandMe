@@ -62,7 +62,7 @@ These files/modules are owned by upstream. Local edits will be lost on next sync
 ### Storefront framework (NEW — moved from "client-only" in the 2026-05-17 realignment)
 - `templates/shop_landing.html`, `templates/shop_directory.html`, `templates/shop_posts.html`
 - `templates/walmart_collection_create_post.html`, `templates/walmart_trending_now.html`
-- `templates/hub.html`, `templates/admin_login.html`, `templates/dashboard.html`
+- `templates/hub.html`, `templates/admin_login.html`
 - `templates/organic_post_edit.html`, `templates/organic_posts_manage.html` *(if kept post-strip-down)*
 - `templates/partials/` (entire directory)
 - Routes under `/shop/`, `/collections/<slug>`, `/admin/login`, `/admin/hub`, `/admin/logout`, `/healthz`, `/api/*`
