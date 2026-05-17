@@ -1,0 +1,127 @@
+{# Product card — single canonical partial used by trending picks, product
+   feed, collection items, discovery feed.
+
+   Implements the A-variant clean structure with optional slots for the
+   richer content vocabulary lifted from the B variants:
+     - quote          (creator one-line voice note, above price)
+     - urgency_badge  (status pill — uses _status_pill partial)
+     - essentials_count (collection-membership badge)
+
+   Card-as-link pattern per build-conventions: whole card is a single
+   focusable <a>; nested controls (cart-add, favorite) use their own
+   labels and event.stopPropagation().
+
+   Usage:
+     {% include 'partials/_product_card.html' with context %}
+
+   Required context vars:
+     product — dict with:
+       href        — outbound or detail URL (URLGenius-wrapped + UTM)
+       image_url
+       title
+       price_display (formatted string, e.g., "$24.99")
+
+   Optional context vars on product:
+       quote               — creator note, renders above price
+       urgency_status      — status name for the _status_pill partial
+                             (e.g., 'selling_out', 'price_drop', 'must_have')
+       essentials_count    — integer; renders as "in N collections" badge
+       creator_name        — for the quote attribution
+       brand               — product brand (sub-line under title)
+   Optional context vars at top level:
+       show_actions        — bool; if True, renders cart-add icon button
+       cart_action_url     — POST target for cart-add (default '#')
+#}
+<article class="product-card"
+         style="
+           background: var(--card, #ffffff);
+           border-radius: 16px;
+           overflow: hidden;
+           box-shadow: 0 8px 30px rgba(26, 26, 23, 0.05);
+           position: relative;
+         ">
+  <a href="{{ product.href }}"
+     class="product-card__link focus-ring"
+     style="
+       display: block;
+       text-decoration: none;
+       color: inherit;
+     "
+     {% if product.title %}aria-label="Open {{ product.title }}{% if product.price_display %} — {{ product.price_display }}{% endif %}"{% endif %}>
+
+    {# Image with optional urgency badge overlaid #}
+    <div style="position: relative; aspect-ratio: 1 / 1; background: var(--soft, #ffe9df);">
+      {% if product.image_url %}
+        <img src="{{ product.image_url }}"
+             alt=""
+             loading="lazy"
+             style="width:100%; height:100%; object-fit:cover; display:block;">
+      {% endif %}
+      {% if product.urgency_status %}
+        <div style="position:absolute; top:8px; left:8px;">
+          {% with status=product.urgency_status %}
+            {% include 'partials/_status_pill.html' %}
+          {% endwith %}
+        </div>
+      {% endif %}
+      {% if product.essentials_count %}
+        <div style="position:absolute; top:8px; right:8px;
+                    background: rgba(26,26,23,.72); color:#fff;
+                    font-family: Inter, sans-serif; font-size:11px; font-weight:600;
+                    padding: 4px 8px; border-radius: 9999px;">
+          In {{ product.essentials_count }} collection{{ 's' if product.essentials_count != 1 else '' }}
+        </div>
+      {% endif %}
+    </div>
+
+    {# Text content #}
+    <div style="padding: 12px 14px;">
+      {% if product.brand %}
+        <p style="margin: 0 0 4px 0;
+                  font-family: Inter, sans-serif; font-size: 11px; font-weight: 600;
+                  text-transform: none; letter-spacing: 0.02em;
+                  color: var(--muted, rgba(26,26,23,.62));">{{ product.brand }}</p>
+      {% endif %}
+
+      <h3 style="margin: 0;
+                 font-family: Inter, sans-serif; font-size: 14px; font-weight: 600; line-height: 18px;
+                 color: var(--ink, #1a1a17);
+                 display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                 overflow: hidden;">{{ product.title }}</h3>
+
+      {% if product.quote %}
+        <blockquote style="margin: 8px 0 0 0;
+                           padding-left: 8px;
+                           border-left: 2px solid var(--brand-primary);
+                           font-family: Inter, sans-serif; font-size: 12px; font-style: normal; line-height: 16px;
+                           color: var(--muted, rgba(26,26,23,.62));">
+          {{ product.quote }}
+          {% if product.creator_name %}
+            <cite style="display:block; margin-top:2px; font-size:11px; font-style:normal; font-weight:600;">— {{ product.creator_name }}</cite>
+          {% endif %}
+        </blockquote>
+      {% endif %}
+
+      {% if product.price_display %}
+        <p style="margin: 10px 0 0 0;
+                  font-family: Inter, sans-serif; font-size: 16px; font-weight: 700;
+                  color: var(--ink, #1a1a17);">{{ product.price_display }}</p>
+      {% endif %}
+    </div>
+  </a>
+
+  {# Nested action button (optional) — sits outside the main <a> in DOM order
+     to avoid nested-interactive issues. Positioned absolutely so it visually
+     overlaps the card. #}
+  {% if show_actions %}
+    <div style="position:absolute; bottom:12px; right:12px;">
+      {% with icon='add_shopping_cart',
+              label='Add ' ~ product.title ~ ' to collection',
+              variant='filled',
+              size='sm',
+              href=cart_action_url|default('#') %}
+        {% include 'partials/_icon_button.html' %}
+      {% endwith %}
+    </div>
+  {% endif %}
+</article>

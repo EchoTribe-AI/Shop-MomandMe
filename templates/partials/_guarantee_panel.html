@@ -1,0 +1,58 @@
+{# Guarantee panel — iconified bullet rows.
+
+   Ported from the B variant of creator_shop_landing_mobile per the
+   UI Designer cross-cutting recommendations. Used on shop landing today;
+   available for any high-trust content surface.
+
+   Usage:
+     {% include 'partials/_guarantee_panel.html' with context %}
+
+   Required context vars:
+     title    — panel header
+     bullets  — list of dicts, each with:
+                 icon — Material Symbols name
+                 text — bullet content
+
+   Optional:
+     intro    — single paragraph below title, before bullets
+#}
+<aside class="guarantee-panel"
+       style="
+         background: var(--card, #ffffff);
+         border-radius: 16px;
+         padding: 20px;
+         box-shadow: 0 8px 30px rgba(26, 26, 23, 0.05);
+       ">
+  <h2 style="
+        margin: 0 0 8px 0;
+        font-family: Inter, sans-serif; font-size: 20px; font-weight: 600;
+        color: var(--ink, #1a1a17);
+      ">{{ title }}</h2>
+
+  {% if intro %}
+    <p style="
+         margin: 0 0 16px 0;
+         font-family: Inter, sans-serif; font-size: 14px; line-height: 20px;
+         color: var(--muted, rgba(26,26,23,.62));
+       ">{{ intro }}</p>
+  {% endif %}
+
+  <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:12px;">
+    {% for bullet in bullets %}
+      <li style="display:flex; align-items:flex-start; gap:12px;">
+        <span class="material-symbols-rounded"
+              aria-hidden="true"
+              style="
+                font-size: 20px;
+                color: var(--brand-primary);
+                flex-shrink: 0;
+                margin-top: 2px;
+              ">{{ bullet.icon }}</span>
+        <span style="
+                font-family: Inter, sans-serif; font-size: 14px; line-height: 20px;
+                color: var(--ink, #1a1a17);
+              ">{{ bullet.text }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+</aside>

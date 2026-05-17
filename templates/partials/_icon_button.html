@@ -1,0 +1,45 @@
+{# Icon-only button — enforces aria-label requirement.
+
+   Usage:
+     {% include 'partials/_icon_button.html' with context %}
+
+   Required context vars:
+     icon       — Material Symbols name (e.g., 'arrow_back')
+     label      — accessible name (mandatory; build-conventions §Accessibility)
+
+   Optional context vars:
+     href       — if set, renders as <a>; else <button>
+     variant    — 'ghost' (default) | 'filled' | 'outlined'
+     size       — 'sm' | 'md' (default) | 'lg' — controls hit-area size
+     onclick    — JS handler (renders only if no href)
+     extra_class — additional class names
+#}
+{% set _variant = variant|default('ghost') %}
+{% set _size = size|default('md') %}
+{% set _hit_size = {'sm': '40px', 'md': '44px', 'lg': '48px'}[_size] %}
+{% set _icon_size = {'sm': '20px', 'md': '24px', 'lg': '28px'}[_size] %}
+{% set _tag = 'a' if href else 'button' %}
+{# Guard: aria-label is required. If absent, render a build-time warning
+   comment in the output so the omission is visible during review. #}
+{% if not label %}<!-- WARNING: _icon_button used without `label`. WCAG 4.1.2 violation. -->{% endif %}
+
+<{{ _tag }}
+  {% if href %}href="{{ href }}"{% else %}type="button"{% if onclick %} onclick="{{ onclick }}"{% endif %}{% endif %}
+  class="icon-button icon-button--{{ _variant }} icon-button--{{ _size }} focus-ring {{ extra_class|default('') }}"
+  aria-label="{{ label }}"
+  style="
+    display:inline-flex; align-items:center; justify-content:center;
+    width:{{ _hit_size }}; height:{{ _hit_size }};
+    border-radius:9999px;
+    {% if _variant == 'filled' %}
+      background: var(--brand-primary); color: var(--brand-on-primary); border:0;
+    {% elif _variant == 'outlined' %}
+      background: transparent; color: var(--ink, #1a1a17);
+      border: 1px solid var(--line, rgba(26,26,23,.10));
+    {% else %}
+      background: transparent; color: var(--ink, #1a1a17); border: 0;
+    {% endif %}
+    cursor: pointer; text-decoration: none;
+  ">
+  <span class="material-symbols-rounded" aria-hidden="true" style="font-size:{{ _icon_size }};">{{ icon }}</span>
+</{{ _tag }}>

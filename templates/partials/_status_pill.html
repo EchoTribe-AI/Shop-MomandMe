@@ -1,0 +1,51 @@
+{# Status pill — canonical color + icon + text mapping.
+
+   Build-conventions rule: pills carry ALL THREE of color + icon + text.
+   Never just two of three. Locked Creator Core; NOT brand-swappable
+   (so creator branding can't accidentally repaint "ready" or "selling out").
+
+   Usage:
+     {% include 'partials/_status_pill.html' with context %}
+
+   Required context vars:
+     status — one of: published, draft, archived, ai_draft, edited, ready,
+                       selling_out, almost_sold_out, must_have, price_drop,
+                       trending, new, back_in_stock
+   Optional:
+     text   — custom label text (defaults to humanized status name)
+     size   — 'sm' (default) | 'md'
+#}
+{% set _statuses = {
+  'published':      {'icon': 'check_circle',           'bg_var': '--brand-success-container', 'fg_var': '--brand-on-success-container', 'default_text': 'Published'},
+  'draft':          {'icon': 'edit',                   'bg_var': '--line',                    'fg_var': '--muted',                      'default_text': 'Draft'},
+  'archived':       {'icon': 'archive',                'bg_var': '--line',                    'fg_var': '--ink',                        'default_text': 'Archived'},
+  'ai_draft':       {'icon': 'auto_awesome',           'bg_var': '--line',                    'fg_var': '--muted',                      'default_text': 'AI draft'},
+  'edited':         {'icon': 'edit_note',              'bg_var': '--brand-warning-container', 'fg_var': '--brand-on-warning-container', 'default_text': 'Edited'},
+  'ready':          {'icon': 'check_circle',           'bg_var': '--brand-success-container', 'fg_var': '--brand-on-success-container', 'default_text': 'Ready'},
+  'selling_out':    {'icon': 'local_fire_department',  'bg_var': '--brand-danger-container',  'fg_var': '--brand-on-danger-container',  'default_text': 'Selling out'},
+  'almost_sold_out':{'icon': 'hourglass_bottom',       'bg_var': '--brand-warning-container', 'fg_var': '--brand-on-warning-container', 'default_text': 'Almost sold out'},
+  'must_have':      {'icon': 'bookmark',               'bg_var': '--brand-success-container', 'fg_var': '--brand-on-success-container', 'default_text': 'Must-have'},
+  'price_drop':     {'icon': 'trending_down',          'bg_var': '--brand-danger-container',  'fg_var': '--brand-on-danger-container',  'default_text': 'Price drop'},
+  'trending':       {'icon': 'trending_up',            'bg_var': '--brand-warning-container', 'fg_var': '--brand-on-warning-container', 'default_text': 'Trending'},
+  'new':            {'icon': 'fiber_new',              'bg_var': '--brand-success-container', 'fg_var': '--brand-on-success-container', 'default_text': 'New'},
+  'back_in_stock':  {'icon': 'redo',                   'bg_var': '--brand-success-container', 'fg_var': '--brand-on-success-container', 'default_text': 'Back in stock'},
+} %}
+{% set _meta = _statuses.get(status) %}
+{% if not _meta %}<!-- WARNING: _status_pill used with unknown status '{{ status }}'. -->{% endif %}
+{% set _size = size|default('sm') %}
+{% set _font_size = '12px' if _size == 'sm' else '14px' %}
+{% set _icon_size = '14px' if _size == 'sm' else '16px' %}
+{% set _padding = '4px 10px' if _size == 'sm' else '6px 12px' %}
+{% set _label = text|default(_meta.default_text if _meta else status) %}
+
+<span class="status-pill status-pill--{{ status }}"
+      style="
+        display:inline-flex; align-items:center; gap:4px;
+        padding:{{ _padding }}; border-radius:9999px;
+        font-family: Inter, sans-serif; font-size:{{ _font_size }}; font-weight:600;
+        background: var({{ _meta.bg_var if _meta else '--line' }});
+        color: var({{ _meta.fg_var if _meta else '--ink' }});
+      ">
+  <span class="material-symbols-rounded" aria-hidden="true" style="font-size:{{ _icon_size }};">{{ _meta.icon if _meta else 'help' }}</span>
+  <span>{{ _label }}</span>
+</span>

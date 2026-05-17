@@ -104,6 +104,45 @@ psql "$DATABASE_URL" -c "SELECT current_database(), inet_server_addr(), COUNT(*)
 
 ---
 
+## Per-creator framework (P0.7 schema + partials + demo seed shipped)
+
+> **2026-05-17 architecture realignment.** The earlier split treated the storefront (`templates/shop_*`, `templates/walmart_*`, `/shop/`, `/collections/`, `/admin/login`, `templates/partials/`) as **client-only** — each creator deploy edited those files locally. That model didn't scale: improvements diverged across deploys instead of converging on a tested framework.
+>
+> The realigned model: **Echo-Dashboard hosts the storefront framework against a demo creator on `shop.echotribe.ai`.** The framework is shared upstream. Per-creator deploys (the first being Shop-MomandMe at `shop.mommyandmecollective.com`) override only what's genuinely creator-specific.
+
+**What this means operationally:**
+
+- **Echo-Dashboard's storefront is real.** Visitors to `https://shop.echotribe.ai/shop/`, `/collections/<slug>`, `/posts`, `/trends`, etc. see a working storefront rendered against the demo creator (`everydaywithsteph` row in the `creators` table). It is not a stub or a redirect — it is the framework running for development and QA.
+- **Per-creator data lives in the `creators` table.** Existing columns (`display_name`, `handle`, `brand_label`, `voice_prompt`, `theme_default`, `defaults_json`) plus the eight P0.7 additions shipped in [PR #42](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/42) — `logo_url`, `shop_domain`, `meta_title_template`, `meta_description_template`, and the Material-Design 4-var color contract (`brand_primary`, `brand_on_primary`, `brand_primary_container`, `brand_on_primary_container`) — carry the brand identity. Active-creator resolution is currently a hardcoded default (`'everydaywithsteph'` at every `db_schema.get_creator()` call site in `app.py`); the subdomain/session/env precedence chain ships with the resolver per the P0.7 plan and is not implemented yet.
+- **Per-deploy overrides will live in a `branding/` directory** on each downstream deploy (logo, favicon, optional `overrides.json`). The plumbing — `_load_branding_overrides`, the `/branding/<path>` route, the precedence chain into `build_brand_context` — is specified in `docs/planning/PHASE0_07_storefront_framework_boundary.md` and remains to be implemented. Today the framework renders against creator-row values only (with the partials' static CSS fallbacks covering rows where the new color columns are NULL).
+- **EchoTribe-internal admin (`/archer/*`, EchoBoost, Levanta, brand-side dashboards) stays on Echo-Dashboard only.** Shop-MomandMe's strip-down PR removes those routes; the storefront framework stays.
+- **Improvements develop on Echo-Dashboard first.** A storefront template tweak gets coded and tested against the demo creator on `shop.echotribe.ai`. After merge to Echo-Dashboard `main`, the next cherry-pick sync pulls it into Shop-MomandMe, where Mommy & Me's branding overrides re-apply at render time.
+
+**P0.7 (Phase 0 planning doc, Software Architect agent)** owns the technical spec: schema additions, branding-override read path, demo-creator seed, sync-friendly conflict semantics. P0.7 is **partially shipped** — the schema layer and the static-fallback partials landed 2026-05-17; the render path that consumes the new columns is still on the to-build list.
+
+**Shipped 2026-05-17:**
+- Schema additions on `creators` — eight nullable TEXT columns ([PR #42](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/42))
+- Shared storefront partials with static CSS fallbacks ([PR #41](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/41)) — `var(--brand-primary, #e85d26)` style fallbacks mean partials render safely even with the new columns NULL
+- Demo-creator metadata seed ([PR #43](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/43)) — populates `logo_url`, `shop_domain`, SEO templates on the default creator row; brand colors stay NULL pending Steph's theme picker reply
+- Planning-doc reconciliation erratum ([PR #44](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/44))
+
+**Still in P0.7 (not yet shipped):**
+- Active-creator resolver — `_resolve_active_creator_id` with env > host > default precedence (not in `app.py`; current call sites hardcode `'everydaywithsteph'`)
+- Brand-context builder — `build_brand_context` (not implemented)
+- `branding/` override loader — `_load_branding_overrides` (not implemented; no `/branding/<path>` route registered)
+- `before_request` hook + `context_processor` injection of the brand dict into template context (not registered)
+- Render-time population of CSS custom properties from creator brand columns
+- `tests/test_storefront_framework_boundary.py` (not present)
+
+**Open extensions (relevant once the render path exists):**
+- K1 in `OPEN_QUESTIONS_TRACKER.md` — extending the 4-variable Material-Design brand-swap contract to 6 vars by adding `--brand-surface` / `--brand-on-surface`. Needed before Mommy & Me's cream/linen canvas can render correctly; otherwise canvas stays locked to Creator Core peach.
+
+Cross-links:
+- `docs/planning/PHASE0_07_storefront_framework_boundary.md` — P0.7 implementation plan (includes the [PR #44](https://github.com/EchoTribe-AI/Echo-Dashboard/pull/44) erratum reconciling the plan's 6-column spec with PR #42's 8-column implementation).
+- Shop-MomandMe `docs/UPSTREAM_SYNC.md` — downstream-side shared-surface list (updated to match this realignment).
+
+---
+
 ## Never do this (the lessons learned)
 
 1. **Don't commit `data/archer_catalog.db`** (or any production data file) into git. It bloats the repo, ships stale data into every container, and PII-risks the history.
