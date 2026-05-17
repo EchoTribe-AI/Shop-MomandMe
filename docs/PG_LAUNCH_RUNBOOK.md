@@ -10,13 +10,14 @@
 
 | | |
 |---|---|
-| **Deployed branch** | `codex/fresh-pg-launch` *(pending merge to `main`)* |
-| **Deployed commit** | `ba9a8a7` — `fix(trends): narrow create-post query + write product_title on enrichment` |
+| **Deployed branch** | `main` (PR #37 merged 2026-05-17; baseline tagged `v1.0-pg-launch`) |
+| **Deployed commit** | `<current main HEAD>` — update this line per deploy via `git log --oneline -1 origin/main` |
 | **Database** | Replit managed PostgreSQL (auto-injected `DATABASE_URL`) |
 | **Public site** | `https://shop.echotribe.ai` |
-| **Admin entry** | `/admin/login` (password defaults to `dan`) |
+| **Admin entry** | `/admin/login` — `ADMIN_PASSWORD` env var required in production (no default) |
 | **Health probe** | `GET /healthz` → `200 ok` (no DB touch, no auth) |
-| **Tests** | 280 ran, 0 failures, 1 skipped — `python3 -m unittest discover -s tests` |
+| **Tests** | `python3 -m unittest discover -s tests` — expected 301 passing, 1 skipped |
+| **Production fail-closed posture** | Missing `SECRET_KEY` or `ADMIN_PASSWORD` → admin paths return 503 with a clear message; `/healthz` and public storefront stay up. Loud `[BOOT] PRODUCTION ADMIN CONFIG MISSING` line logged at module import. |
 
 ---
 
@@ -25,10 +26,27 @@
 **Production data lives in Replit's managed PostgreSQL database. Nothing else.**
 
 - `data/archer_catalog.db` is **dev-only** SQLite fallback for local development when `DATABASE_URL` is unset. It is **`.gitignore`d** and must never be committed.
-- `scripts/prod_seed.sql` (5,081 lines, 2026-05-15 snapshot) is a **last-resort recovery file**, not a re-sync source. Prefer re-importing fresh workbooks if data needs rebuilding.
+- `scripts/prod_seed.sql` (~5,081 lines, 2026-05-15 snapshot) is a **last-resort recovery file**, not a re-sync source. Prefer re-importing fresh workbooks if data needs rebuilding.
 - `scripts/migrate_sqlite_to_postgres.py` is an **explicit one-shot tool** for re-doing the initial dev→prod migration. It does NOT run at app boot. Do not call `db_schema.bootstrap()` from it; use `init_schema()` + `seed_default_creator()` directly.
 
 If you need to know what's "really" in production, query Replit PG. Don't infer from any file.
+
+### Repo artifact classification (audit follow-up 0.6)
+
+Codex audit flagged several large files committed to the repo. Each was reviewed via `git log -- <path>` and `git grep` to confirm code dependencies. Classification:
+
+| Path | Status | Rationale |
+|---|---|---|
+| `data/Archer Full Catalog 2026.csv` (~23 MB) | **KEEP** | Active source — read by `product_lookup_service.py:12` (`CATALOG_PATH`) and `product_api.py:552`. ArcherAPI's local catalog is itself a KEEP feature per the deferred-work list. |
+| `data/earnings_latest.csv` (~64 KB) | **KEEP (sensitive)** | Active source — read by `product_api.py:1009` (`EARNINGS_CSV_PATH`) for the 586-ASIN earnings dataset. Contains real ASIN-level click/revenue data; not a security risk in the strictest sense but should be treated as sensitive. Already implicitly committed history; rotation to git-LFS or `.gitignore`d storage is a future cleanup, not blocking. |
+| `data/urlgenius_registry.backup-pre-april-20260430-150530.json` (~4.9 MB) | **KEEP** | Intentional point-in-time recovery snapshot from 2026-04-30. Not referenced by any code; pure backup. Retained for rollback if the live `urlgenius_registry.json` becomes corrupt. |
+| `scripts/prod_seed.sql` (~3.2 MB) | **KEEP** | Documented above as last-resort recovery. Active recovery path; do not remove. |
+| `attached_assets/*.xlsx` (Walmart/Amazon analysis workbooks) | **KEEP** | Required by the workbook import flow — `walmart_trends.py:28` (`DEFAULT_WORKBOOK`), `app.py:2395` (`/admin/walmart-trends/bootstrap`), `tests/test_workbook_import.py:23`. Replace by re-importing newer workbooks; do not delete blindly. |
+| `attached_assets/Pasted-*.txt`, `attached_assets/app_*.py`, `attached_assets/index_*.html`, `attached_assets/steph-*.html`, `attached_assets/MMC-Logo.png`, `attached_assets/image_*.png`, `attached_assets/targeted_element_*.png` | **CLEANUP CANDIDATE** | Replit-IDE conversation paste artifacts auto-committed during agent sessions. Not referenced by any code (confirmed via `git grep`). Should be removed in a follow-up `chore/cleanup-attached-assets` PR — not in this hardening PR because that would obscure the security-fix diff. The `Pasted--i-noticed-its-stored-in-secrets-like-this-...` file was reviewed; it contains a discussion of PEM-key escaping with the literal `xxxxx=` placeholder, not a real secret. |
+| `attached_assets/URLgenius_API_Documentation_*.md`, `attached_assets/CHAT_PRODUCT_CARDS_GUIDE_*.md`, `attached_assets/FINAL_SUMMARY_*.md`, `attached_assets/INTEGRATION_STEPS_*.md` | **CLEANUP CANDIDATE** | Same as above — IDE paste artifacts. If any of these are genuinely the only copy of useful documentation, lift them into `docs/` first, then delete from `attached_assets/`. |
+| `attached_assets/urlgenius_updated_registry_with_clicks.json` | **CLEANUP CANDIDATE** | Another registry backup; superseded by `data/urlgenius_registry.backup-pre-april-...json`. Confirm before removal. |
+
+Repo-history cleanup (removing large files from past commits via `git filter-repo` / BFG) is intentionally out of scope here — that requires a force-push to `main` which would invalidate every contributor's local clone. If it becomes necessary (e.g., the repo grows too large for Replit clone times), schedule it as a one-shot maintenance window.
 
 ---
 
@@ -61,8 +79,8 @@ psql "$DATABASE_URL" -c "SELECT current_database(), inet_server_addr(), COUNT(*)
 |---|---|---|---|
 | `DATABASE_URL` | **Replit-managed** (auto-injected) | yes (in prod) | Do NOT set manually. Unset = SQLite fallback (dev only). |
 | `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `PGPORT` | Replit-managed | yes (in prod) | Same — handled by the PG service. |
-| `SECRET_KEY` *(or `FLASK_SECRET_KEY`)* | User-defined Secret | yes (in prod) | Signs the Flask session cookie. Rotate before going wide; expires existing sessions. |
-| `ADMIN_PASSWORD` | User-defined Secret | no | Defaults to `dan`. Case-insensitive comparison. |
+| `SECRET_KEY` *(or `FLASK_SECRET_KEY`)* | User-defined Secret | **REQUIRED in prod** | Signs the Flask session cookie. Rotate before going wide; expires existing sessions. If missing while `DATABASE_URL` is set, every admin path returns 503 — see "Production fail-closed posture" above. |
+| `ADMIN_PASSWORD` | User-defined Secret | **REQUIRED in prod** | Case-insensitive comparison. If missing while `DATABASE_URL` is set, every admin path returns 503. Dev mode (`FLASK_ENV=development` or no `DATABASE_URL`) falls back to `dan`. |
 | `WALMART_TRENDS_ADMIN_TOKEN` | User-defined Secret | optional | Legacy admin API token; still accepted by `_require_walmart_trends_admin` alongside the session cookie for external automation. |
 | `ANTHROPIC_API_KEY` | User-defined Secret | yes for chat/copy | Storefront chat + caption generation. |
 | `WALMART_API_KEY`, `IMPACT_ACCOUNT_SID`, `IMPACT_AUTH_TOKEN`, `URLGENIUS_API_KEY` | User-defined Secret | yes for Walmart trends | Workbook import + affiliate link generation. |
@@ -92,6 +110,7 @@ psql "$DATABASE_URL" -c "SELECT current_database(), inet_server_addr(), COUNT(*)
 2. **Don't add auto-seed-from-snapshot logic** to `bootstrap()` or app import — neither synchronously NOR via a daemon thread. The migration script is the only data-movement path.
 3. **Don't set `DATABASE_URL` manually** in Replit Secrets when the managed PG service is provisioned. Let Replit inject it.
 4. **Don't embed `WALMART_TRENDS_ADMIN_TOKEN`** into rendered HTML or browser JavaScript. Use session auth, or send the header from server-trusted code only.
+   - As of audit follow-ups 0.2 / 0.3 (PR title: "Pre-launch hardening (audit follow-ups)"), `?admin_token=` URL query-string authentication is fully removed from `_require_walmart_trends_admin()` and `_require_admin_page()`, and the hardcoded `?token=SEED_MMC_2026` parameter on `/admin/seed-production` is gone. Only the `X-Walmart-Trends-Admin-Token` header / `Authorization: Bearer <token>` are accepted for header-based auth. Do not reintroduce URL token auth — query strings leak through proxy logs, browser history, and Referer headers.
 5. **Don't call `db_schema.bootstrap()` from hot read paths** (e.g., `get_trending_page_data`, public storefront routes). Use `_ensure_schema_ready()` on admin routes; public routes don't need it once the app is warm.
 6. **Don't use SQLite-only patterns** in new code:
    - ❌ `cursor.lastrowid` → ✅ `INSERT ... RETURNING id` + `db_schema._last_id(cur)`
@@ -107,8 +126,9 @@ psql "$DATABASE_URL" -c "SELECT current_database(), inet_server_addr(), COUNT(*)
 ### Sign in
 - Visit any admin page (`/hub`, `/walmart/trending-now?admin=1`, etc.).
 - Redirected to `/admin/login` if not authed.
-- Enter `ADMIN_PASSWORD` (default `dan`, case-insensitive).
+- Enter `ADMIN_PASSWORD` (case-insensitive). In production this MUST be set as an env var — no default. Locally (no `DATABASE_URL`) it defaults to `dan`.
 - 30-day session cookie issued. Sign out: `/admin/logout`.
+- If you see "Admin unavailable: missing production config (SECRET_KEY|ADMIN_PASSWORD)" on `/admin/login`, the deploy is missing required env vars — set them in Replit Secrets and redeploy. `/healthz` and the public storefront continue working in the meantime.
 
 ### Import a workbook
 - `/walmart/trending-now?admin=1` → **Workbook Import** dropdown.
