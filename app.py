@@ -2928,19 +2928,29 @@ def _make_smart_link(asin: str, network: str = 'amazon', utm_source: str = 'fb-g
 @require_admin_api
 def urlgenius_smart_link():
     """
-    Generate a URLGenius deep link for a product using the full UTM attribution schema.
+    Generate a URLGenius deep link for an Amazon product using the full UTM
+    attribution schema.
+
     Body: {
       asin: str,
-      network: 'amazon' | 'archer' | 'levanta',
+      network: 'amazon'   # only supported value post-strip-down
       placement: { source, medium, campaign, content?, term? },
       force_new?: bool
     }
-    utm_content: caller-supplied placement.content takes precedence; falls back to
-    NETWORK_CONTENT auto-derive (e.g. 'amazon-assoc'). Use organic_[angle]_static
-    or organic_[angle]_collection convention from UTM Schema Reference.
+
+    utm_content: caller-supplied placement.content takes precedence; falls back
+    to NETWORK_CONTENT auto-derive (e.g. 'amazon-assoc'). Use
+    organic_[angle]_static or organic_[angle]_collection convention from the
+    UTM Schema Reference.
+
     Returns { genius_url, affiliate_url, network, label, utm }
+
+    Note: the archer and levanta branches were removed in the Shop-MomandMe
+    strip-down (2026-05-17). They were only reachable from the deleted
+    archer_products.html / archer_ads.html UIs. Future "Seller Connections"
+    work may reintroduce alternate networks under a different shape.
     """
-    from product_api import ArcherAPI, LevantaAPI, URLGeniusAPI
+    from product_api import URLGeniusAPI
     body = request.get_json() or {}
     asin = body.get('asin', '').strip()
     network = body.get('network', 'amazon')
@@ -2948,6 +2958,12 @@ def urlgenius_smart_link():
 
     if not asin:
         return jsonify({'error': 'asin is required'}), 400
+    if network != 'amazon':
+        return jsonify({
+            'error': f"network '{network}' not supported on this deploy",
+            'message': "Only 'amazon' is currently wired. Pass network='amazon' "
+                       "or omit the field.",
+        }), 400
 
     # ── Validate placement ──────────────────────────────────────────────────
     placement = body.get('placement') or {}
@@ -2970,51 +2986,24 @@ def urlgenius_smart_link():
     # ── utm_content: caller override takes precedence, else auto-derive ────────
     utm_content = (placement.get('content') or '').strip() or NETWORK_CONTENT.get(network, network)
 
-    # ── Build affiliate URL ─────────────────────────────────────────────────
+    # ── Build affiliate URL (Amazon only) ───────────────────────────────────
     affiliate_url = None
-
-    if network == 'amazon':
-        try:
-            result = _amazon_urlgenius_link(
-                asin,
-                {
-                    'source': utm_source,
-                    'medium': utm_medium,
-                    'campaign': utm_campaign,
-                    'content': utm_content,
-                    'term': utm_term,
-                },
-                force_new=force_new,
-            )
-            return jsonify(result)
-        except Exception as e:
-            logging.error(f"[URLGENIUS] smart_link amazon failed: {e}")
-            affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
-
-    elif network == 'archer':
-        a = ArcherAPI()
-        label = f"steph-archer-{asin.lower()}-{int(__import__('time').time())}"
-        result = a.generate_link(asin, label=label)
-        if not result:
-            return jsonify({'error': 'Archer link generation failed'}), 500
-        affiliate_url = (result.get('attribution_link') or result.get('url')
-                         or result.get('link') or result.get('short_url'))
-        if not affiliate_url:
-            return jsonify({'error': 'Archer returned no URL', 'raw': result}), 500
-
-    elif network == 'levanta':
-        lv = LevantaAPI()
-        try:
-            result = lv.create_product_link(asin)
-            affiliate_url = (result.get('url') or result.get('link')
-                             or result.get('trackingUrl') or result.get('attribution_link'))
-            if not affiliate_url:
-                return jsonify({'error': 'Levanta returned no URL', 'raw': result}), 500
-        except Exception as e:
-            return jsonify({'error': f'Levanta link generation failed: {e}'}), 500
-
-    else:
-        return jsonify({'error': f'Unknown network: {network}'}), 400
+    try:
+        result = _amazon_urlgenius_link(
+            asin,
+            {
+                'source': utm_source,
+                'medium': utm_medium,
+                'campaign': utm_campaign,
+                'content': utm_content,
+                'term': utm_term,
+            },
+            force_new=force_new,
+        )
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"[URLGENIUS] smart_link amazon failed: {e}")
+        affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
 
     # ── Wrap in URLGenius ───────────────────────────────────────────────────
     from datetime import datetime as _dt
