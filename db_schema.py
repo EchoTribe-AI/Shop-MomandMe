@@ -317,6 +317,20 @@ def init_schema() -> None:
         """)
         _add_column_if_missing(conn, 'creators', "fb_page_id TEXT")
         _add_column_if_missing(conn, 'creators', "defaults_json TEXT DEFAULT '{}'")
+        # P0.7 — per-creator brand override surface.
+        # These columns back the 4-variable brand-swap contract documented in
+        # templates/partials/_brand_vars.html and
+        # design/_design-system/build-conventions.md §Brand styling.
+        # Widening to canvas/surface (--brand-surface, --brand-on-surface) is
+        # K1 in OPEN_QUESTIONS_TRACKER; intentionally not in this patch.
+        _add_column_if_missing(conn, 'creators', "logo_url TEXT")
+        _add_column_if_missing(conn, 'creators', "shop_domain TEXT")
+        _add_column_if_missing(conn, 'creators', "meta_title_template TEXT")
+        _add_column_if_missing(conn, 'creators', "meta_description_template TEXT")
+        _add_column_if_missing(conn, 'creators', "brand_primary TEXT")
+        _add_column_if_missing(conn, 'creators', "brand_on_primary TEXT")
+        _add_column_if_missing(conn, 'creators', "brand_primary_container TEXT")
+        _add_column_if_missing(conn, 'creators', "brand_on_primary_container TEXT")
 
         # ── earnings_amazon ───────────────────────────────────────────────
         conn.execute(f"""

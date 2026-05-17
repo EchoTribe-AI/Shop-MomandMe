@@ -649,5 +649,75 @@ class TrendsCreatePostNarrowQueryTest(unittest.TestCase):
         self.assertIsNone(store.get_collection_by_slug("archived-one"))
 
 
+class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
+    """P0.7 — per-creator brand override surface.
+
+    Confirms the 8 brand columns added in this patch exist after bootstrap
+    and accept the contract values the framework will write.
+    """
+
+    REQUIRED_COLUMNS = (
+        "logo_url",
+        "shop_domain",
+        "meta_title_template",
+        "meta_description_template",
+        "brand_primary",
+        "brand_on_primary",
+        "brand_primary_container",
+        "brand_on_primary_container",
+    )
+
+    def test_brand_columns_present_after_bootstrap(self):
+        conn = self.db_schema._connect()
+        try:
+            row = conn.execute("PRAGMA table_info(creators)").fetchall()
+        finally:
+            conn.close()
+        present = {r[1] for r in row}  # column name is index 1 in PRAGMA result
+        missing = [c for c in self.REQUIRED_COLUMNS if c not in present]
+        self.assertEqual(
+            missing, [],
+            f"P0.7 brand columns missing from creators table: {missing}",
+        )
+
+    def test_brand_columns_accept_write_read(self):
+        conn = self.db_schema._connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO creators (id, display_name, logo_url, shop_domain,
+                  meta_title_template, meta_description_template,
+                  brand_primary, brand_on_primary,
+                  brand_primary_container, brand_on_primary_container)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "test-creator", "Test Creator",
+                    "https://example.com/logo.svg",
+                    "shop.example.com",
+                    "{collection} | Test Creator",
+                    "Discover {collection} hand-picked by Test Creator.",
+                    "#7C7D6A", "#F5F2ED",
+                    "#DDBBA4", "#3D3A33",
+                ),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT logo_url, shop_domain, brand_primary, brand_on_primary, "
+                "brand_primary_container, brand_on_primary_container "
+                "FROM creators WHERE id = ?",
+                ("test-creator",),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "https://example.com/logo.svg")
+        self.assertEqual(row[1], "shop.example.com")
+        self.assertEqual(row[2], "#7C7D6A")
+        self.assertEqual(row[3], "#F5F2ED")
+        self.assertEqual(row[4], "#DDBBA4")
+        self.assertEqual(row[5], "#3D3A33")
+
+
 if __name__ == "__main__":
     unittest.main()
