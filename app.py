@@ -475,10 +475,12 @@ def hub():
 # ARCHIVED — see /archive/routes/
 
 @app.route('/dashboard')
+@require_admin_page
 def dashboard():
     return render_template('dashboard.html')
 
 @app.route('/dashboard/upload_csv', methods=['POST'])
+@require_admin_api
 def dashboard_upload_csv():
     """Upload Amazon Associates earnings CSV.
 
@@ -1871,6 +1873,16 @@ def _require_walmart_admin_if_configured():
     Accepts session cookie OR header token; in dev contexts allows the demo
     header (`X-Walmart-Content-Demo: 1`) without credentials.
     """
+    # 0. Production fail-closed: refuse all admin paths if required config
+    # is missing, regardless of caller credentials. Matches the posture
+    # added to _require_walmart_trends_admin / _require_admin_page in
+    # audit follow-up 0.4.
+    missing = _admin_config_missing()
+    if missing:
+        return jsonify({
+            'error': 'missing production admin config',
+            'missing': missing,
+        }), 503
     # Session cookie — primary path.
     if _admin_session_authed():
         return None
@@ -3473,6 +3485,7 @@ def archer_organic():
 
 # ── INSIGHTS: clicks × earnings × paid attribution ──────────────────────────
 @app.route('/insights')
+@require_admin_page
 def insights_page():
     """Insights dashboard. Query params:
       window:       today | yesterday | 7d | 30d | custom (default: 30d)
@@ -3615,6 +3628,7 @@ def admin_creators():
 
 
 @app.route('/admin/creators', methods=['POST'])
+@require_admin_api
 def admin_creators_save():
     """Create or update a creator from the admin form."""
     body = request.get_json(silent=True) or request.form.to_dict() or {}
@@ -3641,6 +3655,7 @@ def admin_creators_save():
 
 
 @app.route('/admin/creators/<creator_id>', methods=['GET'])
+@require_admin_api
 def admin_creator_get(creator_id):
     creator = db_schema.get_creator(creator_id)
     return jsonify({'creator': creator})
@@ -3945,6 +3960,7 @@ def _make_smart_link(asin: str, network: str = 'amazon', utm_source: str = 'fb-g
 
 
 @app.route('/urlgenius/smart_link', methods=['POST'])
+@require_admin_api
 def urlgenius_smart_link():
     """
     Generate a URLGenius deep link for a product using the full UTM attribution schema.
@@ -4209,6 +4225,7 @@ def archer_discovery_top_clicked():
         'has_click_data': has_any_clicks,
     })
 @app.route('/urlgenius/create_link', methods=['POST'])
+@require_admin_api
 def urlgenius_create_link():
     from product_api import URLGeniusAPI
     body = request.get_json() or {}
@@ -4239,6 +4256,7 @@ def urlgenius_page():
 
 
 @app.route('/urlgenius/sync', methods=['POST'])
+@require_admin_api
 def urlgenius_sync_registry():
     """
     Refresh live click counts for registry entries via the documented
@@ -4270,6 +4288,7 @@ def urlgenius_sync_registry():
 
 
 @app.route('/urlgenius/links')
+@require_admin_api
 def urlgenius_list_links():
     """
     Return URLgenius deep links from the local registry.
@@ -4294,6 +4313,7 @@ def urlgenius_list_links():
 # ── LEVANTA ───────────────────────────────────────────────────────────────────
 
 @app.route('/levanta/generate_link', methods=['POST'])
+@require_admin_api
 def levanta_generate_link():
     from product_api import LevantaAPI
     data = request.get_json() or {}
@@ -4310,6 +4330,7 @@ def levanta_generate_link():
 
 
 @app.route('/levanta/deals')
+@require_admin_api
 def levanta_deals():
     from product_api import LevantaAPI
     lv = LevantaAPI()
@@ -4321,11 +4342,30 @@ def levanta_deals():
 
 @app.route('/webhooks/levanta', methods=['POST'])
 def levanta_webhook():
-    """Receive real-time Levanta events."""
+    """Receive real-time Levanta events.
+
+    Production fail-closed: if LEVANTA_WEBHOOK_SECRET is unset in a
+    production environment, the endpoint refuses all requests. Previously
+    a missing secret silently accepted every POST — equivalent to no auth
+    on a write endpoint. Local dev (no DATABASE_URL or FLASK_ENV=development)
+    still accepts un-signed payloads for testing.
+    """
     import hmac as hmac_lib, hashlib
     secret = os.environ.get('LEVANTA_WEBHOOK_SECRET', '')
     sig_header = request.headers.get('x-levanta-hmac-sha256', '')
-    if secret:
+    if not secret:
+        if _is_production_env():
+            return jsonify({
+                'error': 'webhook secret not configured',
+                'message': 'LEVANTA_WEBHOOK_SECRET must be set in production.',
+            }), 503
+        # Dev: accept un-signed for local testing — log loudly so the
+        # operator sees what's happening.
+        logging.warning(
+            "[LEVANTA_WEBHOOK] accepting unsigned payload in dev "
+            "(LEVANTA_WEBHOOK_SECRET unset)."
+        )
+    else:
         expected = hmac_lib.new(
             secret.encode(), request.get_data(), hashlib.sha256
         ).hexdigest()
