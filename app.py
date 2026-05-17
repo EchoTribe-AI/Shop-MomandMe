@@ -4310,84 +4310,12 @@ def urlgenius_list_links():
     return jsonify(ug.list_links(limit=limit))
 
 
-# ── LEVANTA ───────────────────────────────────────────────────────────────────
-
-@app.route('/levanta/generate_link', methods=['POST'])
-@require_admin_api
-def levanta_generate_link():
-    from product_api import LevantaAPI
-    data = request.get_json() or {}
-    asin = data.get('asin', '').strip()
-    label = data.get('label', asin)
-    if not asin:
-        return jsonify({'error': 'asin is required'}), 400
-    lv = LevantaAPI()
-    try:
-        result = lv.create_product_link(asin, source_id=label)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/levanta/deals')
-@require_admin_api
-def levanta_deals():
-    from product_api import LevantaAPI
-    lv = LevantaAPI()
-    try:
-        return jsonify(lv.get_deals())
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/webhooks/levanta', methods=['POST'])
-def levanta_webhook():
-    """Receive real-time Levanta events.
-
-    Production fail-closed: if LEVANTA_WEBHOOK_SECRET is unset in a
-    production environment, the endpoint refuses all requests. Previously
-    a missing secret silently accepted every POST — equivalent to no auth
-    on a write endpoint. Local dev (no DATABASE_URL or FLASK_ENV=development)
-    still accepts un-signed payloads for testing.
-    """
-    import hmac as hmac_lib, hashlib
-    secret = os.environ.get('LEVANTA_WEBHOOK_SECRET', '')
-    sig_header = request.headers.get('x-levanta-hmac-sha256', '')
-    if not secret:
-        if _is_production_env():
-            return jsonify({
-                'error': 'webhook secret not configured',
-                'message': 'LEVANTA_WEBHOOK_SECRET must be set in production.',
-            }), 503
-        # Dev: accept un-signed for local testing — log loudly so the
-        # operator sees what's happening.
-        logging.warning(
-            "[LEVANTA_WEBHOOK] accepting unsigned payload in dev "
-            "(LEVANTA_WEBHOOK_SECRET unset)."
-        )
-    else:
-        expected = hmac_lib.new(
-            secret.encode(), request.get_data(), hashlib.sha256
-        ).hexdigest()
-        if not hmac_lib.compare_digest(expected, sig_header):
-            return jsonify({'error': 'Invalid signature'}), 401
-
-    event = request.get_json() or {}
-    event_type = event.get('type', '')
-    data = event.get('data', {})
-    logging.info(f"[LEVANTA WEBHOOK] Event: {event_type} | Data: {data}")
-
-    if event_type == 'product.access.gained':
-        asin = data.get('asin')
-        logging.info(f"[LEVANTA] New product access: {asin} at {data.get('commission', 0) * 100:.0f}%")
-    elif event_type == 'link.disabled':
-        logging.warning(f"[LEVANTA] Link disabled: {data.get('id')}")
-    elif event_type == 'product.added':
-        logging.info(f"[LEVANTA] New product in catalog: {data.get('asin')}")
-    elif event_type == 'product.removed':
-        logging.warning(f"[LEVANTA] Product removed: {data.get('asin')}")
-
-    return jsonify({'received': True})
+# Legacy EchoTribe-internal Levanta surfaces removed in the Shop-MomandMe
+# strip-down (2026-05-17): /levanta/generate_link, /levanta/deals, and
+# /webhooks/levanta. The LevantaAPI class in product_api.py remains because
+# /archer/search (KEEP) and the urlgenius/smart_link fallback still reference
+# it. Re-introduction is scoped to a future "Seller Connections" creator
+# feature, not the current launch.
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true')

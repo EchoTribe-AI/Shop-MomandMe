@@ -65,9 +65,6 @@ PUBLIC_ROUTES = {
         'Legacy 302 alias → /collections/<slug>/create-post (guarded).',
     '/walmart/pages/<public_slug>/edit':
         'Legacy 302 alias → /collections/<slug>/edit (guarded).',
-    # Inbound webhook — has its own signature-based auth (HMAC).
-    '/webhooks/levanta': 'HMAC-signed inbound webhook. Production '
-                        'fail-closed when LEVANTA_WEBHOOK_SECRET is unset.',
     # Static files served by Flask in dev (not relevant to prod).
     '/static/<path:filename>': 'Static-file server.',
 }
