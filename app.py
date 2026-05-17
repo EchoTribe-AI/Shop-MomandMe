@@ -17,8 +17,7 @@ import storefront_chat
 from product_api import ProductResolver, detect_category
 from prompts import (
     build_chat_prompt, build_chat_products,
-    build_caption_prompt, build_ad_copy_prompt,
-    build_organic_posts_prompt, build_campaign_package_prompt,
+    build_caption_prompt,
 )
 
 load_dotenv()  # loads .env locally; Replit Secrets override in production
@@ -474,10 +473,17 @@ def hub():
 
 # ARCHIVED — see /archive/routes/
 
-@app.route('/dashboard')
-@require_admin_page
-def dashboard():
-    return render_template('dashboard.html')
+# /dashboard (the EchoTribe ad-ops scorecard) and templates/dashboard.html
+# removed in the Shop-MomandMe strip-down (2026-05-17). The template's
+# four data-fetches (/urlgenius/links, /archer/ads/campaigns,
+# /archer/campaigns, /archer/ads) all targeted ad-ops surfaces that
+# this strip-down removes. The route was not on the runbook's deferred-work
+# list but its template's purpose was ad-ops only — flagged as scope
+# expansion in the PR description.
+#
+# /dashboard/upload_csv stays — it's the Amazon-earnings CSV ingest, used
+# by /insights data plumbing. P0.2 (Insights rebuild) will surface upload
+# UI inside the new framework page.
 
 @app.route('/dashboard/upload_csv', methods=['POST'])
 @require_admin_api
@@ -566,10 +572,9 @@ def dashboard_upload_csv():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/archer/products')
-@require_admin_page
-def archer_products():
-    return render_template('archer_products.html')
+# /archer/products HTML page removed in the Shop-MomandMe strip-down
+# (2026-05-17). The JSON variant /archer/product/<asin> (KEEP) is the
+# canonical product-lookup endpoint going forward.
 
 # ARCHIVED — see /archive/routes/
 
@@ -726,21 +731,10 @@ def archer_search():
 
 # ARCHIVED — see /archive/routes/
 
-@app.route('/archer/generate_link', methods=['POST'])
-@require_admin_api
-def archer_generate_link():
-    """Generate a live Archer attribution link for a given ASIN."""
-    from product_api import ArcherAPI
-    data = request.get_json() or {}
-    asin = data.get('asin', '').strip()
-    label = data.get('label', asin)
-    if not asin:
-        return jsonify({'error': 'asin is required'}), 400
-    a = ArcherAPI()
-    result = a.generate_link(asin, label=label)
-    if not result:
-        return jsonify({'error': 'Link generation failed'}), 500
-    return jsonify(result)
+# /archer/generate_link removed in the Shop-MomandMe strip-down
+# (2026-05-17). Used by archer_products.html (deleted). ArcherAPI.generate_link
+# itself stays — /urlgenius/smart_link's archer branch and ArcherAPI's
+# internal link-creation logic still call it.
 
 @app.route('/archer/collage')
 def archer_collage():
@@ -815,503 +809,17 @@ def archer_generate_caption():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/archer/generate_organic_posts', methods=['POST'])
-@require_admin_api
-def archer_generate_organic_posts():
-    """Generate 20 organic FB Group post variations for Steph.
-
-    Patches applied:
-      - Pre-generates ONE URLGenius smart link per unique ASIN (cuts 20 API calls → 1-3).
-      - Asks Claude for product_index per post; routes use it to pick the matching link.
-      - Falls back to round-robin (i % len) if Claude omits product_index.
-      - Regex JSON extraction fallback for stray text around the JSON block.
-      - Surfaces the real link_result['label'] as urlgenius_tag (not a fake string).
-    """
-    from datetime import datetime as _dt
-    data = request.get_json() or {}
-    product_list = data.get('product_list', [])  # [{asin, product_name, brand, price, commission}, ...]
-    if not product_list:
-        return jsonify({'error': 'product_list is required'}), 400
-
-    mmdd = _dt.now().strftime('%m%d')
-    n_products = len(product_list)
-    pl = '\n'.join([
-        f"[{idx}] {p.get('product_name','')[:60]} by {p.get('brand','')} · "
-        f"{p.get('price','')} · {p.get('commission','')} commission · ASIN: {p.get('asin','')}"
-        for idx, p in enumerate(product_list)
-    ])
-
-    # ── Pre-generate one URLGenius smart link per unique ASIN (rate-limit safe) ──
-    link_cache: dict = {}
-    seen_asins = []
-    for p in product_list:
-        asin = (p.get('asin') or '').strip()
-        if not asin or asin in link_cache:
-            continue
-        seen_asins.append(asin)
-        brand_raw = (p.get('brand') or 'brand').lower()
-        brand_short = re.sub(r'[^a-z0-9]', '', brand_raw.split()[0] if brand_raw.split() else 'brand')[:10]
-        name_words = re.sub(r'[^a-z0-9 ]', '', (p.get('product_name') or 'product').lower()).split()
-        product_short = '-'.join(name_words[:2])[:15] or 'product'
-        campaign = f"{brand_short}-{product_short}-{mmdd}"
-        try:
-            link_cache[asin] = _make_smart_link(
-                asin=asin, network='amazon',
-                utm_source='fb-group', utm_medium='organic',
-                utm_campaign=campaign,
-            )
-        except Exception as e:
-            logging.warning(f'[ORGANIC] Smart link failed for {asin}: {e}')
-            link_cache[asin] = {
-                'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
-                'affiliate_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
-                'label': f'fb-group_organic_{campaign}_{mmdd}',
-                'urlgenius': False,
-            }
-
-    try:
-        _ensure_schema_ready()
-        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
-        message = client.messages.create(
-            model='claude-sonnet-4-6',
-            max_tokens=6000,
-            system=build_organic_posts_prompt(),
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Products (use product_index 0..{n_products - 1} to reference each):\n"
-                    f"{pl}\n\nDate code: {mmdd}\n\n"
-                    f"Generate 20 organic Facebook Group post variations. "
-                    f"Cycle through every product so all {n_products} appear roughly evenly."
-                )
-            }]
-        )
-        raw = message.content[0].text.strip().replace('```json', '').replace('```', '').strip()
-
-        # Resilient JSON parse — fall back to regex extraction of the JSON object
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r'\{.*\}', raw, re.DOTALL)
-            if not m:
-                raise
-            parsed = json.loads(m.group(0))
-        posts_raw = parsed.get('posts', [])
-
-        posts = []
-        for i, post in enumerate(posts_raw):
-            # Map Claude's product_index → product → cached smart link
-            try:
-                pidx = int(post.get('product_index', i % n_products))
-            except (TypeError, ValueError):
-                pidx = i % n_products
-            if pidx < 0 or pidx >= n_products:
-                pidx = i % n_products
-            product = product_list[pidx]
-            asin = (product.get('asin') or '').strip()
-            link_result = link_cache.get(asin, {
-                'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}' if asin else '',
-                'affiliate_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}' if asin else '',
-                'label': '',
-                'urlgenius': False,
-            })
-
-            posts.append({
-                'angle': post.get('angle', ''),
-                'copy': post.get('copy', ''),
-                'image_note': post.get('image_note', ''),
-                'product_index': pidx,
-                'product_name': product.get('product_name') or product.get('name') or '',
-                'brand': product.get('brand') or '',
-                'asin': asin,
-                'affiliate_url': link_result.get('affiliate_url', ''),
-                'genius_url': link_result.get('genius_url', ''),
-                'urlgenius_tag': link_result.get('label', ''),
-                'urlgenius_active': link_result.get('urlgenius', False),
-            })
-
-        return jsonify({'posts': posts, 'product_count': n_products, 'unique_asins': len(seen_asins)})
-    except Exception as e:
-        logging.error(f'[ORGANIC] Post generation failed: {e}')
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/archer/generate_posts', methods=['POST'])
-@require_admin_api
-def archer_generate_posts():
-    """Content builder v2 — returns Claude-generated copy WITHOUT pre-built links.
-    Frontend creates smart links on-demand via /urlgenius/smart_link after reviewing UTM tags.
-
-    Mode B: 1 post per product, different angle per product.
-    Mode C: 1 collection post + product taglines.
-    """
-    data = request.get_json() or {}
-    mode = data.get('mode', 'b')
-    product_list = data.get('product_list', [])
-    if not product_list:
-        return jsonify({'error': 'product_list is required'}), 400
-
-    n = len(product_list)
-    pl = '\n'.join([
-        f"[{i}] ASIN:{p.get('asin','')} | {(p.get('product_name') or p.get('name',''))[:50]}"
-        f" by {p.get('brand','')} · {p.get('price','')} · {p.get('commission','')} commission"
-        for i, p in enumerate(product_list)
-    ])
-
-    try:
-        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
-
-        if mode == 'b':
-            system = (
-                "You generate organic Facebook Group posts for Steph (@EverydaywithSteph / Mommy & Me Collective). "
-                "Voice: warm, mom-to-mom, texting best friend about a deal. 1-2 emojis max. "
-                "Direct. Mentions price or benefit. 2-5 sentences. Never sounds like an ad.\n\n"
-                "Return ONLY valid JSON:\n"
-                '{"posts":[{"asin":"string","angle":"lowercase-hyphenated-slug max 20 chars",'
-                '"copy":"full post text","image_note":"brief ideal image description"}]}\n\n'
-                "Generate exactly N posts — one per product. Each must use a DIFFERENT angle from: "
-                "deal-price, mom-rec, social-proof, seasonal, gift-idea, problem-solve, scarcity, "
-                "discovery, value-frame, bundle-pair, before-after, community-reaction, "
-                "everyday-essential, back-to-camp, educational."
-            ).replace('N', str(n))
-            user_msg = f"Generate exactly {n} post{'s' if n > 1 else ''}, one per product.\nProducts:\n{pl}"
-            msg = client.messages.create(
-                model='claude-sonnet-4-6', max_tokens=4000, system=system,
-                messages=[{'role': 'user', 'content': user_msg}]
-            )
-            raw = msg.content[0].text.strip().replace('```json', '').replace('```', '').strip()
-            try:
-                parsed = json.loads(raw)
-            except json.JSONDecodeError:
-                m = re.search(r'\{.*\}', raw, re.DOTALL)
-                if not m:
-                    raise
-                parsed = json.loads(m.group(0))
-
-            # Persist generated posts to the queue (Branch 2B). Each post becomes
-            # a draft row joinable to clicks/earnings via posts.slug ↔ click_log.slug.
-            import posts as _posts
-            creator_id = (data.get('creator_id') or 'everydaywithsteph').strip()
-            collection_slug = (data.get('collection_slug') or '').strip().lower() or None
-            utm_defaults = data.get('utm_defaults') or {}
-            persisted = []
-            asin_to_product = {(p.get('asin') or '').strip(): p for p in product_list}
-            for raw_post in parsed.get('posts', []):
-                asin = (raw_post.get('asin') or '').strip()
-                product = asin_to_product.get(asin, {})
-                product_network = str(
-                    product.get('network')
-                    or product.get('retailer')
-                    or product.get('retailer_name')
-                    or 'amazon'
-                ).strip().lower()
-                if product_network == 'walmart':
-                    product_network = 'walmart'
-                angle = raw_post.get('angle', '')
-                utm = _organic_static_utm(product, asin, angle, utm_defaults)
-                smart = {
-                    'genius_url': '',
-                    'affiliate_url': '',
-                    'final_url': '',
-                    'link_id': '',
-                }
-                enriched_post_fields = {}
-                if product_network == 'walmart':
-                    try:
-                        import walmart_storefront_enrichment as _walmart_enrichment
-                        enriched_post_fields = _walmart_enrichment.post_update_fields({
-                            'asin': asin,
-                            'network': 'walmart',
-                            'product_name': product.get('product_name') or product.get('name') or '',
-                            'product_brand': product.get('brand') or product.get('company_name') or '',
-                            'product_price': product.get('price_display') or product.get('price') or '',
-                            'product_image': product.get('image_encoded_string') or product.get('image_url') or '',
-                        })
-                    except Exception as _e:
-                        logging.warning(f"[GENERATE_POSTS] Walmart enrichment failed for {asin}: {_e}")
-                    smart['genius_url'] = (
-                        product.get('smart_link')
-                        or product.get('attribution_link')
-                        or product.get('shop_url')
-                        or product.get('url')
-                        or ''
-                    )
-                elif asin and not collection_slug:
-                    try:
-                        smart = _amazon_urlgenius_link(asin, utm)
-                    except Exception as _e:
-                        logging.warning(f"[GENERATE_POSTS] URLGenius link failed for {asin}: {_e}")
-                        smart['genius_url'] = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
-                        smart['affiliate_url'] = smart['genius_url']
-                try:
-                    saved = _posts.create_post(
-                        creator_id=creator_id,
-                        asin=asin,
-                        angle=angle,
-                        copy=raw_post.get('copy', ''),
-                        image_note=raw_post.get('image_note', ''),
-                        network=product_network,
-                        collection_slug=collection_slug,
-                        status='draft',
-                        utm=utm,
-                        smart_link=smart.get('genius_url') or '',
-                        smart_link_id=smart.get('link_id') or '',
-                        smart_link_affiliate_url=smart.get('affiliate_url') or '',
-                        smart_link_final_url=smart.get('final_url') or '',
-                        product_name=enriched_post_fields.get('product_name') or product.get('product_name') or product.get('name') or '',
-                        product_brand=enriched_post_fields.get('product_brand') or product.get('brand') or product.get('company_name') or '',
-                        product_price=enriched_post_fields.get('product_price') or product.get('price_display') or product.get('price') or '',
-                        product_image=enriched_post_fields.get('product_image') or product.get('image_encoded_string') or product.get('image_url') or '',
-                        product_availability=enriched_post_fields.get('product_availability') or '',
-                        product_rating=enriched_post_fields.get('product_rating'),
-                        product_review_count=enriched_post_fields.get('product_review_count'),
-                    )
-                    persisted.append(saved)
-                except Exception as _e:
-                    logging.warning(f"[GENERATE_POSTS] persist failed for {asin}: {_e}")
-                    persisted.append({
-                        'angle': raw_post.get('angle', ''),
-                        'copy': raw_post.get('copy', ''),
-                        'image_note': raw_post.get('image_note', ''),
-                        'asin': asin,
-                    })
-            return jsonify({
-                'mode': 'b',
-                'posts': parsed.get('posts', []),
-                'persisted_posts': persisted,
-                'persisted_count': len([p for p in persisted if p.get('id')]),
-            })
-
-        elif mode == 'c':
-            collection_name = data.get('collection_name', 'Collection')
-            collection_slug = data.get('collection_slug', 'collection')
-            # Public landing-page URL on the shop subdomain (configured via SHOP_SUBDOMAIN env)
-            url = f"https://{SHOP_SUBDOMAIN}/{collection_slug}"
-            system = (
-                f"You build themed shoppable collection posts for Steph (@EverydaywithSteph). "
-                "Voice: warm, enthusiastic, mom-to-mom. 2-4 sentences. Naturally mentions the URL.\n\n"
-                "Return ONLY valid JSON:\n"
-                '{"angle":"lowercase-hyphenated-slug max 20 chars","copy":"collection Facebook Group post",'
-                '"image_note":"ideal collage image description",'
-                '"product_taglines":[{"asin":"string","tagline":"one sentence why this product belongs"}]}\n\n'
-                "angle must be lowercase-hyphenated (used in utm_content as organic_ANGLE_collection)."
-            )
-            user_msg = f'Theme: "{collection_name}"\nURL: {url}\nProducts:\n{pl}\n\nNaturally mention {url} in the post.'
-            msg = client.messages.create(
-                model='claude-sonnet-4-6', max_tokens=2000, system=system,
-                messages=[{'role': 'user', 'content': user_msg}]
-            )
-            raw = msg.content[0].text.strip().replace('```json', '').replace('```', '').strip()
-            try:
-                parsed = json.loads(raw)
-            except json.JSONDecodeError:
-                m = re.search(r'\{.*\}', raw, re.DOTALL)
-                if not m:
-                    raise
-                parsed = json.loads(m.group(0))
-            return jsonify({'mode': 'c', 'collection': parsed, 'url': url})
-
-        else:
-            return jsonify({'error': f'Unknown mode: {mode}'}), 400
-
-    except Exception as e:
-        logging.error(f'[GENERATE_POSTS] mode={mode} failed: {e}')
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/archer/generate_campaign_package', methods=['POST'])
-@require_admin_api
-def archer_generate_campaign_package():
-    """Generate a 5-layer Meta ad campaign package + paste-ready Ryze MCP prompt.
-
-    Same patches as /archer/generate_organic_posts:
-      - One URLGenius smart link per unique ASIN, reused across all variants.
-      - Resilient JSON parse with regex fallback.
-      - Real link labels surfaced (not fabricated strings).
-    """
-    from datetime import datetime as _dt
-    from urllib.parse import urlencode
-    data = request.get_json() or {}
-    product_list = data.get('product_list', [])
-    layers = data.get('layers', [1, 2, 3, 4, 5])
-    slug = (data.get('slug') or '').strip()
-    # Collection-as-CTA: when caller provides a collection_slug, all 5 layers route
-    # to the published landing page at https://<SHOP_SUBDOMAIN>/<collection_slug>
-    # with utm_content suffix '_collection' instead of per-product Amazon links.
-    collection_slug = (data.get('collection_slug') or '').strip().lower()
-
-    if not product_list:
-        return jsonify({'error': 'product_list is required'}), 400
-
-    mmdd = _dt.now().strftime('%m%d')
-    pl = '\n'.join([
-        f"[{idx}] {p.get('product_name','')[:60]} by {p.get('brand','')} · "
-        f"{p.get('price','')} · {p.get('commission','')} commission · ASIN: {p.get('asin','')}"
-        for idx, p in enumerate(product_list)
-    ])
-
-    asin = (product_list[0].get('asin') or '').strip()
-    if not asin:
-        return jsonify({'error': 'product_list[0] must contain a valid ASIN'}), 400
-    brand_raw = (product_list[0].get('brand') or 'brand').lower()
-    brand_short = re.sub(r'[^a-z0-9]', '', brand_raw.split()[0] if brand_raw.split() else 'brand')[:10]
-
-    # ── Pre-generate one Archer/URLGenius link per (ASIN, layer) — bounded calls ──
-    # Variants within a layer share the same link (different utm_term per variant
-    # would multiply API calls 3×; layer-level granularity is enough for reporting).
-    link_cache: dict = {}
-
-    # Build collection context line if we're routing to a landing page
-    collection_context = ''
-    if collection_slug:
-        collection_context = (
-            f"\nCTA destination: a curated collection landing page bundling all "
-            f"{len(product_list)} products at https://{SHOP_SUBDOMAIN}/{collection_slug}. "
-            f"Headlines and copy should reference the curated bundle (multiple picks, "
-            f"not a single product) — angles like 'shop my picks', 'whole collection', "
-            f"'mom-curated bundle' work well.\n"
-        )
-
-    try:
-        _ensure_schema_ready()
-        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
-        message = client.messages.create(
-            model='claude-sonnet-4-6',
-            max_tokens=8000,
-            system=build_campaign_package_prompt(),
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Products:\n{pl}\n{collection_context}\nLayers to include: {layers}\n\n"
-                    f"Generate the 5-layer campaign package."
-                )
-            }]
-        )
-        raw = message.content[0].text.strip().replace('```json', '').replace('```', '').strip()
-
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r'\{.*\}', raw, re.DOTALL)
-            if not m:
-                raise
-            parsed = json.loads(m.group(0))
-        layers_data = parsed.get('layers', [])
-
-        # Normalize layer_num: stable-sort by claimed layer_num then re-assign 1..N
-        # so we always return a clean L1..L5 sequence even if Claude duplicates,
-        # skips, or re-orders them.
-        try:
-            layers_data = sorted(layers_data, key=lambda l: int(l.get('layer_num', 99) or 99))
-        except (TypeError, ValueError):
-            pass
-        for idx, layer in enumerate(layers_data, start=1):
-            layer['layer_num'] = idx
-
-        for layer in layers_data:
-            layer_num = layer.get('layer_num', 0)
-
-            if collection_slug:
-                # ── Collection CTA path: build a direct UTM URL pointing at the
-                # public landing page. One link per layer, shared across variants.
-                campaign = f"{slug or brand_short}-collection-l{layer_num}-{mmdd}"
-                cache_key = (collection_slug, layer_num)
-                if cache_key not in link_cache:
-                    qs = urlencode({
-                        'utm_source':   'fb-ad',
-                        'utm_medium':   'paid_social',
-                        'utm_campaign': campaign,
-                        'utm_content':  f'l{layer_num}_collection',
-                        'utm_term':     f'l{layer_num}',
-                    })
-                    link_cache[cache_key] = {
-                        'genius_url':    f'https://{SHOP_SUBDOMAIN}/{collection_slug}?{qs}',
-                        'affiliate_url': '',
-                        'label':         f'collection-{collection_slug}-l{layer_num}',
-                        'urlgenius':     False,
-                    }
-                link_result = link_cache[cache_key]
-            else:
-                # ── Single-product CTA path (original behavior): URLGenius wrap → Amazon
-                cache_key = (asin, layer_num)
-                if asin and cache_key not in link_cache:
-                    campaign = f"{slug or brand_short}-{asin.lower()[:6]}-l{layer_num}-{mmdd}"
-                    try:
-                        link_cache[cache_key] = _make_smart_link(
-                            asin=asin, network='archer',
-                            utm_source='fb-ad', utm_medium='dark',
-                            utm_campaign=campaign,
-                            utm_term=f'l{layer_num}',
-                        )
-                    except Exception as e:
-                        logging.warning(f'[CAMPAIGN] Smart link failed for {asin} L{layer_num}: {e}')
-                        link_cache[cache_key] = {
-                            'genius_url': f'https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}',
-                            'affiliate_url': '',
-                            'label': '',
-                            'urlgenius': False,
-                        }
-                link_result = link_cache.get(cache_key, {
-                    'genius_url': '', 'affiliate_url': '', 'label': '', 'urlgenius': False,
-                })
-
-            for i, variant in enumerate(layer.get('variants', [])):
-                var_letter = ['a', 'b', 'c'][i] if i < 3 else str(i)
-                variant['attribution_url'] = link_result.get('genius_url', '')
-                variant['archer_url'] = link_result.get('affiliate_url', '')
-                variant['urlgenius_tag'] = link_result.get('label', '')
-                variant['var_letter'] = var_letter
-                variant['cta_type'] = 'collection' if collection_slug else 'product'
-
-        # Build paste-ready Ryze MCP prompt
-        layer_lines = []
-        for l in layers_data:
-            var_block = '\n'.join([
-                f"    Variant {v.get('label','')}: Headline: {v.get('headline','')} | "
-                f"Body: {v.get('primary_text','')} | CTA: {v.get('cta','Shop Now')} | "
-                f"URL: {v.get('attribution_url','')}"
-                for v in l.get('variants', [])
-            ])
-            layer_lines.append(
-                f"  Layer {l.get('layer_num','')}: {l.get('name','')}\n"
-                f"  Budget: {l.get('daily_budget_range','')}/day | "
-                f"Advantage+: {'ON' if l.get('advantage_plus') else 'OFF'}\n"
-                f"  Audience: {l.get('audience','')}\n{var_block}\n"
-                f"  Creative: {l.get('creative_direction','')}"
-            )
-
-        ryze_prompt = (
-            f"Using the Ryze MCP connected to Steph's Meta account (act_573934886369270), "
-            f"create the following ad campaigns for ASIN {asin} "
-            f"({product_list[0].get('brand','')} — {product_list[0].get('product_name','')}).\n\n"
-            f"For each campaign: OUTCOME_TRAFFIC objective, CBO at campaign level, "
-            f"Advantage+ as specified, mobile-first placements.\n\n"
-            f"CAMPAIGNS TO CREATE:\n\n" + '\n\n'.join(layer_lines) +
-            f"\n\nCreate all campaigns in PAUSED status for review before activating. "
-            f"Confirm each campaign ID after creation."
-        )
-
-        # Auto-tag the collection as 'paid' since it was just used as an ad CTA
-        if collection_slug:
-            try:
-                db_schema.add_campaign_type_to_collage(collection_slug, 'paid')
-            except Exception as _e:
-                logging.warning(f"[CAMPAIGN] tag paid failed for {collection_slug}: {_e}")
-
-        return jsonify({
-            'layers': layers_data,
-            'ryze_prompt': ryze_prompt,
-            'asin': asin,
-            'product': product_list[0] if product_list else {},
-            'unique_links': len(link_cache),
-            'cta_type': 'collection' if collection_slug else 'product',
-            'collection_slug': collection_slug or None,
-            'collection_url': f'https://{SHOP_SUBDOMAIN}/{collection_slug}' if collection_slug else None,
-        })
-    except Exception as e:
-        logging.error(f'[CAMPAIGN] Package generation failed: {e}')
-        return jsonify({'error': str(e)}), 500
-
+# /archer/generate_organic_posts, /archer/generate_posts, and
+# /archer/generate_campaign_package removed in the Shop-MomandMe
+# strip-down (2026-05-17). All three were called only by ad-ops
+# templates (archer_ads.html, archer_products.html, organic_posts.html)
+# which this strip-down removed. The dead prompt builders
+# (build_organic_posts_prompt, build_campaign_package_prompt,
+# build_ad_copy_prompt) are dropped from the import line at the top
+# of app.py in the same commit.
+#
+# /archer/generate_caption (KEEP) stays because archer_collage.html
+# calls it for the collage builder's auto-caption feature.
 
 @app.route('/archer/collage/save', methods=['POST'])
 @require_admin_api
@@ -3002,384 +2510,15 @@ def archer_post_edit_page(post_id):
     return render_template('organic_post_edit.html', post=post, amazon_tag=AMAZON_TAG)
 
 
-# ── CAMPAIGN BUILDER v3 (Branch 3) ───────────────────────────────────────────
-@app.route('/archer/campaigns')
-@require_admin_page
-def archer_campaigns_page():
-    """Bulk Campaign Builder page — picks N targets, generates N packages."""
-    return render_template('archer_campaigns.html')
-
-
-@app.route('/archer/campaigns/list', methods=['GET'])
-@require_admin_api
-def archer_campaigns_list():
-    """List persisted campaigns_v3 packages with optional filters."""
-    from product_api import ArcherAPI
-    creator_id = request.args.get('creator_id', 'everydaywithsteph')
-    status_filter = request.args.get('status')
-    limit = int(request.args.get('limit', 100))
-
-    where = ["COALESCE(creator_id,'everydaywithsteph') = ?"]
-    params: list = [creator_id]
-    if status_filter:
-        where.append('status = ?')
-        params.append(status_filter)
-
-    conn = ArcherAPI()._db_connect()
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        f"SELECT * FROM campaigns_v3 WHERE {' AND '.join(where)} "
-        f"ORDER BY created_at DESC LIMIT {limit}",
-        params,
-    ).fetchall()
-    conn.close()
-
-    out = []
-    for r in rows:
-        d = dict(r)
-        for col in ('layers_json', 'package_json', 'defaults_overrides_json',
-                    'meta_campaign_ids_json'):
-            try:
-                d[col] = json.loads(d.get(col) or 'null')
-            except (json.JSONDecodeError, TypeError):
-                d[col] = None
-        out.append(d)
-    return jsonify({'campaigns': out})
-
-
-@app.route('/archer/campaigns/<int:campaign_id>', methods=['GET'])
-@require_admin_api
-def archer_campaign_get(campaign_id):
-    from product_api import ArcherAPI
-    conn = ArcherAPI()._db_connect()
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT * FROM campaigns_v3 WHERE id = ?", (campaign_id,)
-    ).fetchone()
-    conn.close()
-    if not row:
-        return jsonify({'error': 'campaign not found'}), 404
-    d = dict(row)
-    for col in ('layers_json', 'package_json', 'defaults_overrides_json',
-                'meta_campaign_ids_json'):
-        try:
-            d[col] = json.loads(d.get(col) or 'null')
-        except (json.JSONDecodeError, TypeError):
-            d[col] = None
-    return jsonify({'campaign': d})
-
-
-@app.route('/archer/campaigns/<int:campaign_id>', methods=['PATCH'])
-@require_admin_api
-def archer_campaign_update(campaign_id):
-    """Update a draft package — package_json (full replace), status, asset_url, notes."""
-    from product_api import ArcherAPI
-    body = request.get_json() or {}
-    allowed = {
-        'package_json', 'asset_url', 'asset_type', 'status',
-        'notes', 'destination_url', 'meta_campaign_ids_json',
-        'defaults_overrides_json', 'layers_json',
-    }
-    sets = []
-    vals: list = []
-    for k, v in body.items():
-        if k in allowed:
-            sets.append(f"{k} = ?")
-            vals.append(json.dumps(v) if k.endswith('_json') and not isinstance(v, str) else v)
-    if not sets:
-        return jsonify({'error': 'no editable fields supplied'}), 400
-    sets.append("updated_at = CURRENT_TIMESTAMP")
-    if body.get('status') == 'exported':
-        sets.append("exported_at = CURRENT_TIMESTAMP")
-    if body.get('status') == 'built':
-        sets.append("built_at = CURRENT_TIMESTAMP")
-    vals.append(campaign_id)
-    conn = ArcherAPI()._db_connect()
-    conn.execute(
-        f"UPDATE campaigns_v3 SET {', '.join(sets)} WHERE id = ?", vals,
-    )
-    conn.commit()
-    conn.close()
-    return archer_campaign_get(campaign_id)
-
-
-@app.route('/archer/campaigns/<int:campaign_id>', methods=['DELETE'])
-@require_admin_api
-def archer_campaign_delete(campaign_id):
-    from product_api import ArcherAPI
-    conn = ArcherAPI()._db_connect()
-    cur = conn.execute("DELETE FROM campaigns_v3 WHERE id = ?", (campaign_id,))
-    conn.commit()
-    conn.close()
-    if cur.rowcount == 0:
-        return jsonify({'error': 'campaign not found'}), 404
-    return jsonify({'ok': True})
-
-
-@app.route('/archer/campaigns/<int:campaign_id>/export', methods=['POST'])
-@require_admin_api
-def archer_campaign_export(campaign_id):
-    """Mark a package exported and return the paste-ready Ryze MCP prompt."""
-    import campaign_builder as cb
-    from product_api import ArcherAPI
-
-    conn = ArcherAPI()._db_connect()
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT * FROM campaigns_v3 WHERE id = ?", (campaign_id,)
-    ).fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'error': 'campaign not found'}), 404
-    pkg = json.loads(row['package_json'] or '{}')
-    creator = db_schema.get_creator(row['creator_id'])
-
-    errors = cb.validate_package(pkg)
-    if errors:
-        conn.close()
-        return jsonify({'error': 'package validation failed', 'errors': errors}), 400
-
-    conn.execute(
-        "UPDATE campaigns_v3 SET status = 'exported', "
-        "exported_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
-        "WHERE id = ?", (campaign_id,),
-    )
-    conn.commit()
-    conn.close()
-
-    return jsonify({
-        'campaign_id': campaign_id,
-        'package':     pkg,
-        'ryze_prompt': cb.render_ryze_prompt(pkg, creator),
-        'status':      'exported',
-    })
-
-
-@app.route('/archer/campaigns/generate', methods=['POST'])
-@require_admin_api
-def archer_campaigns_generate():
-    """Bulk-generate campaign packages.
-
-    Body:
-    {
-      "creator_id": "everydaywithsteph",
-      "targets": [                       # one package per target
-        {"kind": "asin", "value": "B0...", "product_name": "...",
-         "brand": "...", "asset_url": "https://...", "asset_type": "static_image"},
-        {"kind": "collection", "value": "summer-essentials", ...}
-      ],
-      "layer_ids": ["L1","L2","L3"],
-      "defaults_override": {...},
-      "utm_auto": true,
-      "auto_generate_copy": true        # call Claude per-target for layer copies
-    }
-    """
-    import campaign_builder as cb
-    from product_api import ArcherAPI
-
-    body = request.get_json() or {}
-    creator_id = (body.get('creator_id') or 'everydaywithsteph').strip()
-    targets = body.get('targets') or []
-    layer_ids = body.get('layer_ids') or ['L1']
-    utm_auto = bool(body.get('utm_auto', True))
-    auto_generate_copy = bool(body.get('auto_generate_copy', True))
-    defaults_override = body.get('defaults_override') or {}
-
-    if not targets:
-        return jsonify({'error': 'targets is required'}), 400
-    if not layer_ids:
-        return jsonify({'error': 'layer_ids is required'}), 400
-
-    creator = db_schema.get_creator(creator_id)
-    if not (creator.get('fb_page_id') or '').strip():
-        creator['fb_page_id'] = db_schema.DEFAULT_CREATOR.get('fb_page_id', '')
-
-    client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
-
-    persisted = []
-    errors_out = []
-    for target in targets:
-        try:
-            asset_url = target.get('asset_url', '').strip()
-            asset_type = target.get('asset_type', 'static_image')
-            if not asset_url:
-                # Fallback: derive from ASIN image CDN for ASIN targets
-                if target.get('kind') == 'asin' and target.get('value'):
-                    asset_url = (
-                        f"https://ws-na.amazon-adsystem.com/widgets/q?"
-                        f"_encoding=UTF8&ASIN={target['value']}&Format=_SL250_"
-                    )
-
-            # Generate per-layer copy via Claude (or use caller-supplied)
-            layer_copies = target.get('layer_copies')
-            if not layer_copies and auto_generate_copy:
-                layer_copies = _generate_layer_copies(
-                    client, creator_id, target, layer_ids,
-                )
-            if not layer_copies:
-                # Last-resort placeholder so the package still validates
-                layer_copies = [
-                    {'layer_id': lid, 'headline': (target.get('product_name') or 'Shop Now')[:38],
-                     'body': 'Edit this copy in the campaign card.',
-                     'description': '', 'cta': 'SHOP_NOW'}
-                    for lid in layer_ids
-                ]
-
-            pkg = cb.build_new_campaign_package(
-                creator=creator, target=target,
-                selected_layer_ids=layer_ids,
-                asset_url=asset_url, asset_type=asset_type,
-                layer_copies=layer_copies,
-                destination_url=target.get('destination_url'),
-                defaults_override=defaults_override,
-                utm_auto=utm_auto,
-            )
-
-            # Persist
-            conn = ArcherAPI()._db_connect()
-            cur = conn.execute(
-                """INSERT INTO campaigns_v3
-                   (creator_id, package_type, target_type, target_value,
-                    brand_slug, product_slug, product_name, destination_url,
-                    layers_json, asset_url, asset_type, package_json,
-                    defaults_overrides_json, utm_auto, status)
-                   VALUES (?, 'new_campaign', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft') RETURNING id""",
-                (
-                    creator_id,
-                    target.get('kind', 'asin'),
-                    target.get('value', ''),
-                    pkg['brand'],
-                    pkg['product_slug'],
-                    pkg.get('product') or '',
-                    pkg['destination_url'],
-                    json.dumps(layer_ids),
-                    asset_url,
-                    asset_type,
-                    json.dumps(pkg),
-                    json.dumps(defaults_override),
-                    1 if utm_auto else 0,
-                ),
-            )
-            conn.commit()
-            campaign_id = db_schema._last_id(cur)
-            conn.close()
-
-            persisted.append({
-                'id': campaign_id,
-                'target': target,
-                'package': pkg,
-                'validation_errors': cb.validate_package(pkg),
-            })
-        except Exception as e:
-            logging.exception('[CAMPAIGNS] generation failed for target')
-            errors_out.append({'target': target, 'error': str(e)})
-
-    return jsonify({
-        'created':       len(persisted),
-        'campaigns':     persisted,
-        'errors':        errors_out,
-    })
-
-
-def _generate_layer_copies(client, creator_id, target, layer_ids):
-    """Call Claude to generate layer-specific copy for one target."""
-    from prompts import build_layer_copy_prompt
-    system = build_layer_copy_prompt(creator_id)
-
-    target_kind = target.get('kind', 'asin')
-    name = target.get('product_name') or target.get('value') or 'item'
-    brand = target.get('brand') or ''
-    price = target.get('price') or ''
-    target_label = (
-        f"Collection landing page: {name}"
-        if target_kind == 'collection'
-        else f"Product: {name}{' by ' + brand if brand else ''}{' · ' + price if price else ''}"
-    )
-    user_msg = (
-        f"{target_label}\n"
-        f"Generate copy for these layers: {', '.join(layer_ids)}\n"
-        f"Return JSON with one object per layer."
-    )
-    msg = client.messages.create(
-        model='claude-sonnet-4-6', max_tokens=2500, system=system,
-        messages=[{'role': 'user', 'content': user_msg}],
-    )
-    raw = msg.content[0].text.strip().replace('```json', '').replace('```', '').strip()
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
-        if not m:
-            raise
-        parsed = json.loads(m.group(0))
-    return parsed.get('layer_copies', [])
-
-
-@app.route('/archer/campaigns/boost', methods=['POST'])
-@require_admin_api
-def archer_campaigns_boost():
-    """Build and persist a boost_post package.
-
-    Body: { "creator_id": "...", "post_id": <internal posts.id>,
-            "meta_post_id": "847392847362948", "boost_overrides": {...} }
-    """
-    import campaign_builder as cb
-    import posts as _posts
-    from product_api import ArcherAPI
-
-    body = request.get_json() or {}
-    creator_id = (body.get('creator_id') or 'everydaywithsteph').strip()
-    post_id = body.get('post_id')
-    meta_post_id = (body.get('meta_post_id') or '').strip()
-    boost_overrides = body.get('boost_overrides') or {}
-
-    if not meta_post_id:
-        return jsonify({'error': 'meta_post_id is required (paste from Meta Business Suite)'}), 400
-
-    creator = db_schema.get_creator(creator_id)
-    if not (creator.get('fb_page_id') or '').strip():
-        creator['fb_page_id'] = db_schema.DEFAULT_CREATOR.get('fb_page_id', '')
-    product_slug = 'post'
-    brand_slug = None
-    target_value = meta_post_id
-
-    if post_id:
-        p = _posts.get_post(int(post_id))
-        if p:
-            product_slug = (p.get('angle') or '')[:30] or 'post'
-            target_value = f"{post_id}:{meta_post_id}"
-            if p.get('product_brand'):
-                brand_slug = (p['product_brand'] or '').lower().replace(' ', '')[:20]
-
-    pkg = cb.build_boost_post_package(
-        creator=creator, meta_post_id=meta_post_id,
-        boost_overrides=boost_overrides,
-        product_slug=product_slug,
-        brand_slug=brand_slug,
-        utm_auto=bool(body.get('utm_auto', True)),
-    )
-
-    conn = ArcherAPI()._db_connect()
-    cur = conn.execute(
-        """INSERT INTO campaigns_v3
-           (creator_id, package_type, target_type, target_value,
-            brand_slug, product_slug, package_json, meta_post_id, status, utm_auto)
-           VALUES (?, 'boost_post', 'post', ?, ?, ?, ?, ?, 'draft', 1) RETURNING id""",
-        (
-            creator_id, target_value, brand_slug, product_slug,
-            json.dumps(pkg), meta_post_id,
-        ),
-    )
-    conn.commit()
-    campaign_id = db_schema._last_id(cur)
-    conn.close()
-
-    return jsonify({
-        'id':       campaign_id,
-        'package':  pkg,
-        'validation_errors': cb.validate_package(pkg),
-    })
-
+# Campaign Builder v3 surface removed in the Shop-MomandMe strip-down
+# (2026-05-17). All nine /archer/campaigns* routes (page, list,
+# get-by-id, patch, delete, export, generate, boost, fetch-product)
+# were EchoTribe-internal ad-ops. campaign_builder.py is also deleted
+# in the same commit — git grep showed only three call sites inside
+# the deleted routes.
+#
+# /archer/track_click (public storefront click logger) sits in this
+# region of the file and is preserved verbatim below.
 
 @app.route('/archer/track_click', methods=['POST'])
 def archer_track_click():
@@ -3399,53 +2538,8 @@ def archer_track_click():
     conn.close()
     return jsonify({'ok': True})
 
-@app.route('/archer/campaigns/fetch-product', methods=['POST'])
-@require_admin_api
-def archer_fetch_product():
-    """Fetch product details for a single ASIN (via Crawlbase) or Walmart SKU (via Walmart API).
-
-    Body: {"rawId": "B0CLRNS4DD", "platform": "amazon", "url": "https://..."}
-    Returns: product object with name, price, imageUrl, status
-    """
-    from product_api import WalmartAPI
-    from product_lookup_service import resolve_amazon_product
-
-    body = request.get_json() or {}
-    raw_id  = (body.get('rawId') or '').strip()
-    platform = (body.get('platform') or '').strip()
-    url      = (body.get('url') or '').strip()
-
-    if not raw_id or not platform:
-        return jsonify({'error': 'rawId and platform are required'}), 400
-
-    base = {'rawId': raw_id, 'platform': platform, 'url': url}
-
-    try:
-        if platform == 'amazon':
-            data = resolve_amazon_product(raw_id)
-            if data and (data.get('product_name') or data.get('price')):
-                return jsonify({**base, 'name': data.get('product_name', ''),
-                                'price': (data.get('price') or '').replace('$', '').strip(),
-                                'imageUrl': data.get('image_encoded_string', ''),
-                                'description': '', 'status': 'fetched'})
-            return jsonify({**base, 'status': 'manual'})
-
-        if platform == 'walmart':
-            walmart = WalmartAPI()
-            data = walmart.get_item_by_id(raw_id)
-            if data and data.get('name'):
-                return jsonify({**base, 'name': data.get('name', ''),
-                                'price': data.get('price', ''),
-                                'imageUrl': data.get('imageUrl', ''),
-                                'description': '', 'status': 'fetched'})
-            return jsonify({**base, 'status': 'manual'})
-
-        return jsonify({**base, 'status': 'error', 'error': 'Unknown platform'}), 400
-
-    except Exception as e:
-        logging.exception('[FETCH-PRODUCT] failed')
-        return jsonify({**base, 'status': 'error', 'error': str(e)}), 500
-
+# /archer/campaigns/fetch-product removed in the same strip-down —
+# only the deleted Archer campaigns UI called it.
 
 @app.route('/archer/image_proxy')
 @require_admin_api
@@ -3469,18 +2563,11 @@ def archer_image_proxy():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/archer/ads')
-@require_admin_page
-def archer_ads():
-    return render_template('archer_ads.html')
-
-@app.route('/archer/organic')
-@require_admin_page
-def archer_organic():
-    post_id = request.args.get('post_id')
-    if post_id and post_id.isdigit():
-        return redirect(url_for('archer_post_edit_page', post_id=int(post_id)))
-    return render_template('organic_posts.html')
+# /archer/ads, /archer/organic, /archer/products (HTML page) removed
+# in the Shop-MomandMe strip-down (2026-05-17) along with their templates.
+# /archer/posts/<id>/edit (KEEP) is the canonical organic-post editor;
+# /archer/organic's redirect-to-edit behavior is no longer needed because
+# the editor links direct now.
 
 
 # ── INSIGHTS: clicks × earnings × paid attribution ──────────────────────────
@@ -3660,134 +2747,12 @@ def admin_creator_get(creator_id):
     creator = db_schema.get_creator(creator_id)
     return jsonify({'creator': creator})
 
-@app.route('/archer/generate_ad_copy', methods=['POST'])
-@require_admin_api
-def archer_generate_ad_copy():
-    _ensure_schema_ready()
-    from product_api import ArcherAPI
-    data = request.get_json() or {}
-    products = data.get('products', '')
-    campaign_type = data.get('campaign_type', 'organic Facebook post')
-    routing = data.get('routing', 'a shoppable landing page')
-    slug = data.get('slug', '')
-    product_asins = data.get('product_asins', [])
-
-    try:
-        client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
-        message = client.messages.create(
-            model='claude-sonnet-4-6',
-            max_tokens=800,
-            system=build_ad_copy_prompt(),
-            messages=[{
-                "role": "user",
-                "content": f"Write 3 ad copy variants for a {campaign_type} linking to {routing}. Products: {products}"
-            }]
-        )
-
-        raw = message.content[0].text.strip().replace('```json', '').replace('```', '').strip()
-        parsed = json.loads(raw)
-        variants = parsed.get('variants', [])
-
-        # Generate Archer attribution links and wrap in URLGenius (Task 7)
-        a = ArcherAPI()
-        asin = product_asins[0] if product_asins else None
-        from datetime import datetime as _dt
-        mmdd = _dt.now().strftime('%m%d')
-        var_labels = ['a', 'b', 'c']
-        for i, v in enumerate(variants):
-            var_letter = var_labels[i] if i < len(var_labels) else str(i)
-            label = f"steph-{slug}-var{var_letter}"
-            if asin:
-                link = a.generate_link(asin, label=label)
-                if link:
-                    archer_url = link.get('attribution_link') or link.get('url') or ''
-                    v['archer_url'] = archer_url
-                    v['attribution_url'] = archer_url  # backwards-compat
-                    v['label'] = label
-                    # Wrap in URLGenius
-                    campaign = f"{slug[:10]}-{asin.lower()[:6]}-{mmdd}"
-                    ug_result = _make_smart_link(
-                        asin=asin, network='archer',
-                        utm_source='fb-ad', utm_medium='dark',
-                        utm_campaign=campaign,
-                        utm_term=f'var{var_letter}',
-                    )
-                    v['genius_url'] = ug_result['genius_url']
-
-        return jsonify({'variants': variants})
-
-    except Exception as e:
-        logging.error(f"[ADS] Ad copy generation failed: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/archer/ads/save', methods=['POST'])
-@require_admin_api
-def archer_save_campaign():
-    from product_api import ArcherAPI
-    data = request.get_json() or {}
-    slug = data.get('slug', '').strip()
-    if not slug:
-        return jsonify({'error': 'slug required'}), 400
-
-    a = ArcherAPI()
-    products = data.get('products', [])
-    variants = data.get('variants', [])
-    for i, v in enumerate(variants):
-        if not v.get('attribution_url') and products:
-            asin = products[0].get('asin', '')
-            if asin:
-                label = f"steph-{slug}-var{['a','b','c'][i]}-{asin.lower()}"
-                link = a.generate_link(asin, label=label)
-                if link:
-                    v['attribution_url'] = link.get('attribution_link') or link.get('url') or ''
-                    v['label'] = label
-
-    conn = a._db_connect()
-    conn.execute("""
-        INSERT INTO campaigns
-        (slug, campaign_type, routing, products_json, variants_json, spend_budget, forecast_roas, status, created_at)
-        VALUES (?,?,?,?,?,?,?,'draft',CURRENT_TIMESTAMP)
-        ON CONFLICT (slug) DO UPDATE SET
-          campaign_type=EXCLUDED.campaign_type, routing=EXCLUDED.routing,
-          products_json=EXCLUDED.products_json, variants_json=EXCLUDED.variants_json,
-          spend_budget=EXCLUDED.spend_budget, forecast_roas=EXCLUDED.forecast_roas
-    """, (
-        slug,
-        data.get('campaign_type', 'organic'),
-        data.get('routing', 'landing'),
-        json.dumps(products),
-        json.dumps(variants),
-        data.get('spend_budget', 0),
-        data.get('forecast_roas', '')
-    ))
-    conn.commit()
-    conn.close()
-    return jsonify({'ok': True, 'slug': slug})
-
-@app.route('/archer/ads/campaigns')
-@require_admin_api
-def archer_list_campaigns():
-    from product_api import ArcherAPI
-    a = ArcherAPI()
-    conn = a._db_connect()
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT slug, campaign_type, routing, products_json, forecast_roas, status, created_at FROM campaigns ORDER BY created_at DESC LIMIT 20"
-    ).fetchall()
-    conn.close()
-    campaigns = []
-    for r in rows:
-        products = json.loads(r['products_json'] or '[]')
-        campaigns.append({
-            'slug': r['slug'],
-            'campaign_type': r['campaign_type'],
-            'routing': r['routing'],
-            'product_count': len(products),
-            'forecast_roas': r['forecast_roas'] or '—',
-            'status': r['status'] or 'draft',
-            'created_at': _fmt_date(r['created_at'])
-        })
-    return jsonify({'campaigns': campaigns})
+# /archer/generate_ad_copy, /archer/ads/save, /archer/ads/campaigns removed
+# in the Shop-MomandMe strip-down (2026-05-17). Used only by
+# templates/archer_ads.html and templates/dashboard.html (both deleted).
+# The campaigns table itself stays in the local SQLite cache — it's read by
+# /archer/campaigns/list which is being removed in cluster 4, after which
+# the orphan table can be dropped in a future schema-cleanup pass.
 
 # ── URLGENIUS ─────────────────────────────────────────────────────────────────
 
@@ -3963,19 +2928,29 @@ def _make_smart_link(asin: str, network: str = 'amazon', utm_source: str = 'fb-g
 @require_admin_api
 def urlgenius_smart_link():
     """
-    Generate a URLGenius deep link for a product using the full UTM attribution schema.
+    Generate a URLGenius deep link for an Amazon product using the full UTM
+    attribution schema.
+
     Body: {
       asin: str,
-      network: 'amazon' | 'archer' | 'levanta',
+      network: 'amazon'   # only supported value post-strip-down
       placement: { source, medium, campaign, content?, term? },
       force_new?: bool
     }
-    utm_content: caller-supplied placement.content takes precedence; falls back to
-    NETWORK_CONTENT auto-derive (e.g. 'amazon-assoc'). Use organic_[angle]_static
-    or organic_[angle]_collection convention from UTM Schema Reference.
+
+    utm_content: caller-supplied placement.content takes precedence; falls back
+    to NETWORK_CONTENT auto-derive (e.g. 'amazon-assoc'). Use
+    organic_[angle]_static or organic_[angle]_collection convention from the
+    UTM Schema Reference.
+
     Returns { genius_url, affiliate_url, network, label, utm }
+
+    Note: the archer and levanta branches were removed in the Shop-MomandMe
+    strip-down (2026-05-17). They were only reachable from the deleted
+    archer_products.html / archer_ads.html UIs. Future "Seller Connections"
+    work may reintroduce alternate networks under a different shape.
     """
-    from product_api import ArcherAPI, LevantaAPI, URLGeniusAPI
+    from product_api import URLGeniusAPI
     body = request.get_json() or {}
     asin = body.get('asin', '').strip()
     network = body.get('network', 'amazon')
@@ -3983,6 +2958,12 @@ def urlgenius_smart_link():
 
     if not asin:
         return jsonify({'error': 'asin is required'}), 400
+    if network != 'amazon':
+        return jsonify({
+            'error': f"network '{network}' not supported on this deploy",
+            'message': "Only 'amazon' is currently wired. Pass network='amazon' "
+                       "or omit the field.",
+        }), 400
 
     # ── Validate placement ──────────────────────────────────────────────────
     placement = body.get('placement') or {}
@@ -4005,51 +2986,24 @@ def urlgenius_smart_link():
     # ── utm_content: caller override takes precedence, else auto-derive ────────
     utm_content = (placement.get('content') or '').strip() or NETWORK_CONTENT.get(network, network)
 
-    # ── Build affiliate URL ─────────────────────────────────────────────────
+    # ── Build affiliate URL (Amazon only) ───────────────────────────────────
     affiliate_url = None
-
-    if network == 'amazon':
-        try:
-            result = _amazon_urlgenius_link(
-                asin,
-                {
-                    'source': utm_source,
-                    'medium': utm_medium,
-                    'campaign': utm_campaign,
-                    'content': utm_content,
-                    'term': utm_term,
-                },
-                force_new=force_new,
-            )
-            return jsonify(result)
-        except Exception as e:
-            logging.error(f"[URLGENIUS] smart_link amazon failed: {e}")
-            affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
-
-    elif network == 'archer':
-        a = ArcherAPI()
-        label = f"steph-archer-{asin.lower()}-{int(__import__('time').time())}"
-        result = a.generate_link(asin, label=label)
-        if not result:
-            return jsonify({'error': 'Archer link generation failed'}), 500
-        affiliate_url = (result.get('attribution_link') or result.get('url')
-                         or result.get('link') or result.get('short_url'))
-        if not affiliate_url:
-            return jsonify({'error': 'Archer returned no URL', 'raw': result}), 500
-
-    elif network == 'levanta':
-        lv = LevantaAPI()
-        try:
-            result = lv.create_product_link(asin)
-            affiliate_url = (result.get('url') or result.get('link')
-                             or result.get('trackingUrl') or result.get('attribution_link'))
-            if not affiliate_url:
-                return jsonify({'error': 'Levanta returned no URL', 'raw': result}), 500
-        except Exception as e:
-            return jsonify({'error': f'Levanta link generation failed: {e}'}), 500
-
-    else:
-        return jsonify({'error': f'Unknown network: {network}'}), 400
+    try:
+        result = _amazon_urlgenius_link(
+            asin,
+            {
+                'source': utm_source,
+                'medium': utm_medium,
+                'campaign': utm_campaign,
+                'content': utm_content,
+                'term': utm_term,
+            },
+            force_new=force_new,
+        )
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"[URLGENIUS] smart_link amazon failed: {e}")
+        affiliate_url = f"https://www.amazon.com/dp/{asin}?tag={AMAZON_TAG}"
 
     # ── Wrap in URLGenius ───────────────────────────────────────────────────
     from datetime import datetime as _dt
@@ -4119,275 +3073,25 @@ def urlgenius_smart_link():
 
 
 
-@app.route('/archer/discovery/top_clicked', methods=['GET'])
-@require_admin_api
-def archer_discovery_top_clicked():
-    """Top URLGenius-clicked Amazon products for Organic queue seeding."""
-    from product_api import URLGeniusAPI, ArcherAPI
-    import re
-
-    def _asin_from_text(*vals):
-        pat = re.compile(r'(?:/dp/|/gp/product/|/product/)([A-Z0-9]{10})(?:[/?&#]|$)', re.I)
-        for v in vals:
-            txt = str(v or '')
-            m = pat.search(txt)
-            if m:
-                return m.group(1).upper()
-        return None
-
-    min_clicks = int(request.args.get('min_clicks', 300))
-    limit = max(1, min(int(request.args.get('limit', 35)), 60))
-    # How many of the highest-click links to scan for ASINs. Default 5000
-    # is plenty since most non-Amazon entries (Walmart/Target) won't yield
-    # an ASIN anyway — this just bounds CPU work, not data coverage.
-    seed_limit = max(100, min(int(request.args.get('seed_limit', 5000)), 30000))
-
-    ug = URLGeniusAPI()
-    if not ug.api_key:
-        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
-
-    # IMPORTANT: load the FULL registry first, then sort by clicks desc,
-    # then truncate. Otherwise we'd only sort within an arbitrary insertion-
-    # order slice and miss high-click rows scattered throughout the file.
-    raw = ug.list_links(limit=30000)
-    links = raw.get('links', [])
-    links.sort(
-        key=lambda l: int(l.get('clicks') or l.get('clicks_30d') or 0),
-        reverse=True,
-    )
-    links = links[:seed_limit]
-    registry_only = True
-
-    scored = {}
-    for lk in links:
-        asin = _asin_from_text(
-            lk.get('url'), lk.get('destination_url'), lk.get('affiliate_url'),
-            lk.get('genius_url'), lk.get('long_url'), lk.get('deeplink'),
-        )
-        if not asin:
-            continue
-
-        clicks = (
-            lk.get('clicks_30d') or lk.get('clicks30d') or lk.get('clicks')
-            or (lk.get('stats') or {}).get('clicks_30d')
-            or (lk.get('stats') or {}).get('clicks')
-            or (lk.get('metrics') or {}).get('clicks_30d')
-            or (lk.get('metrics') or {}).get('clicks')
-            or 0
-        )
-        try:
-            clicks = int(float(clicks))
-        except Exception:
-            clicks = 0
-
-        prev = scored.get(asin)
-        if prev is None or clicks > prev['clicks']:
-            scored[asin] = {'clicks': clicks, 'source': lk}
-
-    # If no link in the registry has any recorded click data, drop the
-    # threshold so we still surface candidate products. (URLgenius API v2
-    # doesn't expose click counts via any documented endpoint.)
-    has_any_clicks = any(v['clicks'] > 0 for v in scored.values())
-    effective_min_clicks = min_clicks if has_any_clicks else 0
-    picked = [(a, v) for a, v in scored.items() if v['clicks'] >= effective_min_clicks]
-    picked.sort(key=lambda t: t[1]['clicks'], reverse=True)
-    picked = picked[:limit]
-
-    asins = [a for a, _ in picked]
-    catalog = ArcherAPI().get_by_asins(asins) if asins else []
-    by_asin = {(p.get('asin') or '').upper(): p for p in catalog}
-
-    out = []
-    for asin, meta in picked:
-        p = by_asin.get(asin, {})
-        lk = meta['source']
-        out.append({
-            'asin': asin,
-            'clicks_30d': meta['clicks'],
-            'product_name': p.get('product_name') or p.get('name') or lk.get('title') or asin,
-            'company_name': p.get('company_name') or p.get('brand') or '',
-            'price': p.get('price') or '',
-            'commission_payout': p.get('commission_payout') or p.get('commission') or '',
-            'image_encoded_string': p.get('image_encoded_string') or '',
-            'urlgenius_url': lk.get('genius_url') or '',
-            'destination_url': lk.get('url') or lk.get('destination_url') or '',
-        })
-
-    return jsonify({
-        'products': out,
-        'count': len(out),
-        'filters': {
-            'min_clicks': min_clicks,
-            'effective_min_clicks': effective_min_clicks,
-            'limit': limit,
-        },
-        'registry_only': registry_only,
-        'has_click_data': has_any_clicks,
-    })
-@app.route('/urlgenius/create_link', methods=['POST'])
-@require_admin_api
-def urlgenius_create_link():
-    from product_api import URLGeniusAPI
-    body = request.get_json() or {}
-    url = body.get('url', '').strip()
-    if not url:
-        return jsonify({'error': 'url is required'}), 400
-    ug = URLGeniusAPI()
-    if not ug.api_key:
-        return jsonify({'error': 'URLGENIUS_API_KEY not set'}), 400
-    try:
-        result = ug.create_link(
-            destination_url=url,
-            utm_source=body.get('utm_source', 'steph-ai'),
-            utm_medium=body.get('utm_medium', 'ai-agent'),
-            utm_campaign=body.get('utm_campaign'),
-            utm_content=body.get('utm_content'),
-        )
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# /archer/discovery/top_clicked removed in the Shop-MomandMe strip-down
+# (2026-05-17). Only caller was organic_posts.html (deleted). P2.6
+# (Product Discovery) is the framework rebuild target — different shape,
+# different data source.
+# Legacy EchoTribe-internal URLgenius admin surfaces removed in the
+# Shop-MomandMe strip-down (2026-05-17): /urlgenius/create_link,
+# /urlgenius/sync, /urlgenius/links, /urlgenius (page), /archer/urlgenius.
+# The URLGeniusAPI class in product_api.py remains — it's used by the
+# Walmart/Amazon trends affiliate-link wrapping and by /urlgenius/smart_link
+# (KEEP). Re-introduction is scoped to a future "Seller Connections"
+# creator feature, not the current launch.
 
 
-@app.route('/urlgenius')
-@app.route('/archer/urlgenius')
-@require_admin_page
-def urlgenius_page():
-    return render_template('urlgenius_links.html')
-
-
-@app.route('/urlgenius/sync', methods=['POST'])
-@require_admin_api
-def urlgenius_sync_registry():
-    """
-    Refresh live click counts for registry entries via the documented
-    URLgenius v2 endpoint: GET /api/v2/links/<LINK_ID>.
-
-    Body params (all optional):
-      - limit: how many links to refresh in this call (1-500, default 50).
-               Each call costs ~limit*0.55s due to the 2-req/sec API limit,
-               so syncing all ~20K links happens progressively over many
-               clicks (oldest-checked first).
-      - all:   if true, ignores the 24h "stale" filter and re-checks even
-               recently-synced rows.
-    """
-    from product_api import URLGeniusAPI
-    body = request.get_json(silent=True) or {}
-    limit = body.get('limit') or request.args.get('limit', 50)
-    only_stale = not (body.get('all') or request.args.get('all') == '1')
-
-    ug = URLGeniusAPI()
-    if not ug.api_key:
-        return jsonify({'ok': False, 'error': 'URLGENIUS_API_KEY not set'}), 400
-    try:
-        result = ug.refresh_link_clicks(limit=limit, only_stale=only_stale)
-        result['ok'] = True
-        return jsonify(result)
-    except Exception as e:
-        logging.warning(f"[URLGENIUS] sync failed: {e}")
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
-
-@app.route('/urlgenius/links')
-@require_admin_api
-def urlgenius_list_links():
-    """
-    Return URLgenius deep links from the local registry.
-
-    URLgenius API v2 (per official docs) only supports POST (create) and
-    DELETE — there is no documented endpoint to list links — so the local
-    registry, populated as we create links, is the authoritative source.
-    No API key required since this reads from local disk.
-    """
-    from product_api import URLGeniusAPI
-    ug = URLGeniusAPI()
-    try:
-        limit = int(request.args.get('limit', 500))
-    except (TypeError, ValueError):
-        limit = 500
-    # Registry now holds 21K+ entries — allow loading the full set so the
-    # dashboard can show real totals/sort across the whole catalog.
-    limit = max(1, min(limit, 30000))
-    return jsonify(ug.list_links(limit=limit))
-
-
-# ── LEVANTA ───────────────────────────────────────────────────────────────────
-
-@app.route('/levanta/generate_link', methods=['POST'])
-@require_admin_api
-def levanta_generate_link():
-    from product_api import LevantaAPI
-    data = request.get_json() or {}
-    asin = data.get('asin', '').strip()
-    label = data.get('label', asin)
-    if not asin:
-        return jsonify({'error': 'asin is required'}), 400
-    lv = LevantaAPI()
-    try:
-        result = lv.create_product_link(asin, source_id=label)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/levanta/deals')
-@require_admin_api
-def levanta_deals():
-    from product_api import LevantaAPI
-    lv = LevantaAPI()
-    try:
-        return jsonify(lv.get_deals())
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/webhooks/levanta', methods=['POST'])
-def levanta_webhook():
-    """Receive real-time Levanta events.
-
-    Production fail-closed: if LEVANTA_WEBHOOK_SECRET is unset in a
-    production environment, the endpoint refuses all requests. Previously
-    a missing secret silently accepted every POST — equivalent to no auth
-    on a write endpoint. Local dev (no DATABASE_URL or FLASK_ENV=development)
-    still accepts un-signed payloads for testing.
-    """
-    import hmac as hmac_lib, hashlib
-    secret = os.environ.get('LEVANTA_WEBHOOK_SECRET', '')
-    sig_header = request.headers.get('x-levanta-hmac-sha256', '')
-    if not secret:
-        if _is_production_env():
-            return jsonify({
-                'error': 'webhook secret not configured',
-                'message': 'LEVANTA_WEBHOOK_SECRET must be set in production.',
-            }), 503
-        # Dev: accept un-signed for local testing — log loudly so the
-        # operator sees what's happening.
-        logging.warning(
-            "[LEVANTA_WEBHOOK] accepting unsigned payload in dev "
-            "(LEVANTA_WEBHOOK_SECRET unset)."
-        )
-    else:
-        expected = hmac_lib.new(
-            secret.encode(), request.get_data(), hashlib.sha256
-        ).hexdigest()
-        if not hmac_lib.compare_digest(expected, sig_header):
-            return jsonify({'error': 'Invalid signature'}), 401
-
-    event = request.get_json() or {}
-    event_type = event.get('type', '')
-    data = event.get('data', {})
-    logging.info(f"[LEVANTA WEBHOOK] Event: {event_type} | Data: {data}")
-
-    if event_type == 'product.access.gained':
-        asin = data.get('asin')
-        logging.info(f"[LEVANTA] New product access: {asin} at {data.get('commission', 0) * 100:.0f}%")
-    elif event_type == 'link.disabled':
-        logging.warning(f"[LEVANTA] Link disabled: {data.get('id')}")
-    elif event_type == 'product.added':
-        logging.info(f"[LEVANTA] New product in catalog: {data.get('asin')}")
-    elif event_type == 'product.removed':
-        logging.warning(f"[LEVANTA] Product removed: {data.get('asin')}")
-
-    return jsonify({'received': True})
+# Legacy EchoTribe-internal Levanta surfaces removed in the Shop-MomandMe
+# strip-down (2026-05-17): /levanta/generate_link, /levanta/deals, and
+# /webhooks/levanta. The LevantaAPI class in product_api.py remains because
+# /archer/search (KEEP) and the urlgenius/smart_link fallback still reference
+# it. Re-introduction is scoped to a future "Seller Connections" creator
+# feature, not the current launch.
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true')

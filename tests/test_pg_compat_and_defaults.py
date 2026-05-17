@@ -410,7 +410,20 @@ class FreshPgLaunchSafetyTest(unittest.TestCase):
         self.assertNotIn("STEPH_ORGANIC_POSTS_PROMPT", src)
         self.assertNotIn("STEPH_CAMPAIGN_PACKAGE_PROMPT", src)
         self.assertIn("build_caption_prompt()", src)
-        self.assertIn("build_ad_copy_prompt()", src)
+        # build_ad_copy_prompt / build_organic_posts_prompt /
+        # build_campaign_package_prompt were used by ad-ops AI helpers that
+        # were removed in the Shop-MomandMe strip-down. Each should no
+        # longer appear as a callable (i.e. function-call site), even
+        # though removal-comment text may still mention them.
+        for sym in (
+            "build_ad_copy_prompt",
+            "build_organic_posts_prompt",
+            "build_campaign_package_prompt",
+        ):
+            self.assertNotIn(f"{sym}()", src,
+                msg=f"{sym} still has a call site in app.py")
+            self.assertNotIn(f"system={sym}",  src,
+                msg=f"{sym} still used as system prompt in app.py")
 
     def test_workbook_import_fetch_sends_same_origin_credentials(self):
         src = (self.repo / "templates" / "walmart_trending_now.html").read_text()

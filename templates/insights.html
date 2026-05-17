@@ -93,9 +93,6 @@
 
 <div class="topbar">
   <div class="tb-brand">EchoTribe</div>
-  <a href="/dashboard" class="tb-link">Dashboard</a>
-  <a href="/archer/organic" class="tb-link">Organic</a>
-  <a href="/archer/campaigns" class="tb-link">Campaigns</a>
   <a href="/archer/collage" class="tb-link">Collage</a>
   <a href="/insights" class="tb-link active">Insights</a>
   <a href="/admin/creators" class="tb-link">Creators</a>
@@ -266,7 +263,7 @@
                 {% if p.collection_slug %}
                 <a class="slug-link" href="/shop/{{ p.collection_slug }}" target="_blank" rel="noopener">View</a>
                 {% endif %}
-                <a class="slug-link" href="/archer/organic?post_id={{ p.id }}" target="_blank" rel="noopener">Edit</a>
+                <a class="slug-link" href="/archer/posts/{{ p.id }}/edit" target="_blank" rel="noopener">Edit</a>
               </div>
             </td>
           </tr>
@@ -277,7 +274,6 @@
       <div class="empty">
         <div class="empty-emoji">📝</div>
         No posts created or clicks recorded for this window.
-        <div style="margin-top:8px;font-size:11px;">Generate posts at <a href="/archer/organic" style="color:var(--blue);">Mode B</a> — they'll appear here as drafts.</div>
       </div>
       {% endif %}
     </div>
@@ -298,7 +294,7 @@
             <td class="num">{{ a.conversions }}</td>
             <td class="num num-rev">${{ '{:,.2f}'.format(a.revenue) }}</td>
             <td class="num" style="color:var(--text3);font-size:10px;">{{ a.pulled_at[:16] if a.pulled_at else '' }}</td>
-            <td><a class="slug-link" href="/archer/ads" target="_blank" rel="noopener">View/Edit</a></td>
+            <td><span style="color:var(--text3);font-size:10px;">—</span></td>
           </tr>
           {% endfor %}
         </tbody>
