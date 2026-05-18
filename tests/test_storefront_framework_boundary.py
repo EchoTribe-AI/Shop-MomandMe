@@ -269,6 +269,47 @@ class BrandContextPrecedence(_BoundaryTestBase):
         ctx = self.app_module.build_brand_context('everydaywithsteph')
         self.assertEqual(ctx['shop_name'], 'Mommy & Me Collective')
 
+    def test_brand_surface_pair_present_in_context(self):
+        # K1 — context must expose both canvas/surface keys even when null.
+        ctx = self.app_module.build_brand_context('everydaywithsteph')
+        self.assertIn('brand_surface', ctx)
+        self.assertIn('brand_on_surface', ctx)
+        # Demo creator does not seed colors; both keys stay None.
+        self.assertIsNone(ctx['brand_surface'])
+        self.assertIsNone(ctx['brand_on_surface'])
+
+    def test_brand_surface_active_row_overrides_demo(self):
+        # K1 — when the active creator row sets the surface pair, the
+        # context picks them up over the demo row's NULLs.
+        self._insert_creator(
+            id='c-canvas',
+            display_name='Canvas Creator',
+            brand_surface='#e5dbc8',
+            brand_on_surface='#1a1a17',
+        )
+        ctx = self.app_module.build_brand_context('c-canvas')
+        self.assertEqual(ctx['brand_surface'], '#e5dbc8')
+        self.assertEqual(ctx['brand_on_surface'], '#1a1a17')
+
+    def test_brand_surface_overrides_json_beats_active_row(self):
+        # K1 — overrides.json layer still wins over creator row for the
+        # surface pair (same precedence as brand_primary).
+        self._insert_creator(
+            id='c-canvas',
+            display_name='Canvas Creator',
+            brand_surface='#000001',
+            brand_on_surface='#fffffe',
+        )
+        with open(os.path.join(self.branding_dir, 'overrides.json'), 'w') as f:
+            json.dump({
+                'brand_surface': '#e5dbc8',
+                'brand_on_surface': '#1a1a17',
+            }, f)
+        self.app_module._branding_cache_reset()
+        ctx = self.app_module.build_brand_context('c-canvas')
+        self.assertEqual(ctx['brand_surface'], '#e5dbc8')
+        self.assertEqual(ctx['brand_on_surface'], '#1a1a17')
+
 
 # ── 4. context_processor wiring ───────────────────────────────────────────────
 

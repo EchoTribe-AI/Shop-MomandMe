@@ -339,9 +339,11 @@ def _load_branding_overrides() -> dict:
 #   3. demo/default creator row — db_schema.DEFAULT_CREATOR fallback
 #   4. framework defaults       — _BRAND_FRAMEWORK_DEFAULTS below
 #
-# Color fields (brand_primary etc.) stay NULL all the way through when no
-# layer sets them. _brand_vars.html's static fallbacks (var(--accent, …))
-# handle the NULL case.
+# Color fields (brand_primary, brand_surface, etc.) stay NULL all the way
+# through when no layer sets them. _brand_vars.html's static fallbacks
+# (var(--accent, …) for primary, var(--bg, …) / var(--ink, …) for surface)
+# handle the NULL case. K1 widened the contract from 4 → 6 by adding the
+# brand_surface / brand_on_surface pair.
 _BRAND_FRAMEWORK_DEFAULTS = {
     'creator_id':                 _DEFAULT_ACTIVE_CREATOR_ID,
     'display_name':               '',
@@ -362,6 +364,10 @@ _BRAND_FRAMEWORK_DEFAULTS = {
     'brand_on_primary':           None,
     'brand_primary_container':    None,
     'brand_on_primary_container': None,
+    # K1 — canvas/surface pair. NULL falls through to _brand_vars.html's
+    # static fallback chain (var(--bg, …) / var(--ink, …)).
+    'brand_surface':              None,
+    'brand_on_surface':           None,
 }
 
 # Brand-context keys that may appear in overrides.json or a creator row.
