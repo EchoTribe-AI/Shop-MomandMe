@@ -25,6 +25,27 @@
 > `--brand-on-surface` for canvas swap — tracked as K1 in
 > `OPEN_QUESTIONS_TRACKER.md`.
 
+> **Erratum (2026-05-18, K1 follow-up):** K1 has shipped. The brand-swap
+> contract is now **6 variables**, not 4, and `creators` now carries **10**
+> brand/metadata columns total (was 8). Added:
+>
+> | Column | CSS var | Legacy bridge target |
+> |---|---|---|
+> | `brand_surface` | `--brand-surface` | `--bg` (canvas across all 4 live storefront templates) |
+> | `brand_on_surface` | `--brand-on-surface` | `--text` only (see note) |
+>
+> **Bridge note:** `brand_on_surface` mirrors onto `--text` only, not `--ink`.
+> `--ink` is dual-use in `walmart_trending_now.html` (`background:` and
+> `border-color:` on `.workbook-run-btn`, `.retailer-tab[aria-pressed="true"]`,
+> and `.admin-action`); mirroring `brand_on_surface` there would re-tint the
+> button fills. Templates that need brand-aware body text on those screens
+> should consume `var(--brand-on-surface)` directly. The narrowed scope is
+> documented inline in `templates/partials/_brand_vars.html`.
+>
+> Both new columns are nullable and remain `NULL` on the demo creator. The
+> existing precedence chain (`overrides.json` → active row → demo row →
+> framework defaults) unchanged.
+
 ## Context
 
 The 2026-05-17 realignment reclassified the storefront (`templates/shop_*`, `templates/walmart_*`, `hub.html`, `admin_login.html`, `partials/`, routes under `/shop/`, `/collections/<slug>`, `/admin/login`, `/admin/hub`, `/healthz`, `/api/*`) from **client-only** to **shared upstream framework**. P0.7 makes it real: adds per-creator branding columns, plumbs an active-creator resolver into render, sweeps hardcoded brand strings from templates, and defines a per-deploy `branding/` override. Unblocks Action 1 (Shop-MomandMe stops editing templates locally — overrides land via row + `branding/`) and seeds Phase 5. No multi-creator-per-deploy routing; each deploy still serves one creator.
