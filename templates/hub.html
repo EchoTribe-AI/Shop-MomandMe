@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Content Hub · EchoTribe</title>
+  <title>Content Hub · {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</title>
   <style>
     :root {
       --bg: #fff8f6;
@@ -86,7 +86,7 @@
     .card-step strong { color: var(--ink); font-weight: 700; }
     .card-btn {
       display: flex; align-items: center; justify-content: space-between;
-      background: var(--accent); color: #fff;
+      background: var(--accent); color: var(--brand-on-primary, #fff);
       border-radius: 12px; padding: 11px 14px;
       font-size: 13px; font-weight: 800;
       text-decoration: none;
@@ -120,6 +120,11 @@
       .page { border-left: 1px solid var(--line); border-right: 1px solid var(--line); min-height: 100vh; }
     }
   </style>
+  {# Brand-vars partial: included AFTER the inline theme <style> so the
+     legacy-compat bridge (--accent/--soft/--bg sourced from the active
+     creator row) wins over the static fallbacks above. NULL creator
+     colors → the bridge stays inert and the static palette renders. #}
+  {% include 'partials/_brand_vars.html' %}
 </head>
 <body>
 
@@ -130,7 +135,7 @@
 <main class="page">
 
   <div class="hero">
-    <div class="eyebrow">✦ EchoTribe</div>
+    <div class="eyebrow">✦ {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</div>
     <h1>Content Hub</h1>
     <p>Your starting point for building and publishing collection pages to the live shop.</p>
   </div>
@@ -230,7 +235,7 @@
 
   </div>
 
-  <div class="footer">EchoTribe Content Hub · For internal use</div>
+  <div class="footer">{{ brand.shop_name or brand.brand_label or 'EchoTribe' }} Content Hub · For internal use</div>
 
 </main>
 </body>
