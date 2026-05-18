@@ -171,6 +171,60 @@ class PostsRankedTests(_InsightsTestBase):
         self.assertIsNone(rows[0]['views'])
 
 
+class BestListShapingTests(_InsightsTestBase):
+    """Patch-2 audit follow-ups: a 'Best' list must exclude 0-click rows
+    and stay capped. Pinning both behaviors so later refactors can't
+    silently regress to LEFT JOIN / unbounded result sets."""
+
+    def test_collections_ranked_excludes_zero_click_rows(self):
+        self._seed_collage('coll-clicked', 'creator-1', hero_title='Clicked')
+        self._seed_collage('coll-silent', 'creator-1', hero_title='Silent')
+        self._seed_clicks('coll-clicked', 3)
+        # 'coll-silent' deliberately gets no clicks.
+
+        start, end = self._window()
+        rows = self.insights.collections_ranked('creator-1', start, end)
+        slugs = [r['slug'] for r in rows]
+        self.assertEqual(slugs, ['coll-clicked'])
+        self.assertNotIn('coll-silent', slugs)
+
+    def test_posts_ranked_excludes_zero_click_rows(self):
+        self._seed_post('post-clicked', 'creator-1', product_name='Clicked')
+        self._seed_post('post-silent', 'creator-1', product_name='Silent')
+        self._seed_clicks('post-clicked', 4)
+        # 'post-silent' deliberately gets no clicks.
+
+        start, end = self._window()
+        rows = self.insights.posts_ranked('creator-1', start, end)
+        slugs = [r['slug'] for r in rows]
+        self.assertEqual(slugs, ['post-clicked'])
+        self.assertNotIn('post-silent', slugs)
+
+    def test_collections_ranked_capped_at_20(self):
+        # 25 collections, each with a distinct (descending) click count so
+        # the LIMIT can't accidentally pass by hitting an ordering tie.
+        for i in range(25):
+            slug = f'coll-{i:02d}'
+            self._seed_collage(slug, 'creator-1', hero_title=f'Coll {i:02d}')
+            self._seed_clicks(slug, 25 - i)  # 25 clicks down to 1
+
+        start, end = self._window()
+        rows = self.insights.collections_ranked('creator-1', start, end)
+        self.assertEqual(len(rows), 20)
+        # Top 20 must be the highest-click ones in clicks-desc order.
+        expected_top_slugs = [f'coll-{i:02d}' for i in range(20)]
+        self.assertEqual([r['slug'] for r in rows], expected_top_slugs)
+
+    def test_collections_ranked_returns_empty_when_no_clicks(self):
+        # Empty-state path still works: collections exist, but none clicked.
+        for i in range(5):
+            self._seed_collage(f'coll-{i}', 'creator-1',
+                               hero_title=f'Coll {i}')
+        start, end = self._window()
+        rows = self.insights.collections_ranked('creator-1', start, end)
+        self.assertEqual(rows, [])
+
+
 class ProductsRankedTests(_InsightsTestBase):
 
     def test_products_ranked_orders_by_earnings_desc(self):

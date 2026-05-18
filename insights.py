@@ -363,6 +363,11 @@ def overview(creator_id: str, start: str, end: str) -> dict:
 # join target (collages.creator_id, posts.creator_id). This matches v1
 # semantics and is documented inline so anyone tightening it later sees the
 # intent.
+#
+# Cap: "Best" lists are top-N, not exhaustive lists. _BEST_LIST_LIMIT pins
+# the cap in one place so a future tweak ("show me top 50 collections")
+# doesn't drift between helpers.
+_BEST_LIST_LIMIT = 20
 
 def _table_exists(conn, name: str) -> bool:
     """True if `name` is a queryable table in the current DB connection.
@@ -400,8 +405,10 @@ def collections_ranked(creator_id: str, start: str, end: str) -> list[dict]:
     """Best Collections by click traffic (R16 section 1).
 
     Joins click_log × collages on slug, scoped via collages.creator_id.
-    Returns rows sorted by clicks desc. `views` is None — no impressions data
-    source exists yet (issue #87).
+    Returns up to _BEST_LIST_LIMIT rows sorted by clicks desc. INNER JOIN
+    naturally drops collections that received zero clicks in the window —
+    a "Best" list shouldn't surface unclicked rows. `views` is None — no
+    impressions data source exists yet (issue #87).
     """
     if not creator_id:
         return []
@@ -416,11 +423,12 @@ def collections_ranked(creator_id: str, start: str, end: str) -> list[dict]:
             f"       c.theme AS theme, "
             f"       COUNT(cl.id) AS clicks "
             f"FROM collages c "
-            f"LEFT JOIN click_log cl ON cl.slug = c.slug AND ({where}) "
+            f"INNER JOIN click_log cl ON cl.slug = c.slug AND ({where}) "
             f"WHERE COALESCE(c.creator_id, 'everydaywithsteph') = ? "
             f"  AND COALESCE(c.status, 'published') != 'archived' "
             f"GROUP BY c.slug, c.hero_title, c.theme "
-            f"ORDER BY clicks DESC, c.slug ASC",
+            f"ORDER BY clicks DESC, c.slug ASC "
+            f"LIMIT {_BEST_LIST_LIMIT}",
             [*params, creator_id],
         ).fetchall()
         return [
@@ -447,6 +455,8 @@ def posts_ranked(creator_id: str, start: str, end: str) -> list[dict]:
     and collages.slug share the click_log.slug join key by design — clicks
     on a slug that's both a collection landing AND a post page are counted
     in both sections. Matches v1 semantics.
+
+    INNER JOIN drops 0-click posts; LIMIT caps at _BEST_LIST_LIMIT.
     """
     if not creator_id:
         return []
@@ -464,12 +474,13 @@ def posts_ranked(creator_id: str, start: str, end: str) -> list[dict]:
             f"       p.status AS status, "
             f"       COUNT(cl.id) AS clicks "
             f"FROM posts p "
-            f"LEFT JOIN click_log cl ON cl.slug = p.slug AND ({where}) "
+            f"INNER JOIN click_log cl ON cl.slug = p.slug AND ({where}) "
             f"WHERE COALESCE(p.creator_id, 'everydaywithsteph') = ? "
             f"  AND COALESCE(p.status, 'draft') != 'archived' "
             f"  AND p.slug IS NOT NULL AND p.slug != '' "
             f"GROUP BY p.id, p.slug, p.product_name, p.angle, p.collection_slug, p.status "
-            f"ORDER BY clicks DESC, p.id ASC",
+            f"ORDER BY clicks DESC, p.id ASC "
+            f"LIMIT {_BEST_LIST_LIMIT}",
             [*params, creator_id],
         ).fetchall()
         return [
