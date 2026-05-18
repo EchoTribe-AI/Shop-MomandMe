@@ -664,7 +664,8 @@ class P07DemoCreatorSeedTest(_CollectionContentBaseCase):
             row = conn.execute(
                 "SELECT logo_url, shop_domain, meta_title_template, "
                 "meta_description_template, brand_primary, brand_on_primary, "
-                "brand_primary_container, brand_on_primary_container "
+                "brand_primary_container, brand_on_primary_container, "
+                "brand_surface, brand_on_surface "
                 "FROM creators WHERE id = ?",
                 ('everydaywithsteph',),
             ).fetchone()
@@ -683,6 +684,9 @@ class P07DemoCreatorSeedTest(_CollectionContentBaseCase):
         self.assertIsNone(row[5], "brand_on_primary should be NULL pre-Steph-confirmation")
         self.assertIsNone(row[6], "brand_primary_container should be NULL pre-Steph-confirmation")
         self.assertIsNone(row[7], "brand_on_primary_container should be NULL pre-Steph-confirmation")
+        # K1 canvas/surface pair — same NULL-until-confirmed policy.
+        self.assertIsNone(row[8], "brand_surface should be NULL pre-Steph-confirmation")
+        self.assertIsNone(row[9], "brand_on_surface should be NULL pre-Steph-confirmation")
 
     def test_seed_backfills_metadata_on_existing_row_with_null_fields(self):
         # Simulate the case where the creators row pre-dates P0.7 and has
@@ -750,10 +754,11 @@ class P07DemoCreatorSeedTest(_CollectionContentBaseCase):
 
 
 class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
-    """P0.7 — per-creator brand override surface.
+    """P0.7 + K1 — per-creator brand override surface.
 
-    Confirms the 8 brand columns added in this patch exist after bootstrap
-    and accept the contract values the framework will write.
+    Confirms the 10 brand/metadata columns exist after bootstrap and accept
+    the contract values the framework will write. K1 added the
+    brand_surface/brand_on_surface pair on top of the original P0.7 eight.
     """
 
     REQUIRED_COLUMNS = (
@@ -765,6 +770,8 @@ class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
         "brand_on_primary",
         "brand_primary_container",
         "brand_on_primary_container",
+        "brand_surface",
+        "brand_on_surface",
     )
 
     def test_brand_columns_present_after_bootstrap(self):
@@ -788,8 +795,9 @@ class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
                 INSERT INTO creators (id, display_name, logo_url, shop_domain,
                   meta_title_template, meta_description_template,
                   brand_primary, brand_on_primary,
-                  brand_primary_container, brand_on_primary_container)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  brand_primary_container, brand_on_primary_container,
+                  brand_surface, brand_on_surface)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "test-creator", "Test Creator",
@@ -799,12 +807,14 @@ class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
                     "Discover {collection} hand-picked by Test Creator.",
                     "#7C7D6A", "#F5F2ED",
                     "#DDBBA4", "#3D3A33",
+                    "#E5DBC8", "#1A1A17",
                 ),
             )
             conn.commit()
             row = conn.execute(
                 "SELECT logo_url, shop_domain, brand_primary, brand_on_primary, "
-                "brand_primary_container, brand_on_primary_container "
+                "brand_primary_container, brand_on_primary_container, "
+                "brand_surface, brand_on_surface "
                 "FROM creators WHERE id = ?",
                 ("test-creator",),
             ).fetchone()
@@ -817,6 +827,8 @@ class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
         self.assertEqual(row[3], "#F5F2ED")
         self.assertEqual(row[4], "#DDBBA4")
         self.assertEqual(row[5], "#3D3A33")
+        self.assertEqual(row[6], "#E5DBC8")
+        self.assertEqual(row[7], "#1A1A17")
 
 
 if __name__ == "__main__":
