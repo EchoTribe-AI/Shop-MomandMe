@@ -494,11 +494,16 @@ def _ensure_schema_ready() -> None:
 
 
 def _public_shop_nav(active: str = '') -> list[dict]:
-    base = f'https://{SHOP_SUBDOMAIN}'
+    # Relative paths only. Public nav must work on any host the framework
+    # is deployed to (shop.echotribe.ai, shop.mommyandmecollective.com,
+    # future per-creator hosts) without per-deploy env-var coupling.
+    # Canonical / OG / share URLs intentionally stay absolute via the
+    # SHOP_SUBDOMAIN-prefixed helpers elsewhere — those serve cross-domain
+    # consumers and need a fully-qualified host.
     return [
-        {'key': 'collections', 'label': 'Collections', 'href': f'{base}/collections'},
-        {'key': 'trends', 'label': 'Trends', 'href': f'{base}/trends'},
-        {'key': 'posts', 'label': 'Social Posts', 'href': f'{base}/posts'},
+        {'key': 'collections', 'label': 'Collections', 'href': '/collections'},
+        {'key': 'trends', 'label': 'Trends', 'href': '/trends'},
+        {'key': 'posts', 'label': 'Social Posts', 'href': '/posts'},
     ]
 
 
