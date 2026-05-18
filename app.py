@@ -2950,16 +2950,56 @@ def chat_placeholder():
 
 
 # ── INSIGHTS: clicks × earnings × paid attribution ──────────────────────────
+def _insights_v2_enabled() -> bool:
+    """True when the INSIGHTS_V2_ENABLED env var is truthy.
+
+    Truthy = any of: '1', 'true', 'yes', 'on' (case-insensitive). Anything
+    else — including unset — falls through to the legacy v1 path.
+    """
+    v = (os.environ.get('INSIGHTS_V2_ENABLED') or '').strip().lower()
+    return v in ('1', 'true', 'yes', 'on')
+
+
 @app.route('/insights')
 @require_admin_page
 def insights_page():
-    """Insights dashboard. Query params:
-      window:       today | yesterday | 7d | 30d | custom (default: 30d)
-      start, end:   ISO dates when window=custom
-      creator_id:   defaults to 'everydaywithsteph'
-      tab:          collections | posts | ads (default: collections)
+    """Insights dashboard.
+
+    Two rendering paths gated by the INSIGHTS_V2_ENABLED env var:
+
+    v2 (R16 spec, default window 7d): 4 scrolling sections — Best Collections,
+        Best Posts, Best Products, Best Retailers — rendered by insights_v2.html.
+        creator_id resolves through g.active_creator_id (P0.7 framework),
+        no tab parameter, no comparison framing.
+
+    v1 (legacy, default window 30d): existing tabbed view via insights.html.
+        Query params: window, start, end, creator_id, tab.
+
+    The legacy path stays untouched so a flag-off deploy is byte-identical
+    to pre-PR behavior.
     """
     import insights as _ins
+
+    if _insights_v2_enabled():
+        creator_id = (getattr(g, 'active_creator_id', None)
+                      or _DEFAULT_ACTIVE_CREATOR_ID)
+        window = (request.args.get('window') or '7d').strip()
+        custom_start = request.args.get('start')
+        custom_end = request.args.get('end')
+        start, end, label = _ins.resolve_window(window, custom_start, custom_end)
+
+        return render_template('insights_v2.html',
+            creator_id=creator_id,
+            window=window, window_label=label,
+            start=start, end=end,
+            overview=_ins.overview(creator_id, start, end),
+            collections=_ins.collections_ranked(creator_id, start, end),
+            posts=_ins.posts_ranked(creator_id, start, end),
+            products=_ins.products_ranked(creator_id, start, end),
+            retailers=_ins.retailers_ranked(creator_id, start, end),
+        )
+
+    # Legacy v1 path — unchanged.
     creator_id = (request.args.get('creator_id') or 'everydaywithsteph').strip()
     window = (request.args.get('window') or '30d').strip()
     custom_start = request.args.get('start')
