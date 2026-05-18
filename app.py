@@ -2993,10 +2993,19 @@ def insights_page():
             window=window, window_label=label,
             start=start, end=end,
             overview=_ins.overview(creator_id, start, end),
-            collections=_ins.collections_ranked(creator_id, start, end),
-            posts=_ins.posts_ranked(creator_id, start, end),
-            products=_ins.products_ranked(creator_id, start, end),
-            retailers=_ins.retailers_ranked(creator_id, start, end),
+            # Each ranked dataset is run through apply_indicators so the
+            # template gets rows with an 'indicator' field already attached.
+            # apply_indicators is a pure function — returns new dicts, never
+            # mutates the lists the ranking helpers produced.
+            collections=_ins.apply_indicators(
+                _ins.collections_ranked(creator_id, start, end)),
+            posts=_ins.apply_indicators(
+                _ins.posts_ranked(creator_id, start, end)),
+            products=_ins.apply_indicators(
+                _ins.products_ranked(creator_id, start, end)),
+            retailers=_ins.apply_indicators(
+                _ins.retailers_ranked(creator_id, start, end)),
+            daily_traffic=_ins.daily_traffic(creator_id, start, end),
         )
 
     # Legacy v1 path — unchanged.

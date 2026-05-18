@@ -585,3 +585,163 @@ def retailers_ranked(creator_id: str, start: str, end: str) -> list[dict]:
         return []
     finally:
         conn.close()
+
+
+# ── P0.2 v2 daily-trend chart helper ────────────────────────────────────────
+# Steph S4 #4: a single-line chart above the 4 scrolling sections showing how
+# traffic trended day-over-day across the current window. No period comparison
+# (per R16). Returns one row per day in the window, zero-filled, so the chart
+# renderer never has to handle a sparse axis.
+#
+# Slug-overlap guard (the data-layer concern Kelly flagged): a single slug can
+# appear in BOTH collages and posts. The ranking helpers in PR 1 deliberately
+# join via a single side at a time and accept that a click may count toward
+# both Best Collections and Best Posts — that's documented semantic and is NOT
+# changed here. daily_traffic is different: it answers "how many clicks did
+# this creator's surfaces receive on day X" as a single number, so the same
+# click must count ONCE. We do that with COUNT(DISTINCT click_log.id) over a
+# UNION of creator-owned slugs from collages OR posts.
+
+def daily_traffic(creator_id: str, start: str, end: str) -> list[dict]:
+    """Daily click totals across creator-owned surfaces, zero-filled.
+
+    Returns a list of {'date': 'YYYY-MM-DD', 'clicks': int} dicts, one per
+    day in [start, end] inclusive, sorted ascending. Days with no clicks
+    appear with clicks=0 so the chart renderer can iterate without gaps.
+
+    Deduplication: COUNT(DISTINCT click_log.id) — a click on a slug that
+    exists in BOTH collages and posts counts once, not twice.
+    """
+    if not creator_id:
+        return []
+
+    # Build the zero-filled date axis up-front so the SQL only has to provide
+    # the days that actually have clicks; we merge into the axis after.
+    try:
+        start_d = datetime.fromisoformat(start).date()
+        end_d = datetime.fromisoformat(end).date()
+    except (TypeError, ValueError):
+        return []
+    if start_d > end_d:
+        return []
+
+    days: list[date] = []
+    cursor_day = start_d
+    while cursor_day <= end_d:
+        days.append(cursor_day)
+        cursor_day += timedelta(days=1)
+    counts: dict[str, int] = {d.isoformat(): 0 for d in days}
+
+    conn = _connect()
+    try:
+        if not _table_exists(conn, 'click_log'):
+            return [{'date': iso, 'clicks': 0} for iso in counts]
+        has_collages = _table_exists(conn, 'collages')
+        has_posts = _table_exists(conn, 'posts')
+        if not (has_collages or has_posts):
+            return [{'date': iso, 'clicks': 0} for iso in counts]
+
+        # UNION the creator-owned slug universe. Each branch scoped via the
+        # COALESCE(creator_id,'everydaywithsteph') = ? form used by every
+        # other PR 1 helper — consistent paramstyle, fewer arguments.
+        slug_subqueries = []
+        slug_params: list = []
+        if has_collages:
+            slug_subqueries.append(
+                "SELECT slug FROM collages "
+                "WHERE COALESCE(creator_id, 'everydaywithsteph') = ? "
+                "  AND COALESCE(status, 'published') != 'archived' "
+                "  AND slug IS NOT NULL AND slug != ''"
+            )
+            slug_params.append(creator_id)
+        if has_posts:
+            slug_subqueries.append(
+                "SELECT slug FROM posts "
+                "WHERE COALESCE(creator_id, 'everydaywithsteph') = ? "
+                "  AND COALESCE(status, 'draft') != 'archived' "
+                "  AND slug IS NOT NULL AND slug != ''"
+            )
+            slug_params.append(creator_id)
+        slug_universe = ' UNION '.join(slug_subqueries)
+
+        where_clicks, click_params = _date_filter(start, end, 'cl.clicked_at')
+        rows = conn.execute(
+            f"SELECT DATE(cl.clicked_at) AS day, "
+            f"       COUNT(DISTINCT cl.id) AS clicks "
+            f"FROM click_log cl "
+            f"WHERE {where_clicks} "
+            f"  AND cl.slug IN ({slug_universe}) "
+            f"GROUP BY DATE(cl.clicked_at)",
+            [*click_params, *slug_params],
+        ).fetchall()
+
+        for r in rows:
+            day_key = _fmt_date(r['day'])
+            if day_key in counts:
+                counts[day_key] = int(r['clicks'] or 0)
+    except Exception as e:
+        logging.warning(f"[INSIGHTS] daily_traffic failed: {e}")
+        # Fall through to the zero-filled axis so callers always get a list.
+    finally:
+        conn.close()
+
+    return [{'date': iso, 'clicks': counts[iso]} for iso in counts]
+
+
+# ── P0.2 v2 indicator helper ────────────────────────────────────────────────
+# Steph S4 #7: 🔥 flame for rows "doing well", 🔴 red dot for "needs attention."
+# Threshold approach is position-based:
+#   - sections with ≥ _RED_DOT_MIN_ROWS rows: top _FLAME_THRESHOLD = 🔥,
+#       bottom _FLAME_THRESHOLD = 🔴, middle = no indicator
+#   - sections with 1–5 rows: top 1 = 🔥 only, no 🔴 (avoid flagging a
+#       short list as both top and bottom)
+#   - sections with 0 rows: empty state, no indicators
+#
+# Position-based was picked over trend-based (would re-introduce period
+# comparison that R16 cut) and absolute thresholds (no defensible number;
+# meaning drifts with creator volume). One question per row of data we
+# already loaded — no new DB queries, no period rollups.
+#
+# Retailers section is single-row Amazon today (no per-creator Walmart
+# earnings table). With 1 row it gets the top-1 = 🔥 path. When Walmart
+# per-creator earnings land and the section grows past 6 rows, the
+# top/bottom rule kicks in automatically — no helper change needed.
+_FLAME_THRESHOLD = 3
+_RED_DOT_MIN_ROWS = 6
+
+
+def apply_indicators(rows: list[dict]) -> list[dict]:
+    """Return a NEW list of dicts with an 'indicator' field added per row.
+
+    Pure function — never mutates the input rows or list. The input list is
+    treated as already-sorted desc by its primary metric (which is the
+    contract the four ranking helpers already satisfy — clicks for
+    collections/posts, earnings for products/retailers).
+
+    Indicator values: 'flame', 'red_dot', or None.
+    """
+    if not rows:
+        return []
+    n = len(rows)
+
+    if n >= _RED_DOT_MIN_ROWS:
+        flame_cutoff = _FLAME_THRESHOLD
+        red_dot_start = n - _FLAME_THRESHOLD
+    else:
+        # Short list (1–5 rows): top 1 = flame only; never tag the same row
+        # as both top and bottom, never put a 🔴 on a list this small.
+        flame_cutoff = 1
+        red_dot_start = n  # nothing reaches this; effectively disables 🔴
+
+    def _indicator_for(idx: int) -> str | None:
+        if idx < flame_cutoff:
+            return 'flame'
+        if idx >= red_dot_start:
+            return 'red_dot'
+        return None
+
+    # New dicts via dict-unpacking — never mutate the input rows.
+    return [
+        {**row, 'indicator': _indicator_for(i)}
+        for i, row in enumerate(rows)
+    ]
