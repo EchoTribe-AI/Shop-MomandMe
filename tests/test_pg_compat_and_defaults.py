@@ -831,5 +831,103 @@ class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
         self.assertEqual(row[7], "#1A1A17")
 
 
+class P07K1UpsertCreatorFieldCoverageTest(_CollectionContentBaseCase):
+    """upsert_creator must persist the full P0.7 + K1 creator surface.
+
+    Pre-patch, upsert_creator only wrote the original 13 identity/profile
+    columns. The admin save route built a payload that included
+    P0.7/K1 fields but upsert silently dropped them. These tests pin the
+    widened column list (10 new metadata + brand fields) on both the
+    insert and update paths.
+    """
+
+    P07_K1_FIELDS = {
+        'logo_url':                   'https://example.com/k1-logo.svg',
+        'shop_domain':                'shop.k1-test.example.com',
+        'meta_title_template':        '{collection} | K1 Test',
+        'meta_description_template':  'Curated {collection} for K1 testing.',
+        'brand_primary':              '#7C7D6A',
+        'brand_on_primary':           '#F5F2ED',
+        'brand_primary_container':    '#DDBBA4',
+        'brand_on_primary_container': '#3D3A33',
+        'brand_surface':              '#E5DBC8',
+        'brand_on_surface':           '#1A1A17',
+    }
+
+    def _read_row(self, creator_id):
+        conn = self.db_schema._connect()
+        try:
+            cols = list(self.P07_K1_FIELDS.keys())
+            row = conn.execute(
+                f"SELECT {', '.join(cols)} FROM creators WHERE id = ?",
+                (creator_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return {col: row[i] for i, col in enumerate(cols)} if row else None
+
+    def test_upsert_creator_persists_p07_k1_fields_on_insert(self):
+        payload = {
+            'id':           'k1-insert-creator',
+            'display_name': 'K1 Insert Creator',
+            **self.P07_K1_FIELDS,
+        }
+        saved = self.db_schema.upsert_creator(payload)
+        # Returned row reflects what was written.
+        for field, expected in self.P07_K1_FIELDS.items():
+            self.assertEqual(
+                saved.get(field), expected,
+                f"upsert_creator return value missing {field}",
+            )
+        # And the row in the DB matches.
+        stored = self._read_row('k1-insert-creator')
+        self.assertIsNotNone(stored, "Inserted row not found")
+        for field, expected in self.P07_K1_FIELDS.items():
+            self.assertEqual(
+                stored[field], expected,
+                f"DB row missing/wrong value for {field}",
+            )
+
+    def test_upsert_creator_persists_p07_k1_fields_on_update(self):
+        # First insert with one set of values.
+        first = {
+            'id':           'k1-update-creator',
+            'display_name': 'K1 Update Creator',
+            **self.P07_K1_FIELDS,
+        }
+        self.db_schema.upsert_creator(first)
+        # Now upsert the same id with new values for each field.
+        second = {
+            'id':           'k1-update-creator',
+            'display_name': 'K1 Update Creator (v2)',
+            'logo_url':                   'https://example.com/v2-logo.svg',
+            'shop_domain':                'shop.v2.example.com',
+            'meta_title_template':        '{collection} v2',
+            'meta_description_template':  'v2 description.',
+            'brand_primary':              '#111111',
+            'brand_on_primary':           '#222222',
+            'brand_primary_container':    '#333333',
+            'brand_on_primary_container': '#444444',
+            'brand_surface':              '#555555',
+            'brand_on_surface':           '#666666',
+        }
+        saved = self.db_schema.upsert_creator(second)
+        # Update path persisted the new values.
+        for field in self.P07_K1_FIELDS.keys():
+            self.assertEqual(
+                saved.get(field), second[field],
+                f"upsert_creator update returned stale {field}",
+            )
+        stored = self._read_row('k1-update-creator')
+        for field in self.P07_K1_FIELDS.keys():
+            self.assertEqual(
+                stored[field], second[field],
+                f"DB row not updated for {field}",
+            )
+        # display_name was updated too — sanity check the existing identity
+        # column path didn't regress.
+        self.assertEqual(saved.get('display_name'), 'K1 Update Creator (v2)')
+
+
 if __name__ == "__main__":
     unittest.main()

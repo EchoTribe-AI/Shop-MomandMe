@@ -899,7 +899,15 @@ def list_creators() -> list[dict]:
 
 
 def upsert_creator(creator: dict) -> dict:
-    """Insert or update a creator. Returns the saved row."""
+    """Insert or update a creator. Returns the saved row.
+
+    Persists the full P0.7 + K1 creator surface: identity/profile columns
+    plus per-creator branding metadata (logo, shop_domain, meta templates)
+    and the 6-variable brand-swap contract (brand_primary + brand_on_primary,
+    brand_primary_container + brand_on_primary_container, brand_surface +
+    brand_on_surface). Missing keys in the input dict are written as NULL,
+    matching the existing pre-K1 behavior for unset fields.
+    """
     if not creator.get('id'):
         raise ValueError("creator.id is required")
     conn = _connect()
@@ -908,6 +916,14 @@ def upsert_creator(creator: dict) -> dict:
             'id', 'display_name', 'handle', 'brand_label', 'fb_pixel_id',
             'fb_page_id', 'amazon_tag', 'meta_ad_account_id', 'ltk_url',
             'facebook_url', 'voice_prompt', 'theme_default', 'defaults_json',
+            # P0.7 — per-creator metadata.
+            'logo_url', 'shop_domain',
+            'meta_title_template', 'meta_description_template',
+            # P0.7 — primary pair of the brand-swap contract.
+            'brand_primary', 'brand_on_primary',
+            'brand_primary_container', 'brand_on_primary_container',
+            # K1 — canvas/surface pair (widened the contract to 6 vars).
+            'brand_surface', 'brand_on_surface',
         ]
         values = [creator.get(c) for c in cols]
         placeholders = ', '.join('?' for _ in cols)
