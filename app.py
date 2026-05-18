@@ -534,6 +534,8 @@ def _route_shop_subdomain():
         return
     if path.startswith('/static/'):
         return
+    if path.startswith('/branding/'):
+        return
 
     if request.method == 'GET':
         if path == '/' or path == '':
