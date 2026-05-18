@@ -3075,6 +3075,25 @@ def admin_creators_save():
         'voice_prompt':       (body.get('voice_prompt') or '').strip(),
         'theme_default':      (body.get('theme_default') or 'coral').strip(),
     }
+    # P0.7 + K1 — pass-through for per-creator metadata and the 6-variable
+    # brand-swap contract. Optional; missing keys stay None so the column
+    # writes NULL and existing admin flows are unchanged. Empty strings
+    # are normalized to None so the precedence chain in build_brand_context
+    # falls through to the next layer instead of treating '' as a value.
+    def _opt(key):
+        v = body.get(key)
+        if v is None:
+            return None
+        v = v.strip() if isinstance(v, str) else v
+        return v or None
+    for _field in (
+        'logo_url', 'shop_domain',
+        'meta_title_template', 'meta_description_template',
+        'brand_primary', 'brand_on_primary',
+        'brand_primary_container', 'brand_on_primary_container',
+        'brand_surface', 'brand_on_surface',
+    ):
+        payload[_field] = _opt(_field)
     if not payload['display_name']:
         return jsonify({'error': 'display_name is required'}), 400
     saved = db_schema.upsert_creator(payload)

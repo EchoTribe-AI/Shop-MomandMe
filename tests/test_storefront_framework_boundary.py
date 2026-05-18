@@ -761,5 +761,105 @@ class StorefrontIncludesBrandVars(_BoundaryTestBase):
             )
 
 
+# ── 11. admin /admin/creators POST passes P0.7/K1 fields through ─────────────
+# Closes the brand-write loop: admin form → save route → upsert_creator →
+# DB row → build_brand_context picks up the new values on next request.
+
+class AdminCreatorsSavePersistsP07K1Fields(_BoundaryTestBase):
+
+    def _authed_client(self):
+        client = self.app_module.app.test_client()
+        with client.session_transaction() as sess:
+            sess['admin_authed'] = True
+        return client
+
+    def test_admin_post_persists_full_p07_k1_brand_payload(self):
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                'id': 'k1-admin-creator',
+                'display_name': 'K1 Admin Creator',
+                # P0.7 metadata
+                'logo_url':                   'https://example.com/admin.svg',
+                'shop_domain':                'shop.admin.example.com',
+                'meta_title_template':        '{collection} | Admin',
+                'meta_description_template':  'Admin curated {collection}.',
+                # Brand-primary contract
+                'brand_primary':              '#7C7D6A',
+                'brand_on_primary':           '#F5F2ED',
+                'brand_primary_container':    '#DDBBA4',
+                'brand_on_primary_container': '#3D3A33',
+                # K1 canvas/surface pair
+                'brand_surface':              '#E5DBC8',
+                'brand_on_surface':           '#1A1A17',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        # Read the row back through get_creator and confirm every field
+        # landed.
+        row = self.db_schema.get_creator('k1-admin-creator')
+        self.assertEqual(row['display_name'], 'K1 Admin Creator')
+        self.assertEqual(row['logo_url'], 'https://example.com/admin.svg')
+        self.assertEqual(row['shop_domain'], 'shop.admin.example.com')
+        self.assertEqual(row['meta_title_template'], '{collection} | Admin')
+        self.assertEqual(
+            row['meta_description_template'], 'Admin curated {collection}.',
+        )
+        self.assertEqual(row['brand_primary'], '#7C7D6A')
+        self.assertEqual(row['brand_on_primary'], '#F5F2ED')
+        self.assertEqual(row['brand_primary_container'], '#DDBBA4')
+        self.assertEqual(row['brand_on_primary_container'], '#3D3A33')
+        self.assertEqual(row['brand_surface'], '#E5DBC8')
+        self.assertEqual(row['brand_on_surface'], '#1A1A17')
+
+    def test_admin_post_without_p07_k1_fields_writes_null(self):
+        # Existing admin flow: form doesn't yet have inputs for the new
+        # fields. Save must still succeed; columns stay NULL.
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                'id': 'k1-bare-creator',
+                'display_name': 'K1 Bare Creator',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        row = self.db_schema.get_creator('k1-bare-creator')
+        self.assertEqual(row['display_name'], 'K1 Bare Creator')
+        # None of the optional P0.7/K1 fields were sent → all NULL.
+        for field in (
+            'logo_url', 'shop_domain',
+            'meta_title_template', 'meta_description_template',
+            'brand_primary', 'brand_on_primary',
+            'brand_primary_container', 'brand_on_primary_container',
+            'brand_surface', 'brand_on_surface',
+        ):
+            self.assertIsNone(
+                row[field],
+                f"Optional field {field} should be NULL when admin form omits it",
+            )
+
+    def test_admin_post_empty_string_fields_normalize_to_null(self):
+        # When the admin form sends '' for an optional field (e.g. a blank
+        # input element), the precedence chain in build_brand_context
+        # treats '' the same as NULL — so the save route normalizes ''
+        # to None at the payload boundary.
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                'id': 'k1-empty-creator',
+                'display_name': 'K1 Empty Creator',
+                'brand_primary': '',
+                'brand_surface': '',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        row = self.db_schema.get_creator('k1-empty-creator')
+        self.assertIsNone(row['brand_primary'])
+        self.assertIsNone(row['brand_surface'])
+
+
 if __name__ == '__main__':
     unittest.main()
