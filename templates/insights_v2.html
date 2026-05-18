@@ -6,10 +6,12 @@
      3. Best Products by earnings
      4. Best Retailers by earnings
 
-   Each row: primary metric (large) + secondary metric (smaller, dim).
+   Each row: primary metric (large) + secondary metric (smaller, dim) + an
+   optional indicator (🔥 / 🔴) computed by insights.apply_indicators. A
+   daily-trend chart (inline SVG polyline) renders above the four sections.
    Secondary "Views" renders as — until an impressions data source lands
-   (issue #87). Visual polish (daily-trend graph, flame/red-dot indicators,
-   full performance matrix) is PR 2 of this rebuild.
+   (issue #87). Full performance matrix (clicks/sales/earnings/conversions
+   per row) is still future work.
 
    Brand chrome: extends partials/_mobile_chrome.html so the universal
    5-item bottom nav renders and brand vars (sage/linen/charcoal) come
@@ -106,13 +108,112 @@
     font-size: 13px;
     color: var(--muted, rgba(26,26,23,.55));
   }
+
+  /* ── Daily-trend chart (inline SVG, no JS dependency) ─────────────── */
+  .iv-chart {
+    background: var(--card, #ffffff);
+    border: 1px solid var(--line, rgba(26,26,23,.10));
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .iv-chart__heading {
+    font-family: Inter, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted, rgba(26,26,23,.62));
+    margin: 0 0 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .iv-chart__svg {
+    width: 100%;
+    height: 120px;
+    display: block;
+  }
+  .iv-chart__line {
+    fill: none;
+    stroke: var(--brand-primary);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+  .iv-chart__axis-label {
+    font-family: Inter, sans-serif;
+    font-size: 10px;
+    fill: var(--muted, rgba(26,26,23,.55));
+  }
+  .iv-chart__empty {
+    padding: 24px 8px;
+    text-align: center;
+    font-family: Inter, sans-serif;
+    font-size: 13px;
+    color: var(--muted, rgba(26,26,23,.55));
+  }
+
+  /* ── Per-row indicator (🔥 / 🔴) ───────────────────────────────────── */
+  .iv-row__indicator {
+    font-size: 14px;
+    line-height: 1;
+    margin-left: 8px;
+    flex-shrink: 0;
+  }
+  .iv-row__primary-line {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+  }
 </style>
 {% endblock %}
+
+{# Map indicator values produced by insights.apply_indicators to the emoji
+   Steph asked for. Keep the mapping in one place so a future swap (e.g.
+   ⚠️ instead of 🔴) is a single-line edit. #}
+{% macro indicator_emoji(value) -%}
+  {%- if value == 'flame' -%}🔥
+  {%- elif value == 'red_dot' -%}🔴
+  {%- endif -%}
+{%- endmacro %}
+
+{# Build the SVG polyline points for the daily-trend chart. Computed in
+   Jinja so we don't ship an extra Python helper just to format coords.
+   Coordinate space: viewBox=0..100 horizontally, 0..40 vertically (room
+   for top stroke). Y is inverted: y=0 is the top of the SVG, so higher
+   clicks → lower y value. #}
+{% macro chart_polyline_points(traffic) -%}
+  {%- set max_clicks = traffic | map(attribute='clicks') | max -%}
+  {%- set max_clicks = max_clicks if max_clicks and max_clicks > 0 else 1 -%}
+  {%- set n = traffic | length -%}
+  {%- set denom = (n - 1) if n > 1 else 1 -%}
+  {%- for d in traffic -%}
+    {%- set x = (loop.index0 * 100.0 / denom) if n > 1 else 50 -%}
+    {%- set y = 38 - (d.clicks * 36.0 / max_clicks) -%}
+    {{- '%.2f,%.2f' | format(x, y) -}}{%- if not loop.last %} {% endif -%}
+  {%- endfor -%}
+{%- endmacro %}
 
 {% block content %}
 <div class="iv-page">
 
   <div class="iv-window">{{ window_label }} · {{ start }} → {{ end }}</div>
+
+  {# ── Daily-trend chart ─────────────────────────────────────────────── #}
+  {% set total_clicks = daily_traffic | sum(attribute='clicks') if daily_traffic else 0 %}
+  <div class="iv-chart" aria-labelledby="iv-chart-heading">
+    <h2 id="iv-chart-heading" class="iv-chart__heading">Daily traffic</h2>
+    {% if daily_traffic and total_clicks > 0 %}
+      <svg class="iv-chart__svg" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="Daily clicks line chart">
+        <polyline class="iv-chart__line" points="{{ chart_polyline_points(daily_traffic) }}" />
+      </svg>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;">
+        <span class="iv-chart__axis-label" style="display:inline-block;">{{ daily_traffic[0].date }}</span>
+        <span class="iv-chart__axis-label" style="display:inline-block;">{{ daily_traffic[-1].date }}</span>
+      </div>
+    {% else %}
+      <div class="iv-chart__empty">No traffic in this window</div>
+    {% endif %}
+  </div>
 
   {# ── Section 1: Best Collections by click traffic ──────────────────── #}
   <section class="iv-section" aria-labelledby="iv-sec-collections">
@@ -125,7 +226,11 @@
           <div class="iv-row__sublabel">/{{ c.slug }}</div>
         </div>
         <div class="iv-row__metrics">
-          <div class="iv-row__primary">{{ '{:,}'.format(c.clicks) }}</div>
+          <div class="iv-row__primary-line">
+            <span class="iv-row__primary">{{ '{:,}'.format(c.clicks) }}</span>
+            {% set ind = indicator_emoji(c.indicator) %}
+            {% if ind %}<span class="iv-row__indicator" aria-hidden="true">{{ ind }}</span>{% endif %}
+          </div>
           <div class="iv-row__secondary">{{ '{:,}'.format(c.views) if c.views is not none else '—' }} views</div>
         </div>
       </div>
@@ -146,7 +251,11 @@
           <div class="iv-row__sublabel">{{ p.angle or p.slug }}</div>
         </div>
         <div class="iv-row__metrics">
-          <div class="iv-row__primary">{{ '{:,}'.format(p.clicks) }}</div>
+          <div class="iv-row__primary-line">
+            <span class="iv-row__primary">{{ '{:,}'.format(p.clicks) }}</span>
+            {% set ind = indicator_emoji(p.indicator) %}
+            {% if ind %}<span class="iv-row__indicator" aria-hidden="true">{{ ind }}</span>{% endif %}
+          </div>
           <div class="iv-row__secondary">{{ '{:,}'.format(p.views) if p.views is not none else '—' }} views</div>
         </div>
       </div>
@@ -167,7 +276,11 @@
           <div class="iv-row__sublabel">{{ pr.asin }}{% if pr.units %} · {{ pr.units }} units{% endif %}</div>
         </div>
         <div class="iv-row__metrics">
-          <div class="iv-row__primary">${{ '{:,.2f}'.format(pr.earnings) }}</div>
+          <div class="iv-row__primary-line">
+            <span class="iv-row__primary">${{ '{:,.2f}'.format(pr.earnings) }}</span>
+            {% set ind = indicator_emoji(pr.indicator) %}
+            {% if ind %}<span class="iv-row__indicator" aria-hidden="true">{{ ind }}</span>{% endif %}
+          </div>
           <div class="iv-row__secondary">{{ '{:,}'.format(pr.views) if pr.views is not none else '—' }} views</div>
         </div>
       </div>
@@ -178,6 +291,11 @@
   </section>
 
   {# ── Section 4: Best Retailers by earnings ─────────────────────────── #}
+  {# Retailers is currently single-row Amazon (PR 1 scope; no per-creator
+     Walmart earnings table yet). Falls into apply_indicators' 1-row branch
+     → the one Amazon row gets 🔥, no 🔴. Once Walmart per-creator earnings
+     land and the section grows past 6 rows, the top/bottom rule kicks in
+     automatically — the template doesn't need a change. #}
   <section class="iv-section" aria-labelledby="iv-sec-retailers">
     <h2 id="iv-sec-retailers" class="iv-section__heading">Best Retailers by earnings</h2>
     {% if retailers %}
@@ -188,7 +306,11 @@
           {% if r.units %}<div class="iv-row__sublabel">{{ r.units }} units</div>{% endif %}
         </div>
         <div class="iv-row__metrics">
-          <div class="iv-row__primary">${{ '{:,.2f}'.format(r.earnings) }}</div>
+          <div class="iv-row__primary-line">
+            <span class="iv-row__primary">${{ '{:,.2f}'.format(r.earnings) }}</span>
+            {% set ind = indicator_emoji(r.indicator) %}
+            {% if ind %}<span class="iv-row__indicator" aria-hidden="true">{{ ind }}</span>{% endif %}
+          </div>
           <div class="iv-row__secondary">{{ '{:,}'.format(r.views) if r.views is not none else '—' }} views</div>
         </div>
       </div>
