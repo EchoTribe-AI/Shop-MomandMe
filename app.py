@@ -7,7 +7,7 @@ import time
 import tempfile
 import threading
 import requests as req
-from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for, session
+from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for, session, g
 from datetime import timedelta as _admin_timedelta
 from dotenv import load_dotenv
 import anthropic
@@ -325,6 +325,147 @@ def _load_branding_overrides() -> dict:
     _BRANDING_CACHE = overrides
     _BRANDING_CACHE_KEY = cache_key
     return overrides
+
+
+# ── P0.7 brand context ───────────────────────────────────────────────────────
+# build_brand_context(creator_id) is the single source of truth for the
+# `brand` dict that every framework template renders against. Wired in via
+# the @app.context_processor below so existing render_template calls don't
+# need per-view plumbing.
+#
+# Precedence (highest wins):
+#   1. branding/overrides.json  — per-deploy override layer
+#   2. active creator row       — DB row matching the resolved creator id
+#   3. demo/default creator row — db_schema.DEFAULT_CREATOR fallback
+#   4. framework defaults       — _BRAND_FRAMEWORK_DEFAULTS below
+#
+# Color fields (brand_primary etc.) stay NULL all the way through when no
+# layer sets them. _brand_vars.html's static fallbacks (var(--accent, …))
+# handle the NULL case.
+_BRAND_FRAMEWORK_DEFAULTS = {
+    'creator_id':                 _DEFAULT_ACTIVE_CREATOR_ID,
+    'display_name':               '',
+    'handle':                     '',
+    'brand_label':                'EchoTribe',
+    # shop_name has no creators.* column — it's derived from brand_label
+    # when no override supplied. Framework floor lives in the derivation
+    # block in build_brand_context (not here) so brand_label always wins.
+    'shop_name':                  None,
+    'logo_url':                   None,
+    'favicon_url':                None,
+    'shop_domain':                None,
+    'meta_title_template':        None,
+    'meta_description_template':  None,
+    'voice_prompt':               None,
+    'theme_default':              'coral',
+    'brand_primary':              None,
+    'brand_on_primary':           None,
+    'brand_primary_container':    None,
+    'brand_on_primary_container': None,
+}
+
+# Brand-context keys that may appear in overrides.json or a creator row.
+# Listed explicitly so a stray column on the creators table doesn't leak
+# into the template namespace, and so a typo'd JSON key in overrides.json
+# is silently ignored instead of polluting the context.
+_BRAND_CONTEXT_KEYS = tuple(_BRAND_FRAMEWORK_DEFAULTS.keys())
+
+
+def _coalesce_brand_value(*candidates):
+    """Return the first candidate that is not None and not the empty string.
+
+    Matches the precedence behavior: NULL columns are skipped so the next
+    layer's value wins, but explicit '' from an override is also skipped
+    (treated as "unset") since templates rendering ''/None look the same.
+    """
+    for v in candidates:
+        if v is None:
+            continue
+        if isinstance(v, str) and v.strip() == '':
+            continue
+        return v
+    return None
+
+
+def build_brand_context(creator_id: str | None = None) -> dict:
+    """Assemble the per-request `brand` dict from overrides + DB + defaults.
+
+    Cheap to call; safe outside a request context (no Flask globals used).
+    Never raises — DB errors degrade to demo/framework defaults.
+    """
+    cid = (creator_id or '').strip() or _DEFAULT_ACTIVE_CREATOR_ID
+    overrides = _load_branding_overrides() or {}
+
+    # Active creator row (best effort — DB might not be ready yet).
+    active_row: dict = {}
+    try:
+        active_row = db_schema.get_creator(cid) or {}
+    except Exception as e:
+        logging.warning(f"[P07] build_brand_context: active row lookup failed: {e}")
+
+    # Demo/default creator row — always available via db_schema.DEFAULT_CREATOR
+    # even when no DB connection is possible (it's a module-level dict).
+    demo_row: dict = dict(getattr(db_schema, 'DEFAULT_CREATOR', {}) or {})
+
+    ctx: dict = {}
+    for key in _BRAND_CONTEXT_KEYS:
+        ctx[key] = _coalesce_brand_value(
+            overrides.get(key),
+            active_row.get(key),
+            demo_row.get(key),
+            _BRAND_FRAMEWORK_DEFAULTS.get(key),
+        )
+
+    # 'creator_id' is the resolved id, not a value picked from layers.
+    ctx['creator_id'] = cid
+
+    # 'shop_name' has no direct column on creators; derive from brand_label
+    # when no override supplied one. (Mommy & Me has brand_label = "Mommy &
+    # Me Collective", which is the right shop_name for the demo creator.)
+    # Final floor 'EchoTribe Shop' only fires when even brand_label is null.
+    ctx['shop_name'] = _coalesce_brand_value(
+        overrides.get('shop_name'),
+        active_row.get('brand_label'),
+        demo_row.get('brand_label'),
+        'EchoTribe Shop',
+    )
+
+    return ctx
+
+
+@app.before_request
+def _stamp_active_creator_id():
+    """Stamp g.active_creator_id once per request.
+
+    Registered after _route_shop_subdomain so the subdomain rewrite still
+    owns routing. Tolerant of any failure in the resolver.
+    """
+    try:
+        g.active_creator_id = _resolve_active_creator_id()
+    except Exception as e:
+        logging.warning(f"[P07] active-creator stamp failed: {e}")
+        g.active_creator_id = _DEFAULT_ACTIVE_CREATOR_ID
+
+
+@app.context_processor
+def _inject_brand_context():
+    """Make `brand` available in every render_template call.
+
+    Cached on g._brand_ctx so repeated lookups in a single request don't
+    re-run the DB query. Safe outside a request context (g access raises
+    a RuntimeError, which we swallow and return framework defaults).
+    """
+    try:
+        cached = getattr(g, '_brand_ctx', None)
+        if cached is not None:
+            return {'brand': cached}
+        cid = getattr(g, 'active_creator_id', None) or _DEFAULT_ACTIVE_CREATOR_ID
+        ctx = build_brand_context(cid)
+        g._brand_ctx = ctx
+        return {'brand': ctx}
+    except RuntimeError:
+        # No application/request context — happens in some CLI render paths.
+        return {'brand': build_brand_context(_DEFAULT_ACTIVE_CREATOR_ID)}
 
 
 _SCHEMA_READY = False
