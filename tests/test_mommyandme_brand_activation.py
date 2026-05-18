@@ -381,5 +381,202 @@ class StorefrontHeaderFallsBackToTextWhenLogoAbsent(unittest.TestCase):
         )
 
 
+class UniversalBottomNav(unittest.TestCase):
+    """5-item bottom nav rendered by templates/partials/_mobile_chrome.html.
+
+    Pinned to the canonical app routes:
+        Home    → /hub
+        Create  → /walmart/trending-now?admin=1
+        Manage  → /archer/posts/manage
+        Chat    → /chat
+        Insights → /insights
+
+    Any change to nav order, route hrefs, or the 5-item count must update
+    this test alongside _mobile_chrome.html.
+    """
+
+    EXPECTED_NAV = (
+        ('home',     '/hub',                          'Home'),
+        ('create',   '/walmart/trending-now?admin=1', 'Create'),
+        ('manage',   '/archer/posts/manage',          'Manage'),
+        ('chat',     '/chat',                         'Chat'),
+        ('insights', '/insights',                     'Insights'),
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp.name, 'chrome-nav.db')
+        os.environ['CACHE_DB_PATH'] = self.db_path
+        os.environ.pop('ACTIVE_CREATOR_ID', None)
+
+        import db_schema
+        import app
+        self.db_schema = db_schema
+        self.app_module = app
+        db_schema.DB_PATH = self.db_path
+        db_schema.bootstrap()
+
+        self.client = app.app.test_client()
+        with self.client.session_transaction() as sess:
+            sess['admin_authed'] = True
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _chrome_nav_block(self, body):
+        """Return the <nav class="mc-bottom-nav"...> ... </nav> substring."""
+        start = body.find('<nav class="mc-bottom-nav"')
+        self.assertNotEqual(
+            start, -1, 'mc-bottom-nav element missing from response',
+        )
+        end = body.find('</nav>', start)
+        self.assertNotEqual(end, -1, 'mc-bottom-nav not closed')
+        return body[start:end + len('</nav>')]
+
+    def test_chrome_renders_exactly_five_nav_items(self):
+        # /chat is the cheapest endpoint that uses the chrome partial.
+        resp = self.client.get('/chat')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        nav_block = self._chrome_nav_block(body)
+
+        # Count anchor tags inside the nav block.
+        anchor_count = nav_block.count('<a ')
+        self.assertEqual(
+            anchor_count, 5,
+            f'Bottom nav must have exactly 5 items; rendered {anchor_count}.',
+        )
+
+    def test_chrome_nav_hrefs_and_labels_match_canonical_routes(self):
+        resp = self.client.get('/chat')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        nav_block = self._chrome_nav_block(body)
+
+        for key, href, label in self.EXPECTED_NAV:
+            self.assertIn(
+                f'href="{href}"', nav_block,
+                f'Nav item {key!r} must link to {href!r}',
+            )
+            self.assertIn(
+                f'>{label}<', nav_block,
+                f'Nav item {key!r} must show label {label!r}',
+            )
+
+    def test_chrome_nav_renders_in_order(self):
+        # Order matters for visual rhythm; verify hrefs appear left-to-right
+        # in the expected sequence.
+        resp = self.client.get('/chat')
+        self.assertEqual(resp.status_code, 200)
+        nav_block = self._chrome_nav_block(resp.data.decode('utf-8'))
+
+        last_pos = -1
+        for _, href, _ in self.EXPECTED_NAV:
+            pos = nav_block.find(f'href="{href}"')
+            self.assertNotEqual(pos, -1, f'{href} missing from nav block')
+            self.assertGreater(
+                pos, last_pos,
+                f'{href} should appear after the previous nav item',
+            )
+            last_pos = pos
+
+
+class ChatPlaceholderRoute(unittest.TestCase):
+    """/chat placeholder route — admin-gated, returns coming-soon text."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp.name, 'chat-placeholder.db')
+        os.environ['CACHE_DB_PATH'] = self.db_path
+
+        import db_schema
+        import app
+        self.db_schema = db_schema
+        self.app_module = app
+        db_schema.DB_PATH = self.db_path
+        db_schema.bootstrap()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _authed_client(self):
+        client = self.app_module.app.test_client()
+        with client.session_transaction() as sess:
+            sess['admin_authed'] = True
+        return client
+
+    def test_chat_returns_200_with_placeholder_text_when_authenticated(self):
+        client = self._authed_client()
+        resp = client.get('/chat')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        self.assertIn('Coming soon', body)
+        self.assertIn('EchoAgent chat lands in Phase 2.5', body)
+
+    def test_chat_requires_admin_auth(self):
+        # No admin session → _require_admin_page redirects to /admin/login.
+        # Pin that the placeholder is NOT publicly reachable.
+        client = self.app_module.app.test_client()
+        resp = client.get('/chat')
+        self.assertNotEqual(
+            resp.status_code, 200,
+            '/chat must require admin auth; unauthenticated GET must not 200',
+        )
+
+    def test_chat_active_tab_aria_current(self):
+        # Chat nav item should be marked aria-current="page" on /chat.
+        client = self._authed_client()
+        resp = client.get('/chat')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        # Find the chat anchor and confirm aria-current is on it specifically.
+        chat_anchor_start = body.find('href="/chat"')
+        self.assertNotEqual(chat_anchor_start, -1)
+        # Look backward from the href to the opening <a tag for that anchor.
+        a_open = body.rfind('<a ', 0, chat_anchor_start)
+        a_close = body.find('>', chat_anchor_start)
+        chat_anchor_tag = body[a_open:a_close + 1]
+        self.assertIn('aria-current="page"', chat_anchor_tag)
+
+
+class InsightsRouteStillRendersExistingPage(unittest.TestCase):
+    """Guard against /insights being replaced with a coming-soon placeholder.
+
+    /insights existed before the universal-nav PR; nav-wiring work must
+    leave the real page intact. Asserts a 200 response and the absence
+    of the chat placeholder copy on the body.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp.name, 'insights-guard.db')
+        os.environ['CACHE_DB_PATH'] = self.db_path
+
+        import db_schema
+        import app
+        self.db_schema = db_schema
+        self.app_module = app
+        db_schema.DB_PATH = self.db_path
+        db_schema.bootstrap()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_insights_returns_200_as_existing_page_not_placeholder(self):
+        client = self.app_module.app.test_client()
+        with client.session_transaction() as sess:
+            sess['admin_authed'] = True
+        resp = client.get('/insights')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        # The chat-placeholder copy must NOT appear on /insights — that
+        # would mean someone wired /insights to the wrong handler.
+        self.assertNotIn(
+            'EchoAgent chat lands in Phase 2.5', body,
+            '/insights response carries chat-placeholder text — the real '
+            'insights page has been clobbered.',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

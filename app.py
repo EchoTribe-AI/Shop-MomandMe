@@ -7,7 +7,7 @@ import time
 import tempfile
 import threading
 import requests as req
-from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for, session, g
+from flask import Flask, send_from_directory, request, jsonify, render_template, render_template_string, Response, redirect, url_for, session, g
 from datetime import timedelta as _admin_timedelta
 from dotenv import load_dotenv
 import anthropic
@@ -2920,6 +2920,33 @@ def archer_image_proxy():
 # /archer/posts/<id>/edit (KEEP) is the canonical organic-post editor;
 # /archer/organic's redirect-to-edit behavior is no longer needed because
 # the editor links direct now.
+
+
+# ── CHAT: EchoAgent placeholder ─────────────────────────────────────────────
+# Universal 5-item bottom nav reserves a Chat slot. The real EchoAgent chat
+# ships in Phase 2.5; until then this route renders a coming-soon page so
+# the nav has a target. Admin-guarded to match the other internal creator
+# surfaces (/hub, /insights, /archer/*).
+@app.route('/chat')
+@require_admin_page
+def chat_placeholder():
+    return render_template_string(
+        """{% extends 'partials/_mobile_chrome.html' %}
+{% set active_nav = 'chat' %}
+{% block title %}Chat — EchoTribe{% endblock %}
+{% block header_title %}Chat{% endblock %}
+{% block content %}
+<div style="max-width:520px;margin:0 auto;padding:48px 24px;text-align:center;">
+  <div style="font-size:48px;line-height:1;margin-bottom:16px;">💬</div>
+  <h2 style="font-family:Inter,sans-serif;font-size:18px;font-weight:700;margin:0 0 8px;color:var(--ink,#1a1a17);">
+    Coming soon
+  </h2>
+  <p style="font-family:Inter,sans-serif;font-size:14px;line-height:1.5;color:var(--muted,rgba(26,26,23,.62));margin:0;">
+    EchoAgent chat lands in Phase 2.5.
+  </p>
+</div>
+{% endblock %}"""
+    )
 
 
 # ── INSIGHTS: clicks × earnings × paid attribution ──────────────────────────
