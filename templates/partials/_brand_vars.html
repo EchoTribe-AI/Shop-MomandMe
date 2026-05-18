@@ -5,17 +5,20 @@
    (Shop-MomandMe etc.) overrides these via its own CSS in templates/base or
    the deploy-specific branding/ directory.
 
-   Defaults fall through to the existing site palette (Creator Core peach +
-   bold orange) so existing screens that reference these vars Just Work
-   alongside legacy --accent / --bg vars on the same page.
+   P0.7 wiring: each var below renders from the request-scope `brand` dict
+   (populated by app.build_brand_context() — see app.py). When a value is
+   NULL on the creator row AND not set in branding/overrides.json, we fall
+   back to the static var(--accent, …) chain so existing screens that
+   reference these vars (alongside legacy --accent / --bg) keep working.
 #}
 <style id="brand-vars">
   :root {
-    /* Canonical brand-swap surface — set these per creator. */
-    --brand-primary:               var(--accent, #e85d26);
-    --brand-on-primary:            var(--card,   #ffffff);
-    --brand-primary-container:     var(--soft,   #ffe9df);
-    --brand-on-primary-container:  var(--ink,    #1a1a17);
+    /* Canonical brand-swap surface — values come from the active creator
+       row (or branding/overrides.json). NULL falls back to Creator Core. */
+    --brand-primary:               {{ brand.brand_primary              if brand and brand.brand_primary              else 'var(--accent, #e85d26)' }};
+    --brand-on-primary:            {{ brand.brand_on_primary           if brand and brand.brand_on_primary           else 'var(--card,   #ffffff)' }};
+    --brand-primary-container:     {{ brand.brand_primary_container    if brand and brand.brand_primary_container    else 'var(--soft,   #ffe9df)' }};
+    --brand-on-primary-container:  {{ brand.brand_on_primary_container if brand and brand.brand_on_primary_container else 'var(--ink,    #1a1a17)' }};
 
     /* Locked Creator Core — DO NOT override at deploy time without
        widening the contract (K1 in OPEN_QUESTIONS_TRACKER). */
@@ -31,6 +34,19 @@
 
     /* Focus ring — 2px solid primary, 2px offset (build-conventions). */
     --focus-ring-color: var(--brand-primary);
+
+    {% if brand and brand.brand_primary %}
+    /* P0.7 legacy compatibility bridge ------------------------------------
+       Live storefront templates (shop_landing.html, shop_directory.html,
+       shop_posts.html, walmart_trending_now.html) still consume the legacy
+       Creator Core CSS vars (--accent, --soft). When the active creator has
+       brand_primary set, mirror it onto those legacy vars so existing
+       templates that use var(--accent) / var(--soft) become brand-aware
+       without per-template CSS surgery. Templates can opt into
+       var(--brand-primary) directly when that's clearer; both work. */
+    --accent: {{ brand.brand_primary }};
+    --soft:   {{ brand.brand_primary_container if brand.brand_primary_container else brand.brand_primary }};
+    {% endif %}
   }
 
   /* Focus-visible utility used by every interactive partial. */

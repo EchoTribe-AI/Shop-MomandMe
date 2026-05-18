@@ -7,7 +7,7 @@ import time
 import tempfile
 import threading
 import requests as req
-from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for, session
+from flask import Flask, send_from_directory, request, jsonify, render_template, Response, redirect, url_for, session, g
 from datetime import timedelta as _admin_timedelta
 from dotenv import load_dotenv
 import anthropic
@@ -154,6 +154,65 @@ PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
 # /shop/<slug> handler renders. Cleaner share URLs without a /shop/ prefix.
 SHOP_SUBDOMAIN = os.environ.get('SHOP_SUBDOMAIN', 'shop.echotribe.ai').lower()
 
+# ── P0.7 storefront framework boundary ───────────────────────────────────────
+# The framework default creator id. Used when no env override is set and no
+# host matches a creators.shop_domain row. Kept as a module constant so the
+# resolver, context-processor fallback, and any future tests share one source
+# of truth (don't sprinkle 'everydaywithsteph' literals across new code).
+_DEFAULT_ACTIVE_CREATOR_ID = 'everydaywithsteph'
+
+
+def _normalize_host(host: str | None) -> str:
+    """Lowercase + strip port from a Host header value. Returns '' for empty."""
+    if not host:
+        return ''
+    return host.split(':', 1)[0].strip().lower()
+
+
+def _resolve_active_creator_id(req=None) -> str:
+    """Resolve which creator this request should render against.
+
+    Precedence:
+      1. ACTIVE_CREATOR_ID env var (per-deploy pin; Replit Secrets in prod).
+      2. Host header match against creators.shop_domain (case-insensitive,
+         port-stripped on both sides).
+      3. _DEFAULT_ACTIVE_CREATOR_ID ('everydaywithsteph').
+
+    Never raises. Safe to call outside a request context (host branch skips).
+    Safe before init_schema() runs (DB lookup is try/excepted).
+    """
+    env_id = (os.environ.get('ACTIVE_CREATOR_ID') or '').strip()
+    if env_id:
+        return env_id
+
+    # Host lookup. The request arg lets tests pass a stand-in; default to
+    # Flask's request proxy when called inside a request context.
+    host = ''
+    try:
+        target = req if req is not None else request
+        host = _normalize_host(getattr(target, 'host', None))
+    except Exception:
+        host = ''
+
+    if host:
+        try:
+            conn = db_schema._connect()
+            try:
+                row = conn.execute(
+                    "SELECT id, shop_domain FROM creators "
+                    "WHERE shop_domain IS NOT NULL AND shop_domain != ''"
+                ).fetchall()
+            finally:
+                conn.close()
+            for r in row or []:
+                shop_domain = r['shop_domain'] if hasattr(r, 'keys') else r[1]
+                if _normalize_host(shop_domain) == host:
+                    return r['id'] if hasattr(r, 'keys') else r[0]
+        except Exception as e:
+            logging.warning(f"[P07] host→creator lookup failed: {e}")
+
+    return _DEFAULT_ACTIVE_CREATOR_ID
+
 
 def _fmt_date(v) -> str:
     """Format a date value (datetime obj or ISO string) to YYYY-MM-DD string."""
@@ -162,6 +221,251 @@ def _fmt_date(v) -> str:
     if hasattr(v, 'date'):
         return str(v.date())
     return str(v)[:10]
+
+
+# ── P0.7 branding/ override directory ────────────────────────────────────────
+# Per-deploy assets live in a repo-root `branding/` directory. Shop-MomandMe
+# drops its logo + favicon + overrides.json there; Echo-Dashboard ships with
+# no branding/ and falls through to creator-row + framework defaults.
+#
+# Layout (all optional, missing or partial directory is fine):
+#   branding/logo.png          (or logo.svg / logo.webp — first match wins)
+#   branding/favicon.ico
+#   branding/overrides.json    (any subset of brand-context column keys)
+#
+# Asset URLs returned by the loader are root-relative ('/branding/<file>')
+# so they work uniformly in <link href>, <img src>, and meta og:image.
+_BRANDING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'branding')
+_BRANDING_LOGO_CANDIDATES = ('logo.png', 'logo.svg', 'logo.webp')
+_BRANDING_FAVICON_FILENAME = 'favicon.ico'
+
+# In-process cache. _BRANDING_CACHE holds the last-resolved overrides dict;
+# _BRANDING_CACHE_KEY pins it to a (_BRANDING_DIR) tuple so tests that
+# monkeypatch the directory get a fresh read automatically. Tests can also
+# call _branding_cache_reset() to force a reload.
+_BRANDING_CACHE: dict | None = None
+_BRANDING_CACHE_KEY: tuple | None = None
+
+
+def _branding_cache_reset() -> None:
+    """Clear the branding-override cache. Test hook."""
+    global _BRANDING_CACHE, _BRANDING_CACHE_KEY
+    _BRANDING_CACHE = None
+    _BRANDING_CACHE_KEY = None
+
+
+def _load_branding_overrides() -> dict:
+    """Read the per-deploy branding/ directory and return an overrides dict.
+
+    Returns a dict with any of these keys set:
+      logo_url     — root-relative '/branding/<file>' if a logo file exists
+      favicon_url  — root-relative '/branding/favicon.ico' if present
+      (plus any keys from overrides.json — typically the same brand-context
+       columns: brand_primary, shop_name, meta_title_template, etc.)
+
+    Behavior:
+      - Missing branding/ directory → {} (Echo-Dashboard's expected state).
+      - Partial directory (logo only, no overrides.json) → only logo_url set.
+      - Malformed overrides.json → warning logged, JSON keys omitted (file
+        assets still picked up from the directory).
+      - Never raises during normal app boot or request handling.
+
+    Cached in-process; tests can call _branding_cache_reset() or monkeypatch
+    _BRANDING_DIR to force a re-read.
+    """
+    global _BRANDING_CACHE, _BRANDING_CACHE_KEY
+    cache_key = (_BRANDING_DIR,)
+    if _BRANDING_CACHE is not None and _BRANDING_CACHE_KEY == cache_key:
+        return _BRANDING_CACHE
+
+    overrides: dict = {}
+    try:
+        if not os.path.isdir(_BRANDING_DIR):
+            _BRANDING_CACHE = overrides
+            _BRANDING_CACHE_KEY = cache_key
+            return overrides
+
+        # Logo: first match wins.
+        for name in _BRANDING_LOGO_CANDIDATES:
+            candidate = os.path.join(_BRANDING_DIR, name)
+            if os.path.isfile(candidate):
+                overrides['logo_url'] = f'/branding/{name}'
+                break
+
+        # Favicon.
+        favicon_path = os.path.join(_BRANDING_DIR, _BRANDING_FAVICON_FILENAME)
+        if os.path.isfile(favicon_path):
+            overrides['favicon_url'] = f'/branding/{_BRANDING_FAVICON_FILENAME}'
+
+        # overrides.json — tolerant-render posture (matches plan's stance).
+        overrides_path = os.path.join(_BRANDING_DIR, 'overrides.json')
+        if os.path.isfile(overrides_path):
+            try:
+                with open(overrides_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    overrides.update(data)
+                else:
+                    logging.warning(
+                        "[P07] branding/overrides.json is not a JSON object "
+                        "(got %s); ignoring contents",
+                        type(data).__name__,
+                    )
+            except (json.JSONDecodeError, OSError) as e:
+                logging.warning(
+                    "[P07] branding/overrides.json could not be parsed: %s; "
+                    "continuing with file-asset overrides only",
+                    e,
+                )
+    except Exception as e:
+        # Outermost guard: filesystem errors must never break a deploy.
+        logging.warning(f"[P07] _load_branding_overrides failed: {e}")
+        overrides = {}
+
+    _BRANDING_CACHE = overrides
+    _BRANDING_CACHE_KEY = cache_key
+    return overrides
+
+
+# ── P0.7 brand context ───────────────────────────────────────────────────────
+# build_brand_context(creator_id) is the single source of truth for the
+# `brand` dict that every framework template renders against. Wired in via
+# the @app.context_processor below so existing render_template calls don't
+# need per-view plumbing.
+#
+# Precedence (highest wins):
+#   1. branding/overrides.json  — per-deploy override layer
+#   2. active creator row       — DB row matching the resolved creator id
+#   3. demo/default creator row — db_schema.DEFAULT_CREATOR fallback
+#   4. framework defaults       — _BRAND_FRAMEWORK_DEFAULTS below
+#
+# Color fields (brand_primary etc.) stay NULL all the way through when no
+# layer sets them. _brand_vars.html's static fallbacks (var(--accent, …))
+# handle the NULL case.
+_BRAND_FRAMEWORK_DEFAULTS = {
+    'creator_id':                 _DEFAULT_ACTIVE_CREATOR_ID,
+    'display_name':               '',
+    'handle':                     '',
+    'brand_label':                'EchoTribe',
+    # shop_name has no creators.* column — it's derived from brand_label
+    # when no override supplied. Framework floor lives in the derivation
+    # block in build_brand_context (not here) so brand_label always wins.
+    'shop_name':                  None,
+    'logo_url':                   None,
+    'favicon_url':                None,
+    'shop_domain':                None,
+    'meta_title_template':        None,
+    'meta_description_template':  None,
+    'voice_prompt':               None,
+    'theme_default':              'coral',
+    'brand_primary':              None,
+    'brand_on_primary':           None,
+    'brand_primary_container':    None,
+    'brand_on_primary_container': None,
+}
+
+# Brand-context keys that may appear in overrides.json or a creator row.
+# Listed explicitly so a stray column on the creators table doesn't leak
+# into the template namespace, and so a typo'd JSON key in overrides.json
+# is silently ignored instead of polluting the context.
+_BRAND_CONTEXT_KEYS = tuple(_BRAND_FRAMEWORK_DEFAULTS.keys())
+
+
+def _coalesce_brand_value(*candidates):
+    """Return the first candidate that is not None and not the empty string.
+
+    Matches the precedence behavior: NULL columns are skipped so the next
+    layer's value wins, but explicit '' from an override is also skipped
+    (treated as "unset") since templates rendering ''/None look the same.
+    """
+    for v in candidates:
+        if v is None:
+            continue
+        if isinstance(v, str) and v.strip() == '':
+            continue
+        return v
+    return None
+
+
+def build_brand_context(creator_id: str | None = None) -> dict:
+    """Assemble the per-request `brand` dict from overrides + DB + defaults.
+
+    Cheap to call; safe outside a request context (no Flask globals used).
+    Never raises — DB errors degrade to demo/framework defaults.
+    """
+    cid = (creator_id or '').strip() or _DEFAULT_ACTIVE_CREATOR_ID
+    overrides = _load_branding_overrides() or {}
+
+    # Active creator row (best effort — DB might not be ready yet).
+    active_row: dict = {}
+    try:
+        active_row = db_schema.get_creator(cid) or {}
+    except Exception as e:
+        logging.warning(f"[P07] build_brand_context: active row lookup failed: {e}")
+
+    # Demo/default creator row — always available via db_schema.DEFAULT_CREATOR
+    # even when no DB connection is possible (it's a module-level dict).
+    demo_row: dict = dict(getattr(db_schema, 'DEFAULT_CREATOR', {}) or {})
+
+    ctx: dict = {}
+    for key in _BRAND_CONTEXT_KEYS:
+        ctx[key] = _coalesce_brand_value(
+            overrides.get(key),
+            active_row.get(key),
+            demo_row.get(key),
+            _BRAND_FRAMEWORK_DEFAULTS.get(key),
+        )
+
+    # 'creator_id' is the resolved id, not a value picked from layers.
+    ctx['creator_id'] = cid
+
+    # 'shop_name' has no direct column on creators; derive from brand_label
+    # when no override supplied one. (Mommy & Me has brand_label = "Mommy &
+    # Me Collective", which is the right shop_name for the demo creator.)
+    # Final floor 'EchoTribe Shop' only fires when even brand_label is null.
+    ctx['shop_name'] = _coalesce_brand_value(
+        overrides.get('shop_name'),
+        active_row.get('brand_label'),
+        demo_row.get('brand_label'),
+        'EchoTribe Shop',
+    )
+
+    return ctx
+
+
+@app.before_request
+def _stamp_active_creator_id():
+    """Stamp g.active_creator_id once per request.
+
+    Registered after _route_shop_subdomain so the subdomain rewrite still
+    owns routing. Tolerant of any failure in the resolver.
+    """
+    try:
+        g.active_creator_id = _resolve_active_creator_id()
+    except Exception as e:
+        logging.warning(f"[P07] active-creator stamp failed: {e}")
+        g.active_creator_id = _DEFAULT_ACTIVE_CREATOR_ID
+
+
+@app.context_processor
+def _inject_brand_context():
+    """Make `brand` available in every render_template call.
+
+    Cached on g._brand_ctx so repeated lookups in a single request don't
+    re-run the DB query. Safe outside a request context (g access raises
+    a RuntimeError, which we swallow and return framework defaults).
+    """
+    try:
+        cached = getattr(g, '_brand_ctx', None)
+        if cached is not None:
+            return {'brand': cached}
+        cid = getattr(g, 'active_creator_id', None) or _DEFAULT_ACTIVE_CREATOR_ID
+        ctx = build_brand_context(cid)
+        g._brand_ctx = ctx
+        return {'brand': ctx}
+    except RuntimeError:
+        # No application/request context — happens in some CLI render paths.
+        return {'brand': build_brand_context(_DEFAULT_ACTIVE_CREATOR_ID)}
 
 
 _SCHEMA_READY = False
@@ -462,6 +766,36 @@ def index():
 @app.route('/healthz')
 def healthz():
     return 'ok', 200
+
+
+_BRANDING_ALLOWED_EXTENSIONS = frozenset({
+    '.png', '.jpg', '.jpeg', '.svg', '.webp', '.ico', '.gif',
+})
+
+
+@app.route('/branding/<path:filename>')
+def branding_asset(filename):
+    """Serve per-deploy branding/ assets (logo, favicon, etc.).
+
+    Public, no admin guard — these are storefront chrome that anonymous
+    shoppers see on every page. Missing file or missing directory returns
+    a clean 404. send_from_directory's safe_join protects against path
+    traversal (../).
+
+    Locked to a fixed asset extension whitelist so non-asset files in
+    branding/ (notably overrides.json, which contains per-deploy
+    configuration) are never disclosed publicly. Anything outside the
+    whitelist 404s before the file is opened.
+    """
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _BRANDING_ALLOWED_EXTENSIONS:
+        return jsonify({'error': 'Not found'}), 404
+    if not os.path.isdir(_BRANDING_DIR):
+        return jsonify({'error': 'Not found'}), 404
+    try:
+        return send_from_directory(_BRANDING_DIR, filename)
+    except Exception:
+        return jsonify({'error': 'Not found'}), 404
 
 
 @app.route('/hub')

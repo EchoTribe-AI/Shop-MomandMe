@@ -50,6 +50,13 @@ PUBLIC_ROUTES = {
     # SEO assets.
     '/sitemap.xml': 'Public SEO.',
     '/robots.txt': 'Public SEO.',
+    # P0.7 per-deploy branding/ asset surface — logo, favicon, etc.
+    # Storefront chrome that anonymous shoppers see on every page.
+    # send_from_directory's safe_join blocks path traversal; missing files
+    # return 404. No deploy-internal content lives in branding/.
+    '/branding/<path:filename>':
+        'P0.7 per-deploy branding assets (logo/favicon). Anonymous '
+        'shoppers; safe static serving via send_from_directory.',
     # Hybrid route — public when no ?admin=1, session-guarded when
     # ?admin=1. The conditional guard fires inside the handler. Separate
     # test below verifies admin-mode behavior.
