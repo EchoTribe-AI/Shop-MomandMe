@@ -378,5 +378,178 @@ class MissingBrandingDoesNotBreakRender(_BoundaryTestBase):
         self.assertEqual(resp.status_code, 200)
 
 
+# ── 8. /branding/ extension whitelist ─────────────────────────────────────────
+# Codex audit follow-up: the route originally served any file in branding/,
+# including overrides.json. Lock to known asset extensions so per-deploy
+# config can never leak publicly even when an operator drops a sensitive
+# file in branding/ by accident.
+
+class BrandingAssetExtensionWhitelist(_BoundaryTestBase):
+
+    def test_overrides_json_is_not_publicly_servable(self):
+        # overrides.json exists on disk and is loaded by the override loader,
+        # but the public asset route must refuse to serve it.
+        payload = {'brand_primary': '#abc123'}
+        with open(os.path.join(self.branding_dir, 'overrides.json'), 'w') as f:
+            import json as _json
+            _json.dump(payload, f)
+        client = self.app_module.app.test_client()
+        resp = client.get('/branding/overrides.json')
+        self.assertEqual(resp.status_code, 404)
+        # And the body shouldn't contain the secret hex either.
+        self.assertNotIn(b'#abc123', resp.data)
+
+    def test_other_non_asset_extensions_404(self):
+        # Drop a .txt and a .yaml — both should be blocked.
+        for name, body in (('config.txt', b'secret'), ('settings.yaml', b'k: v')):
+            with open(os.path.join(self.branding_dir, name), 'wb') as f:
+                f.write(body)
+        client = self.app_module.app.test_client()
+        for name in ('config.txt', 'settings.yaml'):
+            resp = client.get(f'/branding/{name}')
+            self.assertEqual(
+                resp.status_code, 404,
+                f'{name} should be blocked by the extension whitelist',
+            )
+
+    def test_allowed_image_extensions_still_serve(self):
+        # Sanity: the whitelist allows the asset types we actually need.
+        for name in ('logo.png', 'logo.svg', 'logo.webp', 'favicon.ico'):
+            with open(os.path.join(self.branding_dir, name), 'wb') as f:
+                f.write(b'\x00')
+        client = self.app_module.app.test_client()
+        for name in ('logo.png', 'logo.svg', 'logo.webp', 'favicon.ico'):
+            resp = client.get(f'/branding/{name}')
+            self.assertEqual(
+                resp.status_code, 200,
+                f'{name} should be servable under the whitelist',
+            )
+
+    def test_extension_check_is_case_insensitive(self):
+        # Operators sometimes drop LOGO.PNG; the whitelist must accept it.
+        with open(os.path.join(self.branding_dir, 'LOGO.PNG'), 'wb') as f:
+            f.write(b'\x89PNG')
+        client = self.app_module.app.test_client()
+        resp = client.get('/branding/LOGO.PNG')
+        self.assertEqual(resp.status_code, 200)
+
+
+# ── 9. end-to-end render — brand color reaches the response body ─────────────
+# Codex audit follow-up: this is the test that would have caught the
+# wiring gap on its own. We exercise a real storefront route (/shop/<slug>),
+# host-resolved to a creator with non-NULL brand_primary, and assert the
+# literal hex appears in the rendered HTML.
+
+class EndToEndBrandRender(_BoundaryTestBase):
+
+    def _seed_collage(self, slug='sage-test', creator_id='c-sage'):
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO collages
+                (slug, products_json, caption, creator_id, status, hero_title, click_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (slug, json.dumps([]), 'caption', creator_id, 'published',
+                 'Sage Test', 0),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_brand_primary_hex_appears_in_storefront_response(self):
+        # Creator row carries brand_primary=#7c7d6a and a unique shop_domain
+        # the resolver will match.
+        self._insert_creator(
+            id='c-sage',
+            display_name='Sage Creator',
+            shop_domain='shop.sage-test.example.com',
+            brand_primary='#7c7d6a',
+            brand_primary_container='#ddbba4',
+        )
+        self._seed_collage(slug='sage-collection', creator_id='c-sage')
+
+        client = self.app_module.app.test_client()
+        resp = client.get(
+            '/shop/sage-collection',
+            base_url='http://shop.sage-test.example.com',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        # The literal brand hex must appear (it's in the _brand_vars.html
+        # bridge that the template now includes).
+        self.assertIn(
+            '#7c7d6a', body,
+            "brand_primary hex should appear in rendered storefront response",
+        )
+        self.assertIn(
+            '#ddbba4', body,
+            "brand_primary_container hex should appear in rendered response",
+        )
+        # And the legacy --accent override line should be present.
+        self.assertIn('--accent: #7c7d6a', body)
+
+    def test_null_brand_primary_falls_back_to_creator_core(self):
+        # Same setup but no brand_primary set — must NOT have the bridge
+        # active, and the rendered page should still paint with theme.accent
+        # (Creator Core peach #e85d26 is the default theme; if collage.theme
+        # is unset, the route falls back to 'peach').
+        self._insert_creator(
+            id='c-null',
+            display_name='Null Creator',
+            shop_domain='shop.null-test.example.com',
+            brand_primary=None,
+        )
+        self._seed_collage(slug='null-collection', creator_id='c-null')
+
+        client = self.app_module.app.test_client()
+        resp = client.get(
+            '/shop/null-collection',
+            base_url='http://shop.null-test.example.com',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        # Bridge must be inert when brand_primary is NULL — the
+        # legacy --accent override line must NOT appear.
+        self.assertNotIn(
+            '--accent: #', body.split('/* P0.7 legacy', 1)[-1].split('}', 1)[0]
+            if '/* P0.7 legacy' in body else '',
+            'Bridge must not emit --accent override when brand_primary is NULL',
+        )
+        # And the brand-vars partial's static fallback chain for
+        # --brand-primary must be present.
+        self.assertIn('var(--accent, #e85d26)', body)
+
+
+# ── 10. _brand_vars.html is actually included by live storefront templates ───
+# Static guard against regression: if someone removes the include from a
+# storefront template, this test fails before runtime.
+
+class StorefrontIncludesBrandVars(_BoundaryTestBase):
+
+    LIVE_TEMPLATES = (
+        'shop_landing.html',
+        'shop_directory.html',
+        'shop_posts.html',
+        'walmart_trending_now.html',
+    )
+
+    def test_every_live_storefront_template_includes_brand_vars(self):
+        template_dir = os.path.join(
+            os.path.dirname(os.path.abspath(self.app_module.__file__)),
+            'templates',
+        )
+        for name in self.LIVE_TEMPLATES:
+            path = os.path.join(template_dir, name)
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.assertIn(
+                "include 'partials/_brand_vars.html'", content,
+                f'{name} must {{% include %}} partials/_brand_vars.html — '
+                f'otherwise brand columns never reach the rendered page.',
+            )
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -768,6 +768,11 @@ def healthz():
     return 'ok', 200
 
 
+_BRANDING_ALLOWED_EXTENSIONS = frozenset({
+    '.png', '.jpg', '.jpeg', '.svg', '.webp', '.ico', '.gif',
+})
+
+
 @app.route('/branding/<path:filename>')
 def branding_asset(filename):
     """Serve per-deploy branding/ assets (logo, favicon, etc.).
@@ -776,7 +781,15 @@ def branding_asset(filename):
     shoppers see on every page. Missing file or missing directory returns
     a clean 404. send_from_directory's safe_join protects against path
     traversal (../).
+
+    Locked to a fixed asset extension whitelist so non-asset files in
+    branding/ (notably overrides.json, which contains per-deploy
+    configuration) are never disclosed publicly. Anything outside the
+    whitelist 404s before the file is opened.
     """
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _BRANDING_ALLOWED_EXTENSIONS:
+        return jsonify({'error': 'Not found'}), 404
     if not os.path.isdir(_BRANDING_DIR):
         return jsonify({'error': 'Not found'}), 404
     try:
