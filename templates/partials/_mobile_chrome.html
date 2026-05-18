@@ -17,7 +17,7 @@
      bottom_nav      — full bottom nav (default: 4-tab Home/Create/Insights/Chat)
 
    Context vars (read by default nav):
-     active_nav      — one of 'home', 'create', 'insights', 'chat'
+     active_nav      — one of 'home', 'create', 'manage', 'chat', 'insights'
      creator         — dict with optional logo_url (for header brand mark)
 #}
 <!doctype html>
@@ -119,22 +119,29 @@
     </main>
 
     {% block bottom_nav %}
+      {# Universal 5-item bottom nav: Home / Create / Manage / Chat / Insights.
+         Hrefs are pinned to the canonical app routes — do not refactor without
+         updating tests/test_mommyandme_brand_activation.py. #}
       <nav class="mc-bottom-nav" aria-label="Primary">
-        <a href="/admin/hub"      class="mc-bottom-nav__item focus-ring" {% if active_nav == 'home' %}aria-current="page"{% endif %}>
+        <a href="/hub"                          class="mc-bottom-nav__item focus-ring" {% if active_nav == 'home' %}aria-current="page"{% endif %}>
           <span class="material-symbols-rounded" aria-hidden="true">home</span>
           <span>Home</span>
         </a>
-        <a href="/admin/collections/build" class="mc-bottom-nav__item focus-ring" {% if active_nav == 'create' %}aria-current="page"{% endif %}>
+        <a href="/walmart/trending-now?admin=1" class="mc-bottom-nav__item focus-ring" {% if active_nav == 'create' %}aria-current="page"{% endif %}>
           <span class="material-symbols-rounded" aria-hidden="true">add_circle</span>
           <span>Create</span>
         </a>
-        <a href="/insights"       class="mc-bottom-nav__item focus-ring" {% if active_nav == 'insights' %}aria-current="page"{% endif %}>
-          <span class="material-symbols-rounded" aria-hidden="true">insights</span>
-          <span>Insights</span>
+        <a href="/archer/posts/manage"          class="mc-bottom-nav__item focus-ring" {% if active_nav == 'manage' %}aria-current="page"{% endif %}>
+          <span class="material-symbols-rounded" aria-hidden="true">list_alt</span>
+          <span>Manage</span>
         </a>
-        <a href="/admin/chat"     class="mc-bottom-nav__item focus-ring" {% if active_nav == 'chat' %}aria-current="page"{% endif %}>
+        <a href="/chat"                         class="mc-bottom-nav__item focus-ring" {% if active_nav == 'chat' %}aria-current="page"{% endif %}>
           <span class="material-symbols-rounded" aria-hidden="true">chat</span>
           <span>Chat</span>
+        </a>
+        <a href="/insights"                     class="mc-bottom-nav__item focus-ring" {% if active_nav == 'insights' %}aria-current="page"{% endif %}>
+          <span class="material-symbols-rounded" aria-hidden="true">insights</span>
+          <span>Insights</span>
         </a>
       </nav>
     {% endblock %}
