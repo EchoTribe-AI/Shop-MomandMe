@@ -362,6 +362,102 @@ class BrandVarsTemplate(_BoundaryTestBase):
         self.assertIn('#abc123', primary_line)
         self.assertNotIn('var(--accent', primary_line)
 
+    def test_brand_surface_vars_emit_when_set(self):
+        # K1 — non-null brand_surface / brand_on_surface render literally.
+        from flask import render_template, g
+        with self.app_module.app.test_request_context('/'):
+            ctx = self.app_module.build_brand_context('everydaywithsteph')
+            ctx['brand_surface'] = '#e5dbc8'
+            ctx['brand_on_surface'] = '#3d3a33'
+            g._brand_ctx = ctx
+            css = render_template('partials/_brand_vars.html')
+        surface_line = [
+            line for line in css.splitlines()
+            if '--brand-surface:' in line and '--brand-on-surface' not in line
+        ][0]
+        self.assertIn('#e5dbc8', surface_line)
+        self.assertNotIn('var(--bg', surface_line)
+        on_surface_line = [
+            line for line in css.splitlines()
+            if '--brand-on-surface:' in line
+        ][0]
+        self.assertIn('#3d3a33', on_surface_line)
+        self.assertNotIn('var(--text', on_surface_line)
+
+    def test_brand_surface_null_renders_fallback(self):
+        # K1 — when both surface fields are NULL, the static fallback chain
+        # is emitted (var(--bg, …) / var(--text, var(--ink, …))).
+        from flask import render_template
+        with self.app_module.app.test_request_context('/'):
+            css = render_template('partials/_brand_vars.html')
+        self.assertIn('--brand-surface:', css)
+        self.assertIn('--brand-on-surface:', css)
+        self.assertIn('var(--bg,     #fff8f6)', css)
+        self.assertIn('var(--text,   var(--ink, #1a1a17))', css)
+
+    def test_bridge_mirrors_brand_surface_to_bg(self):
+        # K1 — when brand_surface is set, the partial emits a --bg override
+        # so legacy templates that consume var(--bg) become canvas-aware.
+        from flask import render_template, g
+        with self.app_module.app.test_request_context('/'):
+            ctx = self.app_module.build_brand_context('everydaywithsteph')
+            ctx['brand_surface'] = '#e5dbc8'
+            g._brand_ctx = ctx
+            css = render_template('partials/_brand_vars.html')
+        self.assertIn('--bg: #e5dbc8', css)
+
+    def test_bridge_inert_when_brand_surface_null(self):
+        # K1 — bridge must NOT emit a --bg override when surface is NULL.
+        from flask import render_template
+        with self.app_module.app.test_request_context('/'):
+            css = render_template('partials/_brand_vars.html')
+        # No bare '--bg: #...;' override line; only the fallback inside
+        # --brand-surface should reference --bg.
+        bridge_lines = [
+            line for line in css.splitlines()
+            if line.strip().startswith('--bg:')
+        ]
+        self.assertEqual(
+            bridge_lines, [],
+            "Bridge must not emit --bg override when brand_surface is NULL",
+        )
+
+    def test_bridge_mirrors_brand_on_surface_to_text_only(self):
+        # K1 — when brand_on_surface is set, mirror to --text only.
+        # --ink is intentionally NOT bridged because it's dual-use
+        # (background/border-color on walmart_trending_now.html buttons).
+        from flask import render_template, g
+        with self.app_module.app.test_request_context('/'):
+            ctx = self.app_module.build_brand_context('everydaywithsteph')
+            ctx['brand_on_surface'] = '#3d3a33'
+            g._brand_ctx = ctx
+            css = render_template('partials/_brand_vars.html')
+        self.assertIn('--text: #3d3a33', css)
+        # No bare '--ink:' override line — bridge is narrowed.
+        ink_override_lines = [
+            line for line in css.splitlines()
+            if line.strip().startswith('--ink:')
+        ]
+        self.assertEqual(
+            ink_override_lines, [],
+            "Bridge must NOT mirror brand_on_surface onto --ink "
+            "(dual-use as button background in walmart_trending_now.html)",
+        )
+
+    def test_bridge_inert_when_brand_on_surface_null(self):
+        # K1 — bridge must NOT emit --text override when on_surface is NULL.
+        from flask import render_template
+        with self.app_module.app.test_request_context('/'):
+            css = render_template('partials/_brand_vars.html')
+        text_override_lines = [
+            line for line in css.splitlines()
+            if line.strip().startswith('--text:')
+        ]
+        self.assertEqual(
+            text_override_lines, [],
+            "Bridge must not emit --text override when brand_on_surface is NULL",
+        )
+
 
 # ── 6. /branding/<path:filename> route ────────────────────────────────────────
 
@@ -530,6 +626,79 @@ class EndToEndBrandRender(_BoundaryTestBase):
         )
         # And the legacy --accent override line should be present.
         self.assertIn('--accent: #7c7d6a', body)
+
+    def test_brand_surface_hex_appears_in_storefront_response(self):
+        # K1 — creator row carries sage primary + linen canvas; both hexes
+        # must reach the rendered storefront body, and the --bg bridge must
+        # be present so legacy templates' canvas paints from the row.
+        self._insert_creator(
+            id='c-sage-canvas',
+            display_name='Sage Canvas Creator',
+            shop_domain='shop.sage-canvas.example.com',
+            brand_primary='#7c7d6a',
+            brand_surface='#e5dbc8',
+            brand_on_surface='#1a1a17',
+        )
+        self._seed_collage(slug='sage-canvas-collection', creator_id='c-sage-canvas')
+
+        client = self.app_module.app.test_client()
+        resp = client.get(
+            '/shop/sage-canvas-collection',
+            base_url='http://shop.sage-canvas.example.com',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        # Both row hexes appear in the rendered HTML.
+        self.assertIn(
+            '#7c7d6a', body,
+            "brand_primary hex should appear in rendered storefront response",
+        )
+        self.assertIn(
+            '#e5dbc8', body,
+            "brand_surface hex should appear in rendered storefront response",
+        )
+        # And the legacy --bg bridge line must be present so the canvas
+        # paints from the creator row, not from the template-local --bg.
+        self.assertIn('--bg: #e5dbc8', body)
+        self.assertIn('--text: #1a1a17', body)
+
+    def test_null_brand_surface_falls_back_safely(self):
+        # K1 — when brand_surface is NULL, the bridge must stay inert and
+        # the static fallback chain in --brand-surface must be visible.
+        self._insert_creator(
+            id='c-no-surface',
+            display_name='No Surface Creator',
+            shop_domain='shop.no-surface.example.com',
+            brand_primary='#7c7d6a',
+            brand_surface=None,
+            brand_on_surface=None,
+        )
+        self._seed_collage(slug='no-surface-collection', creator_id='c-no-surface')
+
+        client = self.app_module.app.test_client()
+        resp = client.get(
+            '/shop/no-surface-collection',
+            base_url='http://shop.no-surface.example.com',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        # Static fallback for --brand-surface is present.
+        self.assertIn('var(--bg,     #fff8f6)', body)
+        # Bridge --bg/--text overrides MUST be absent inside the brand-vars
+        # block. Slice to that block to avoid false matches in template-local
+        # :root selectors.
+        if '<style id="brand-vars">' in body:
+            brand_block = body.split(
+                '<style id="brand-vars">', 1
+            )[1].split('</style>', 1)[0]
+            self.assertNotIn(
+                '--bg: #', brand_block,
+                "Bridge must not emit --bg override when brand_surface is NULL",
+            )
+            self.assertNotIn(
+                '--text: #', brand_block,
+                "Bridge must not emit --text override when brand_on_surface is NULL",
+            )
 
     def test_null_brand_primary_falls_back_to_creator_core(self):
         # Same setup but no brand_primary set — must NOT have the bridge

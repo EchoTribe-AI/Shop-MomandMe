@@ -1,15 +1,17 @@
 {# Brand-swap CSS variables (canonical) — locked per design/_design-system/build-conventions.md.
 
-   The 4 (or 6 — see K1 in OPEN_QUESTIONS_TRACKER) variables below are the ONLY
-   knobs a per-creator deploy is permitted to override. Per-deploy branding
-   (Shop-MomandMe etc.) overrides these via its own CSS in templates/base or
-   the deploy-specific branding/ directory.
+   The 6 variables below are the ONLY knobs a per-creator deploy is
+   permitted to override. Per-deploy branding (Shop-MomandMe etc.)
+   overrides these via its own CSS in templates/base or the deploy-specific
+   branding/ directory. K1 widened the contract from 4 → 6 by adding the
+   canvas/surface pair (--brand-surface, --brand-on-surface).
 
    P0.7 wiring: each var below renders from the request-scope `brand` dict
    (populated by app.build_brand_context() — see app.py). When a value is
    NULL on the creator row AND not set in branding/overrides.json, we fall
-   back to the static var(--accent, …) chain so existing screens that
-   reference these vars (alongside legacy --accent / --bg) keep working.
+   back to the static var(--accent, …) / var(--bg, …) chain so existing
+   screens that reference these vars (alongside legacy --accent / --bg /
+   --text) keep working.
 #}
 <style id="brand-vars">
   :root {
@@ -19,9 +21,11 @@
     --brand-on-primary:            {{ brand.brand_on_primary           if brand and brand.brand_on_primary           else 'var(--card,   #ffffff)' }};
     --brand-primary-container:     {{ brand.brand_primary_container    if brand and brand.brand_primary_container    else 'var(--soft,   #ffe9df)' }};
     --brand-on-primary-container:  {{ brand.brand_on_primary_container if brand and brand.brand_on_primary_container else 'var(--ink,    #1a1a17)' }};
+    --brand-surface:               {{ brand.brand_surface              if brand and brand.brand_surface              else 'var(--bg,     #fff8f6)' }};
+    --brand-on-surface:            {{ brand.brand_on_surface           if brand and brand.brand_on_surface           else 'var(--text,   var(--ink, #1a1a17))' }};
 
     /* Locked Creator Core — DO NOT override at deploy time without
-       widening the contract (K1 in OPEN_QUESTIONS_TRACKER). */
+       widening the contract. */
     --brand-success:               #0a6b52;
     --brand-on-success-container:  #0a6b52;
     --brand-success-container:     rgba(10, 107, 82, 0.10);
@@ -46,6 +50,20 @@
        var(--brand-primary) directly when that's clearer; both work. */
     --accent: {{ brand.brand_primary }};
     --soft:   {{ brand.brand_primary_container if brand.brand_primary_container else brand.brand_primary }};
+    {% endif %}
+    {% if brand and brand.brand_surface %}
+    /* K1 canvas bridge — mirror brand_surface onto legacy --bg so the four
+       live storefront templates' canvas paints from the creator row. */
+    --bg: {{ brand.brand_surface }};
+    {% endif %}
+    {% if brand and brand.brand_on_surface %}
+    /* K1 body-text bridge — narrowed to --text only. --ink is dual-use in
+       walmart_trending_now.html (background/border-color on .workbook-run-btn,
+       .retailer-tab[aria-pressed="true"], .admin-action); mirroring there
+       would re-tint those button fills. Templates that need brand-aware
+       body text on those screens should consume var(--brand-on-surface)
+       directly. */
+    --text: {{ brand.brand_on_surface }};
     {% endif %}
   }
 
