@@ -154,6 +154,65 @@ PIXEL_ID = os.environ.get('FB_PIXEL_ID', '1559451780790812')
 # /shop/<slug> handler renders. Cleaner share URLs without a /shop/ prefix.
 SHOP_SUBDOMAIN = os.environ.get('SHOP_SUBDOMAIN', 'shop.echotribe.ai').lower()
 
+# ── P0.7 storefront framework boundary ───────────────────────────────────────
+# The framework default creator id. Used when no env override is set and no
+# host matches a creators.shop_domain row. Kept as a module constant so the
+# resolver, context-processor fallback, and any future tests share one source
+# of truth (don't sprinkle 'everydaywithsteph' literals across new code).
+_DEFAULT_ACTIVE_CREATOR_ID = 'everydaywithsteph'
+
+
+def _normalize_host(host: str | None) -> str:
+    """Lowercase + strip port from a Host header value. Returns '' for empty."""
+    if not host:
+        return ''
+    return host.split(':', 1)[0].strip().lower()
+
+
+def _resolve_active_creator_id(req=None) -> str:
+    """Resolve which creator this request should render against.
+
+    Precedence:
+      1. ACTIVE_CREATOR_ID env var (per-deploy pin; Replit Secrets in prod).
+      2. Host header match against creators.shop_domain (case-insensitive,
+         port-stripped on both sides).
+      3. _DEFAULT_ACTIVE_CREATOR_ID ('everydaywithsteph').
+
+    Never raises. Safe to call outside a request context (host branch skips).
+    Safe before init_schema() runs (DB lookup is try/excepted).
+    """
+    env_id = (os.environ.get('ACTIVE_CREATOR_ID') or '').strip()
+    if env_id:
+        return env_id
+
+    # Host lookup. The request arg lets tests pass a stand-in; default to
+    # Flask's request proxy when called inside a request context.
+    host = ''
+    try:
+        target = req if req is not None else request
+        host = _normalize_host(getattr(target, 'host', None))
+    except Exception:
+        host = ''
+
+    if host:
+        try:
+            conn = db_schema._connect()
+            try:
+                row = conn.execute(
+                    "SELECT id, shop_domain FROM creators "
+                    "WHERE shop_domain IS NOT NULL AND shop_domain != ''"
+                ).fetchall()
+            finally:
+                conn.close()
+            for r in row or []:
+                shop_domain = r['shop_domain'] if hasattr(r, 'keys') else r[1]
+                if _normalize_host(shop_domain) == host:
+                    return r['id'] if hasattr(r, 'keys') else r[0]
+        except Exception as e:
+            logging.warning(f"[P07] host→creator lookup failed: {e}")
+
+    return _DEFAULT_ACTIVE_CREATOR_ID
+
 
 def _fmt_date(v) -> str:
     """Format a date value (datetime obj or ISO string) to YYYY-MM-DD string."""
