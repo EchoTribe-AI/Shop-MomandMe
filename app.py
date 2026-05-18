@@ -821,7 +821,153 @@ def hub():
     guard = _require_admin_page()
     if guard:
         return guard
-    return render_template('hub.html', shop_subdomain=SHOP_SUBDOMAIN)
+    dashboard = _build_hub_dashboard()
+    return render_template(
+        'hub.html',
+        shop_subdomain=SHOP_SUBDOMAIN,
+        dashboard=dashboard,
+    )
+
+
+def _build_hub_dashboard() -> dict:
+    """Aggregate the urgency-first hub dashboard payload.
+
+    Pulls live counts from collages + collection_content_drafts and a
+    recent-activity list. Every read is best-effort: any failure degrades
+    that signal to a safe empty value so /hub still renders.
+    """
+    import collection_service
+
+    snapshot = {
+        'published_count': 0,
+        'draft_count': 0,
+        'archived_count': 0,
+        'total_count': 0,
+    }
+    needs_attention = []
+    recent_activity = []
+    creator_first_name = ''
+
+    # Pull a friendly display first name out of the brand context if we can.
+    try:
+        cid = getattr(g, 'active_creator_id', None) or _DEFAULT_ACTIVE_CREATOR_ID
+        creator_row = db_schema.get_creator(cid) or {}
+        label = (creator_row.get('brand_label') or '').strip()
+        # Best-effort first-name extraction. The default active creator is
+        # 'everydaywithsteph' — surface "Steph" for that creator even when
+        # the brand_label is the collective name ("Mommy & Me Collective").
+        # For other creators, take the first token of brand_label, but skip
+        # generic words ("the", "mommy", "my") that would read as a label, not a name.
+        cid_lower = (cid or '').lower()
+        if 'steph' in cid_lower or 'steph' in label.lower():
+            creator_first_name = 'Steph'
+        elif label:
+            first_tok = label.split()[0]
+            if first_tok.lower() in {'the', 'mommy', 'my', 'a', 'an'} and len(label.split()) > 1:
+                first_tok = label.split()[1]
+            creator_first_name = first_tok
+    except Exception as exc:
+        logging.warning("[HUB] first-name lookup failed: %s", exc)
+
+    try:
+        _ensure_schema_ready()
+        all_collages = collection_service.list_collages(status='all', limit=200)
+        for c in all_collages:
+            status = (c.get('status') or 'published').lower()
+            if status == 'published':
+                snapshot['published_count'] += 1
+            elif status == 'archived':
+                snapshot['archived_count'] += 1
+            else:
+                snapshot['draft_count'] += 1
+        snapshot['total_count'] = (
+            snapshot['published_count']
+            + snapshot['draft_count']
+            + snapshot['archived_count']
+        )
+        # Recent activity: show the most recent published + draft (skip archived)
+        for c in all_collages[:10]:
+            status = (c.get('status') or 'published').lower()
+            if status == 'archived':
+                continue
+            recent_activity.append({
+                'slug': c.get('slug') or '',
+                'theme': c.get('theme') or '',
+                'status': status,
+                'product_count': c.get('product_count') or 0,
+                'created_at': c.get('created_at') or '',
+                'edit_url': f"/collections/{c.get('slug') or ''}/edit",
+                'live_url': f"https://{SHOP_SUBDOMAIN}/{c.get('slug') or ''}",
+            })
+            if len(recent_activity) >= 8:
+                break
+    except Exception as exc:
+        logging.warning("[HUB] collage snapshot unavailable: %s", exc)
+
+    # Needs-attention: stale draft content-drafts (collection_content_drafts).
+    # Stale = updated_at older than 7 days, still in 'draft' status.
+    try:
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+        conn = db_schema._connect()
+        try:
+            rows = conn.execute(
+                "SELECT id, title, source_collection_slug, updated_at "
+                "FROM collection_content_drafts "
+                "WHERE COALESCE(status,'draft') = 'draft' "
+                "AND updated_at < ? "
+                "ORDER BY updated_at DESC LIMIT 5",
+                (cutoff,),
+            ).fetchall()
+        finally:
+            conn.close()
+        stale_drafts = []
+        for r in rows:
+            d = dict(r) if hasattr(r, 'keys') else r
+            stale_drafts.append({
+                'id': d.get('id'),
+                'title': (d.get('title') or 'Untitled draft').strip() or 'Untitled draft',
+                'source_slug': d.get('source_collection_slug') or '',
+                'updated_at': d.get('updated_at') or '',
+            })
+        if stale_drafts:
+            needs_attention.append({
+                'kind': 'stale_drafts',
+                'label': 'Stale drafts (older than 7 days)',
+                'items': stale_drafts,
+                'count': len(stale_drafts),
+            })
+    except Exception as exc:
+        logging.warning("[HUB] stale draft lookup failed: %s", exc)
+
+    # Needs-attention: walmart products with enrichment_status='pending'
+    try:
+        conn = db_schema._connect()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM walmart_products "
+                "WHERE COALESCE(enrichment_status,'pending') = 'pending'"
+            ).fetchone()
+        finally:
+            conn.close()
+        n = 0
+        if row is not None:
+            n = (dict(row).get('n') if hasattr(row, 'keys') else row[0]) or 0
+        if n:
+            needs_attention.append({
+                'kind': 'pending_products',
+                'label': 'Walmart products pending enrichment',
+                'count': int(n),
+            })
+    except Exception as exc:
+        logging.warning("[HUB] pending-products lookup failed: %s", exc)
+
+    return {
+        'creator_first_name': creator_first_name,
+        'snapshot': snapshot,
+        'needs_attention': needs_attention,
+        'recent_activity': recent_activity,
+    }
 
 # ARCHIVED — see /archive/routes/
 

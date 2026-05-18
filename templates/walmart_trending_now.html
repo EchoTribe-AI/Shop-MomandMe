@@ -114,6 +114,94 @@
     .lp-chat-input { flex: 1; border: 1px solid rgba(0,0,0,0.15); border-radius: 10px; padding: 9px 10px; font-size: 12px; outline: none; }
     .lp-chat-input:focus { border-color: var(--accent); }
     .lp-chat-send { border: none; border-radius: 10px; background: var(--accent); color: var(--brand-on-primary, #fff); font-weight: 700; font-size: 12px; padding: 0 12px; cursor: pointer; }
+
+    /* ───────── Admin-mode visual polish ─────────
+       Sage/linen/charcoal accents layered on top of the public surface.
+       Retailer CTAs (.cta, .cta-amazon) and the existing retailer chips are
+       deliberately untouched — Walmart orange / Amazon yellow stay where they
+       belong.
+    */
+    .admin-mode {
+      --admin-sage: #cfe3d0;
+      --admin-sage-soft: #eaf3eb;
+      --admin-sage-deep: #2f5d44;
+      --admin-linen: #f5f0e6;
+      --admin-charcoal: #1a1a17;
+    }
+    .admin-mode body, body.admin-mode {
+      background: linear-gradient(180deg, var(--admin-linen, #f5f0e6), #fff 60%);
+    }
+    .admin-mode .page {
+      background: transparent;
+    }
+    /* Admin-only branded banner above the hero */
+    .admin-banner {
+      margin: 6px 18px 0;
+      padding: 14px 16px;
+      background: linear-gradient(135deg, var(--admin-sage-soft, #eaf3eb), #fff);
+      border: 1px solid rgba(47,93,68,.18);
+      border-radius: 18px;
+      box-shadow: 0 6px 18px rgba(26,26,23,.05);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .admin-banner__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .admin-banner__eyebrow {
+      font-size: 10px; font-weight: 800;
+      letter-spacing: .12em; text-transform: uppercase;
+      color: var(--admin-sage-deep, #2f5d44);
+    }
+    .admin-banner__title {
+      margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -.02em;
+      color: var(--admin-charcoal, #1a1a17);
+    }
+    .admin-banner__sub {
+      margin: 0; font-size: 12px; line-height: 1.4;
+      color: rgba(26,26,23,.62);
+    }
+    .admin-banner__badge {
+      flex: 0 0 auto;
+      background: var(--admin-charcoal, #1a1a17);
+      color: #fff;
+      font-size: 10px; font-weight: 800;
+      letter-spacing: .08em; text-transform: uppercase;
+      padding: 6px 10px; border-radius: 999px;
+    }
+    /* Tighter, branded section dividers in admin mode */
+    .admin-mode .section { padding-top: 24px; }
+    .admin-mode .section-head { padding-bottom: 12px; border-bottom: 1px solid rgba(47,93,68,.12); margin: 0 18px 8px; padding-left: 0; padding-right: 0; }
+    .admin-mode .section h2 { font-size: 18px; letter-spacing: -.02em; }
+    .admin-mode .section h2::before {
+      content: '';
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--admin-sage-deep, #2f5d44);
+      margin-right: 8px;
+      vertical-align: middle;
+      transform: translateY(-2px);
+    }
+    .admin-mode .section-desc { color: rgba(26,26,23,.55); }
+    /* Card refinements — admin only, doesn't touch retailer CTA fills */
+    .admin-mode .card { transition: transform .14s ease, box-shadow .14s ease; }
+    .admin-mode .card:hover { transform: translateY(-2px); box-shadow: 0 16px 32px rgba(26,26,23,.10); }
+    .admin-mode .name { font-size: 14px; min-height: 50px; }
+    .admin-mode .brand { color: var(--admin-sage-deep, #2f5d44); font-weight: 800; }
+    .admin-mode .body { padding: 12px 12px 14px; }
+    /* Workbook panel: linen card */
+    .admin-mode .workbook-panel {
+      background: var(--admin-linen, #f5f0e6);
+      border: 1px solid rgba(47,93,68,.16);
+      border-radius: 16px;
+      padding: 14px;
+      margin-top: 14px;
+      border-top: 1px solid rgba(47,93,68,.16);
+    }
+    .admin-mode .workbook-panel-label {
+      color: var(--admin-sage-deep, #2f5d44);
+      letter-spacing: .12em;
+    }
+    /* The .workbook-run-btn intentionally stays charcoal (--ink) — it's an
+       admin/system control, not a retailer CTA. */
   </style>
   {# P0.7 brand-vars partial: included AFTER the inline theme <style> so the
      legacy-compat bridge (--accent/--soft sourced from brand.brand_primary)
@@ -126,6 +214,14 @@
     {% set active = 'home' %}
     {% set page_title = 'Trends' %}
     {% include 'partials/admin_header.html' %}
+    <div class="admin-banner" role="region" aria-label="Trends admin">
+      <div class="admin-banner__body">
+        <span class="admin-banner__eyebrow">{{ brand.shop_name or brand.brand_label or 'EchoTribe' }} · Admin</span>
+        <p class="admin-banner__title">Trends workspace</p>
+        <p class="admin-banner__sub">Import a workbook, browse sections, then turn any section into a published shop page.</p>
+      </div>
+      <span class="admin-banner__badge">Trends</span>
+    </div>
   {% endif %}
   <main class="page">
     <header class="hero">

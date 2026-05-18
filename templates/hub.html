@@ -1,242 +1,485 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Content Hub · {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</title>
-  <style>
-    :root {
-      --bg: #fff8f6;
-      --ink: #1a1a17;
-      --muted: rgba(26,26,23,.6);
-      --line: rgba(26,26,23,.10);
-      --accent: #e85d26;
-      --soft: #ffe9df;
-      --card: #fff;
-      --green: #0a6b52;
-      --green-soft: #e6f4eb;
-      --r: 18px;
-    }
-    * { box-sizing: border-box; }
-    {% include 'partials/admin_header_styles.html' %}
-    body {
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--ink);
-      font-size: 15px;
-      line-height: 1.5;
-    }
+{% extends 'partials/_mobile_chrome.html' %}
 
-    /* ── Page layout ── */
-    .page { max-width: 520px; margin: 0 auto; padding: 28px 18px 60px; }
+{# V1-B hub_home — urgency-first "Hi Steph" dashboard.
 
-    /* ── Hero ── */
-    .hero { margin-bottom: 28px; }
-    .eyebrow {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: var(--soft); color: var(--accent);
-      font-size: 11px; font-weight: 800; letter-spacing: .04em;
-      padding: 5px 10px; border-radius: 999px; margin-bottom: 10px;
-    }
-    .hero h1 {
-      font-size: 28px; font-weight: 800; letter-spacing: -.03em;
-      line-height: 1.1; margin: 0 0 8px;
-    }
-    .hero p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+   Surface contract:
+     - Greeting header pulled from brand context (creator first name).
+     - Snapshot cards: published / drafts / total collection counts.
+     - Needs-attention: stale drafts, products pending enrichment.
+       Each signal renders only when real data backs it.
+     - Manage Collections card with live published/draft counts.
+     - Quick actions: Find trending, Manage, Chat, Insights.
+     - Recent activity: last 8 non-archived collections (live + draft links).
 
-    /* ── Section label ── */
-    .section-label {
-      font-size: 10px; font-weight: 800; letter-spacing: .1em;
-      text-transform: uppercase; color: var(--muted);
-      margin: 0 0 10px;
-    }
+   Data layer:
+     - app._build_hub_dashboard() builds the `dashboard` dict.
+     - All keys are safe-defaulted; missing data renders graceful empty
+       states instead of fabricated counts.
+#}
 
-    /* ── Action cards ── */
-    .cards { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: var(--r);
-      padding: 18px;
-      box-shadow: 0 4px 18px rgba(26,26,23,.06);
-      text-decoration: none;
-      display: block;
-      transition: box-shadow .15s, transform .15s;
-    }
-    .card:active { transform: scale(.99); }
-    .card-icon { font-size: 28px; margin-bottom: 10px; }
-    .card-title { font-size: 17px; font-weight: 800; color: var(--ink); margin-bottom: 4px; }
-    .card-desc { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 14px; }
-    .card-steps { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 6px; }
-    .card-step {
-      display: flex; gap: 9px; align-items: flex-start;
-      font-size: 13px; color: var(--muted); line-height: 1.4;
-    }
-    .card-step-num {
-      flex-shrink: 0;
-      width: 20px; height: 20px;
-      border-radius: 50%;
-      background: var(--soft);
-      color: var(--accent);
-      font-size: 11px; font-weight: 900;
-      display: flex; align-items: center; justify-content: center;
-      margin-top: 1px;
-    }
-    .card-step strong { color: var(--ink); font-weight: 700; }
-    .card-btn {
-      display: flex; align-items: center; justify-content: space-between;
-      background: var(--accent); color: var(--brand-on-primary, #fff);
-      border-radius: 12px; padding: 11px 14px;
-      font-size: 13px; font-weight: 800;
-      text-decoration: none;
-    }
-    .card-btn-arrow { font-size: 16px; opacity: .8; }
+{% set active_nav = 'home' %}
+{% set _snap = dashboard.snapshot if dashboard and dashboard.snapshot else {} %}
+{% set _attention = dashboard.needs_attention if dashboard and dashboard.needs_attention else [] %}
+{% set _activity = dashboard.recent_activity if dashboard and dashboard.recent_activity else [] %}
+{% set _first_name = (dashboard.creator_first_name if dashboard and dashboard.creator_first_name else (brand.brand_label.split()[0] if brand and brand.brand_label else '')) %}
+{% set _brand_name = brand.shop_name or brand.brand_label or 'EchoTribe' %}
 
-    /* ── Live shop links ── */
-    .shop-links { display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px; }
-    .shop-link {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 12px;
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 13px;
-      padding: 13px 16px;
-      text-decoration: none;
-      box-shadow: 0 2px 8px rgba(26,26,23,.05);
-      transition: background .12s;
-    }
-    .shop-link:active { background: var(--bg); }
-    .shop-link-left { display: flex; align-items: center; gap: 10px; }
-    .shop-link-icon { font-size: 20px; }
-    .shop-link-name { font-size: 14px; font-weight: 700; color: var(--ink); }
-    .shop-link-url { font-size: 11px; color: var(--muted); margin-top: 1px; }
-    .shop-link-arrow { font-size: 18px; color: var(--muted); flex-shrink: 0; }
+{% block title %}Home · {{ _brand_name }}{% endblock %}
+{% block header_title %}Home{% endblock %}
 
-    /* ── Footer ── */
-    .footer { text-align: center; color: var(--muted); font-size: 11px; padding-top: 20px; border-top: 1px solid var(--line); }
+{% block head_extra %}
+<style>
+  /* Hub dashboard — V1-B urgency-first surface.
+     Brand-aware: every accent uses --brand-primary / --brand-primary-container,
+     surfaces use --brand-surface. Material Symbols ships from chrome. */
+  .hub {
+    padding: 18px 18px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .hub-greet {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .hub-greet__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--brand-primary);
+  }
+  .hub-greet__hello {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -.03em;
+    line-height: 1.08;
+    color: var(--ink, #1a1a17);
+    margin: 0;
+  }
+  .hub-greet__sub {
+    margin: 4px 0 0;
+    color: var(--muted, rgba(26,26,23,.62));
+    font-size: 14px;
+    line-height: 1.5;
+  }
 
-    @media (min-width: 560px) {
-      .page { border-left: 1px solid var(--line); border-right: 1px solid var(--line); min-height: 100vh; }
-    }
-  </style>
-  {# Brand-vars partial: included AFTER the inline theme <style> so the
-     legacy-compat bridge (--accent/--soft/--bg sourced from the active
-     creator row) wins over the static fallbacks above. NULL creator
-     colors → the bridge stays inert and the static palette renders. #}
-  {% include 'partials/_brand_vars.html' %}
-</head>
-<body>
+  .hub-section { display: flex; flex-direction: column; gap: 10px; }
+  .hub-section__label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted, rgba(26,26,23,.62));
+    margin: 0;
+  }
 
-{% set active = 'home' %}
-{% set page_title = 'Content Hub' %}
-{% include 'partials/admin_header.html' %}
+  /* Snapshot tiles — published / drafts / total */
+  .hub-snapshot {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .hub-tile {
+    background: var(--card, #ffffff);
+    border: 1px solid var(--line, rgba(26,26,23,.10));
+    border-radius: 16px;
+    padding: 14px 12px;
+    text-decoration: none;
+    color: var(--ink, #1a1a17);
+    box-shadow: 0 4px 14px rgba(26,26,23,.05);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 84px;
+  }
+  .hub-tile__count {
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -.02em;
+    color: var(--ink, #1a1a17);
+  }
+  .hub-tile__count--accent { color: var(--brand-primary); }
+  .hub-tile__count--success { color: var(--brand-success, #0a6b52); }
+  .hub-tile__count--warn { color: var(--brand-warning, #b85c00); }
+  .hub-tile__label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted, rgba(26,26,23,.62));
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
 
-<main class="page">
+  /* Needs-attention — urgency block */
+  .hub-attention {
+    background: var(--brand-warning-container, rgba(184,92,0,0.10));
+    border: 1px solid rgba(184,92,0,.22);
+    border-radius: 18px;
+    padding: 14px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .hub-attention__title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--brand-on-warning-container, #b85c00);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .hub-attention__list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .hub-attention__item {
+    background: var(--card, #ffffff);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--ink, #1a1a17);
+    text-decoration: none;
+  }
+  .hub-attention__item-label { font-weight: 700; line-height: 1.35; }
+  .hub-attention__item-count {
+    font-weight: 800;
+    color: var(--brand-warning, #b85c00);
+    background: var(--brand-warning-container, rgba(184,92,0,0.10));
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    flex: 0 0 auto;
+  }
+  .hub-attention__drafts {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .hub-attention__draft-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px;
+    background: var(--card, #ffffff);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .hub-attention__draft-title {
+    font-weight: 700; color: var(--ink, #1a1a17); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .hub-attention__draft-link {
+    color: var(--brand-primary);
+    font-weight: 800;
+    text-decoration: none;
+    flex: 0 0 auto;
+    font-size: 11px;
+  }
 
-  <div class="hero">
-    <div class="eyebrow">✦ {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</div>
-    <h1>Content Hub</h1>
-    <p>Your starting point for building and publishing collection pages to the live shop.</p>
-  </div>
+  /* Manage Collections — hero card */
+  .hub-manage {
+    background: var(--brand-primary-container, #ffe9df);
+    border-radius: 22px;
+    padding: 18px;
+    color: var(--brand-on-primary-container, #1a1a17);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    box-shadow: 0 10px 26px rgba(26,26,23,.07);
+  }
+  .hub-manage__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .hub-manage__title {
+    font-size: 17px; font-weight: 800; letter-spacing: -.01em;
+    margin: 0;
+  }
+  .hub-manage__sub {
+    margin: 0; font-size: 13px; line-height: 1.4;
+    color: var(--brand-on-primary-container, #1a1a17);
+    opacity: .82;
+  }
+  .hub-manage__chips {
+    margin-top: 8px;
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .hub-manage__chip {
+    background: var(--card, #ffffff);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--ink, #1a1a17);
+  }
+  .hub-manage__chip strong { color: var(--brand-primary); margin-right: 4px; }
+  .hub-manage__arrow {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: var(--card, #ffffff);
+    color: var(--brand-primary);
+    display: flex; align-items: center; justify-content: center;
+    flex: 0 0 auto;
+    box-shadow: 0 4px 12px rgba(26,26,23,.10);
+  }
+  .hub-manage__arrow .material-symbols-rounded { font-size: 24px; }
 
-  <!-- ── Content Hub ── -->
-  <div class="section-label">Content Hub</div>
-  <div class="cards">
+  /* Quick actions grid */
+  .hub-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .hub-action {
+    background: var(--card, #ffffff);
+    border: 1px solid var(--line, rgba(26,26,23,.10));
+    border-radius: 16px;
+    padding: 14px 12px;
+    text-decoration: none;
+    color: var(--ink, #1a1a17);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 96px;
+    box-shadow: 0 4px 12px rgba(26,26,23,.04);
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .hub-action:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(26,26,23,.08); }
+  .hub-action__icon {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: var(--brand-primary-container, #ffe9df);
+    color: var(--brand-primary);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hub-action__icon .material-symbols-rounded { font-size: 22px; }
+  .hub-action__title { font-size: 14px; font-weight: 800; letter-spacing: -.01em; }
+  .hub-action__sub { font-size: 11px; line-height: 1.35; color: var(--muted, rgba(26,26,23,.62)); }
 
-    <!-- Build A Collection -->
-    <div>
-      <div class="card-icon">🔥</div>
-      <div class="card-title">Build A Collection</div>
-      <div class="card-desc">Browse what's trending at Walmart and Amazon, then turn any section into a published shop page.</div>
-      <ol class="card-steps">
-        <li class="card-step">
-          <div class="card-step-num">1</div>
-          <span>Browse pre-curated trending sections — products are already organized for you.</span>
-        </li>
-        <li class="card-step">
-          <div class="card-step-num">2</div>
-          <span>Click <strong>Create post</strong> on any section you want to publish.</span>
-        </li>
-        <li class="card-step">
-          <div class="card-step-num">3</div>
-          <span>Record your voice or paste notes, hit <strong>Generate post</strong>, then <strong>Publish page</strong>.</span>
-        </li>
-      </ol>
-      <a class="card-btn" href="/walmart/trending-now?admin=1">
-        Go to Trending Now <span class="card-btn-arrow">→</span>
+  /* Recent activity list */
+  .hub-activity { display: flex; flex-direction: column; gap: 8px; }
+  .hub-activity__row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    background: var(--card, #ffffff);
+    border: 1px solid var(--line, rgba(26,26,23,.10));
+    border-radius: 14px;
+    padding: 12px 14px;
+    text-decoration: none;
+    color: var(--ink, #1a1a17);
+  }
+  .hub-activity__main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .hub-activity__slug {
+    font-size: 13px; font-weight: 800;
+    line-height: 1.25;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .hub-activity__meta { font-size: 11px; color: var(--muted, rgba(26,26,23,.62)); }
+  .hub-activity__status {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    padding: 4px 8px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+  }
+  .hub-activity__status--published {
+    color: var(--brand-success, #0a6b52);
+    background: var(--brand-success-container, rgba(10,107,82,0.10));
+  }
+  .hub-activity__status--draft {
+    color: var(--brand-warning, #b85c00);
+    background: var(--brand-warning-container, rgba(184,92,0,0.10));
+  }
+  .hub-activity__empty {
+    border: 1px dashed var(--line, rgba(26,26,23,.10));
+    border-radius: 14px;
+    padding: 16px;
+    text-align: center;
+    color: var(--muted, rgba(26,26,23,.62));
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* Live-shop verify rail (kept from prior surface but reskinned) */
+  .hub-shop {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .hub-shop__link {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    background: var(--card, #ffffff);
+    border: 1px solid var(--line, rgba(26,26,23,.10));
+    border-radius: 14px;
+    padding: 12px 14px;
+    text-decoration: none;
+    color: var(--ink, #1a1a17);
+  }
+  .hub-shop__name { font-size: 13px; font-weight: 800; }
+  .hub-shop__url { font-size: 11px; color: var(--muted, rgba(26,26,23,.62)); }
+  .hub-shop__arrow { color: var(--muted, rgba(26,26,23,.62)); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hub" data-surface="hub-v1b">
+
+  <!-- Greeting header -->
+  <header class="hub-greet">
+    <span class="hub-greet__eyebrow">✦ {{ _brand_name }}</span>
+    <h1 class="hub-greet__hello">Hi{% if _first_name %} {{ _first_name }}{% endif %} 👋</h1>
+    <p class="hub-greet__sub">Here's what's worth your attention right now.</p>
+  </header>
+
+  <!-- Snapshot tiles -->
+  <section class="hub-section" aria-labelledby="hub-snapshot-label">
+    <p class="hub-section__label" id="hub-snapshot-label">Today's snapshot</p>
+    <div class="hub-snapshot">
+      <a class="hub-tile focus-ring" href="/archer/posts/manage">
+        <div class="hub-tile__count hub-tile__count--success">{{ _snap.get('published_count', 0) }}</div>
+        <div class="hub-tile__label">Published</div>
+      </a>
+      <a class="hub-tile focus-ring" href="/archer/posts/manage">
+        <div class="hub-tile__count hub-tile__count--warn">{{ _snap.get('draft_count', 0) }}</div>
+        <div class="hub-tile__label">Drafts</div>
+      </a>
+      <a class="hub-tile focus-ring" href="/archer/posts/manage">
+        <div class="hub-tile__count hub-tile__count--accent">{{ _snap.get('total_count', 0) }}</div>
+        <div class="hub-tile__label">Total</div>
       </a>
     </div>
+  </section>
 
-    <!-- Manage Collections -->
-    <div>
-      <div class="card-icon">📋</div>
-      <div class="card-title">Manage Collections</div>
-      <div class="card-desc">See every collection you've saved, published, or drafted. Edit, publish, or archive from one place.</div>
-      <ol class="card-steps">
-        <li class="card-step">
-          <div class="card-step-num">1</div>
-          <span><strong>Published</strong> collections are live on the shop. <strong>Draft</strong> collections are saved but hidden.</span>
-        </li>
-        <li class="card-step">
-          <div class="card-step-num">2</div>
-          <span>Click <strong>Edit</strong> to reopen a draft and finish it, or update a published page.</span>
-        </li>
-        <li class="card-step">
-          <div class="card-step-num">3</div>
-          <span>Click <strong>Archive</strong> to remove a collection from the shop (can be re-published later).</span>
-        </li>
-      </ol>
-      <a class="card-btn" href="/archer/posts/manage">
-        Go to Manage <span class="card-btn-arrow">→</span>
+  <!-- Needs attention -->
+  {% if _attention %}
+  <section class="hub-attention" aria-labelledby="hub-attention-label">
+    <h2 class="hub-attention__title" id="hub-attention-label">
+      <span class="material-symbols-rounded" aria-hidden="true" style="font-size:18px;">priority_high</span>
+      Needs your attention
+    </h2>
+    <ul class="hub-attention__list">
+      {% for signal in _attention %}
+        {% if signal.kind == 'stale_drafts' and signal.get('items') %}
+          <li>
+            <div class="hub-attention__item">
+              <span class="hub-attention__item-label">{{ signal.label }}</span>
+              <span class="hub-attention__item-count">{{ signal.count }}</span>
+            </div>
+            <div class="hub-attention__drafts" style="margin-top:6px;">
+              {% for d in signal['items'][:5] %}
+                <div class="hub-attention__draft-row">
+                  <span class="hub-attention__draft-title">{{ d.title }}</span>
+                  <a class="hub-attention__draft-link focus-ring" href="/collections/{{ d.source_slug }}/create-post">Open →</a>
+                </div>
+              {% endfor %}
+            </div>
+          </li>
+        {% else %}
+          <li>
+            <div class="hub-attention__item">
+              <span class="hub-attention__item-label">{{ signal.label }}</span>
+              <span class="hub-attention__item-count">{{ signal.count }}</span>
+            </div>
+          </li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <!-- Manage Collections hero -->
+  <a class="hub-manage focus-ring" href="/archer/posts/manage" data-cta="manage-collections">
+    <div class="hub-manage__body">
+      <p class="hub-manage__title">Manage your collections</p>
+      <p class="hub-manage__sub">Edit, publish, archive, and review what's live.</p>
+      <div class="hub-manage__chips">
+        <span class="hub-manage__chip"><strong>{{ _snap.get('published_count', 0) }}</strong>Published</span>
+        <span class="hub-manage__chip"><strong>{{ _snap.get('draft_count', 0) }}</strong>Drafts</span>
+      </div>
+    </div>
+    <div class="hub-manage__arrow" aria-hidden="true">
+      <span class="material-symbols-rounded">arrow_forward</span>
+    </div>
+  </a>
+
+  <!-- Quick actions -->
+  <section class="hub-section" aria-labelledby="hub-actions-label">
+    <p class="hub-section__label" id="hub-actions-label">Quick actions</p>
+    <div class="hub-actions">
+      <a class="hub-action focus-ring" href="/walmart/trending-now?admin=1">
+        <span class="hub-action__icon"><span class="material-symbols-rounded">trending_up</span></span>
+        <span class="hub-action__title">Find trending products</span>
+        <span class="hub-action__sub">Walmart + Amazon, ready to publish.</span>
+      </a>
+      <a class="hub-action focus-ring" href="/archer/posts/manage">
+        <span class="hub-action__icon"><span class="material-symbols-rounded">list_alt</span></span>
+        <span class="hub-action__title">Manage collections</span>
+        <span class="hub-action__sub">Drafts and live pages, one place.</span>
+      </a>
+      <a class="hub-action focus-ring" href="/chat">
+        <span class="hub-action__icon"><span class="material-symbols-rounded">chat</span></span>
+        <span class="hub-action__title">Chat with EchoAgent</span>
+        <span class="hub-action__sub">Ask for ideas, copy, picks.</span>
+      </a>
+      <a class="hub-action focus-ring" href="/insights">
+        <span class="hub-action__icon"><span class="material-symbols-rounded">insights</span></span>
+        <span class="hub-action__title">Insights</span>
+        <span class="hub-action__sub">What's earning and clicking.</span>
       </a>
     </div>
+  </section>
 
-  </div>
-
-  <!-- ── Live Shop ── -->
-  <div class="section-label">Live Shop — Verify Your Published Work</div>
-  <div class="shop-links">
-
-    <a class="shop-link" href="https://{{ shop_subdomain }}/collections" target="_blank" rel="noopener">
-      <div class="shop-link-left">
-        <div class="shop-link-icon">🗂</div>
-        <div>
-          <div class="shop-link-name">View Collections</div>
-          <div class="shop-link-url">{{ shop_subdomain }}/collections</div>
+  <!-- Recent activity -->
+  <section class="hub-section" aria-labelledby="hub-activity-label">
+    <p class="hub-section__label" id="hub-activity-label">Recent activity</p>
+    <div class="hub-activity">
+      {% if _activity %}
+        {% for row in _activity %}
+        <a class="hub-activity__row focus-ring"
+           href="{% if row.status == 'published' %}{{ row.live_url }}{% else %}{{ row.edit_url }}{% endif %}"
+           {% if row.status == 'published' %}target="_blank" rel="noopener"{% endif %}>
+          <div class="hub-activity__main">
+            <div class="hub-activity__slug">{{ row.slug or '(no slug)' }}</div>
+            <div class="hub-activity__meta">
+              {{ row.product_count }} product{% if row.product_count != 1 %}s{% endif %}
+              {% if row.created_at %} · {{ row.created_at }}{% endif %}
+            </div>
+          </div>
+          <span class="hub-activity__status hub-activity__status--{{ row.status }}">{{ row.status }}</span>
+        </a>
+        {% endfor %}
+      {% else %}
+        <div class="hub-activity__empty">
+          No collections yet. <a href="/walmart/trending-now?admin=1" style="color:var(--brand-primary); font-weight:800; text-decoration:none;">Start with trending →</a>
         </div>
-      </div>
-      <div class="shop-link-arrow">↗</div>
-    </a>
+      {% endif %}
+    </div>
+  </section>
 
-    <a class="shop-link" href="https://{{ shop_subdomain }}/trends" target="_blank" rel="noopener">
-      <div class="shop-link-left">
-        <div class="shop-link-icon">🔥</div>
+  <!-- Verify on live shop -->
+  <section class="hub-section" aria-labelledby="hub-shop-label">
+    <p class="hub-section__label" id="hub-shop-label">Verify on the live shop</p>
+    <div class="hub-shop">
+      <a class="hub-shop__link focus-ring" href="https://{{ shop_subdomain }}/collections" target="_blank" rel="noopener">
         <div>
-          <div class="shop-link-name">View Trends</div>
-          <div class="shop-link-url">{{ shop_subdomain }}/trends</div>
+          <div class="hub-shop__name">View Collections</div>
+          <div class="hub-shop__url">{{ shop_subdomain }}/collections</div>
         </div>
-      </div>
-      <div class="shop-link-arrow">↗</div>
-    </a>
-
-    {# View Posts — hidden for now, uncomment when ready
-    <a class="shop-link" href="https://{{ shop_subdomain }}/posts" target="_blank" rel="noopener">
-      <div class="shop-link-left">
-        <div class="shop-link-icon">📝</div>
+        <span class="hub-shop__arrow material-symbols-rounded" aria-hidden="true">open_in_new</span>
+      </a>
+      <a class="hub-shop__link focus-ring" href="https://{{ shop_subdomain }}/trends" target="_blank" rel="noopener">
         <div>
-          <div class="shop-link-name">View Posts</div>
-          <div class="shop-link-url">{{ shop_subdomain }}/posts</div>
+          <div class="hub-shop__name">View Trends</div>
+          <div class="hub-shop__url">{{ shop_subdomain }}/trends</div>
         </div>
-      </div>
-      <div class="shop-link-arrow">↗</div>
-    </a>
-    #}
+        <span class="hub-shop__arrow material-symbols-rounded" aria-hidden="true">open_in_new</span>
+      </a>
+    </div>
+  </section>
 
-  </div>
-
-  <div class="footer">{{ brand.shop_name or brand.brand_label or 'EchoTribe' }} Content Hub · For internal use</div>
-
-</main>
-</body>
-</html>
+</div>
+{% endblock %}
