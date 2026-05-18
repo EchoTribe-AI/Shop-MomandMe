@@ -585,3 +585,104 @@ def retailers_ranked(creator_id: str, start: str, end: str) -> list[dict]:
         return []
     finally:
         conn.close()
+
+
+# ── P0.2 v2 daily-trend chart helper ────────────────────────────────────────
+# Steph S4 #4: a single-line chart above the 4 scrolling sections showing how
+# traffic trended day-over-day across the current window. No period comparison
+# (per R16). Returns one row per day in the window, zero-filled, so the chart
+# renderer never has to handle a sparse axis.
+#
+# Slug-overlap guard (the data-layer concern Kelly flagged): a single slug can
+# appear in BOTH collages and posts. The ranking helpers in PR 1 deliberately
+# join via a single side at a time and accept that a click may count toward
+# both Best Collections and Best Posts — that's documented semantic and is NOT
+# changed here. daily_traffic is different: it answers "how many clicks did
+# this creator's surfaces receive on day X" as a single number, so the same
+# click must count ONCE. We do that with COUNT(DISTINCT click_log.id) over a
+# UNION of creator-owned slugs from collages OR posts.
+
+def daily_traffic(creator_id: str, start: str, end: str) -> list[dict]:
+    """Daily click totals across creator-owned surfaces, zero-filled.
+
+    Returns a list of {'date': 'YYYY-MM-DD', 'clicks': int} dicts, one per
+    day in [start, end] inclusive, sorted ascending. Days with no clicks
+    appear with clicks=0 so the chart renderer can iterate without gaps.
+
+    Deduplication: COUNT(DISTINCT click_log.id) — a click on a slug that
+    exists in BOTH collages and posts counts once, not twice.
+    """
+    if not creator_id:
+        return []
+
+    # Build the zero-filled date axis up-front so the SQL only has to provide
+    # the days that actually have clicks; we merge into the axis after.
+    try:
+        start_d = datetime.fromisoformat(start).date()
+        end_d = datetime.fromisoformat(end).date()
+    except (TypeError, ValueError):
+        return []
+    if start_d > end_d:
+        return []
+
+    days: list[date] = []
+    cursor_day = start_d
+    while cursor_day <= end_d:
+        days.append(cursor_day)
+        cursor_day += timedelta(days=1)
+    counts: dict[str, int] = {d.isoformat(): 0 for d in days}
+
+    conn = _connect()
+    try:
+        if not _table_exists(conn, 'click_log'):
+            return [{'date': iso, 'clicks': 0} for iso in counts]
+        has_collages = _table_exists(conn, 'collages')
+        has_posts = _table_exists(conn, 'posts')
+        if not (has_collages or has_posts):
+            return [{'date': iso, 'clicks': 0} for iso in counts]
+
+        # UNION the creator-owned slug universe. Each branch scoped via the
+        # COALESCE(creator_id,'everydaywithsteph') = ? form used by every
+        # other PR 1 helper — consistent paramstyle, fewer arguments.
+        slug_subqueries = []
+        slug_params: list = []
+        if has_collages:
+            slug_subqueries.append(
+                "SELECT slug FROM collages "
+                "WHERE COALESCE(creator_id, 'everydaywithsteph') = ? "
+                "  AND COALESCE(status, 'published') != 'archived' "
+                "  AND slug IS NOT NULL AND slug != ''"
+            )
+            slug_params.append(creator_id)
+        if has_posts:
+            slug_subqueries.append(
+                "SELECT slug FROM posts "
+                "WHERE COALESCE(creator_id, 'everydaywithsteph') = ? "
+                "  AND COALESCE(status, 'draft') != 'archived' "
+                "  AND slug IS NOT NULL AND slug != ''"
+            )
+            slug_params.append(creator_id)
+        slug_universe = ' UNION '.join(slug_subqueries)
+
+        where_clicks, click_params = _date_filter(start, end, 'cl.clicked_at')
+        rows = conn.execute(
+            f"SELECT DATE(cl.clicked_at) AS day, "
+            f"       COUNT(DISTINCT cl.id) AS clicks "
+            f"FROM click_log cl "
+            f"WHERE {where_clicks} "
+            f"  AND cl.slug IN ({slug_universe}) "
+            f"GROUP BY DATE(cl.clicked_at)",
+            [*click_params, *slug_params],
+        ).fetchall()
+
+        for r in rows:
+            day_key = _fmt_date(r['day'])
+            if day_key in counts:
+                counts[day_key] = int(r['clicks'] or 0)
+    except Exception as e:
+        logging.warning(f"[INSIGHTS] daily_traffic failed: {e}")
+        # Fall through to the zero-filled axis so callers always get a list.
+    finally:
+        conn.close()
+
+    return [{'date': iso, 'clicks': counts[iso]} for iso in counts]
