@@ -813,9 +813,9 @@ class AdminCreatorsSavePersistsP07K1Fields(_BoundaryTestBase):
         self.assertEqual(row['brand_surface'], '#E5DBC8')
         self.assertEqual(row['brand_on_surface'], '#1A1A17')
 
-    def test_admin_post_without_p07_k1_fields_writes_null(self):
-        # Existing admin flow: form doesn't yet have inputs for the new
-        # fields. Save must still succeed; columns stay NULL.
+    def test_admin_post_new_creator_without_p07_k1_fields_writes_null(self):
+        # NEW-creator path: no prior row, so absent P0.7/K1 keys have
+        # nothing to carry forward — they write NULL.
         client = self._authed_client()
         resp = client.post(
             '/admin/creators',
@@ -827,7 +827,6 @@ class AdminCreatorsSavePersistsP07K1Fields(_BoundaryTestBase):
         self.assertEqual(resp.status_code, 200, resp.data)
         row = self.db_schema.get_creator('k1-bare-creator')
         self.assertEqual(row['display_name'], 'K1 Bare Creator')
-        # None of the optional P0.7/K1 fields were sent → all NULL.
         for field in (
             'logo_url', 'shop_domain',
             'meta_title_template', 'meta_description_template',
@@ -837,14 +836,100 @@ class AdminCreatorsSavePersistsP07K1Fields(_BoundaryTestBase):
         ):
             self.assertIsNone(
                 row[field],
-                f"Optional field {field} should be NULL when admin form omits it",
+                f"New creator with no body key for {field} should write NULL",
             )
 
-    def test_admin_post_empty_string_fields_normalize_to_null(self):
-        # When the admin form sends '' for an optional field (e.g. a blank
-        # input element), the precedence chain in build_brand_context
-        # treats '' the same as NULL — so the save route normalizes ''
-        # to None at the payload boundary.
+    def test_admin_post_existing_creator_missing_keys_preserves_values(self):
+        # EXISTING-creator regression guard. Seed a creator row that already
+        # has the full P0.7/K1 brand surface populated, then POST an
+        # old-form payload that does not include any of the P0.7/K1 keys.
+        # The row's existing values must be preserved — they must NOT be
+        # silently wiped to NULL by upsert_creator.
+        self._insert_creator(
+            id='k1-existing-creator',
+            display_name='Original Name',
+            logo_url='https://example.com/original.svg',
+            shop_domain='shop.original.example.com',
+            meta_title_template='{collection} | Original',
+            meta_description_template='Original description.',
+            brand_primary='#7C7D6A',
+            brand_on_primary='#F5F2ED',
+            brand_primary_container='#DDBBA4',
+            brand_on_primary_container='#3D3A33',
+            brand_surface='#E5DBC8',
+            brand_on_surface='#1A1A17',
+        )
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                # Legacy-form payload: only id + display_name + a couple
+                # of legacy identity fields. No P0.7/K1 keys.
+                'id': 'k1-existing-creator',
+                'display_name': 'Renamed Creator',
+                'handle': '@renamed',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        row = self.db_schema.get_creator('k1-existing-creator')
+        # Legacy fields updated as before.
+        self.assertEqual(row['display_name'], 'Renamed Creator')
+        self.assertEqual(row['handle'], '@renamed')
+        # P0.7/K1 values preserved across the upsert.
+        self.assertEqual(row['logo_url'], 'https://example.com/original.svg')
+        self.assertEqual(row['shop_domain'], 'shop.original.example.com')
+        self.assertEqual(
+            row['meta_title_template'], '{collection} | Original',
+        )
+        self.assertEqual(
+            row['meta_description_template'], 'Original description.',
+        )
+        self.assertEqual(row['brand_primary'], '#7C7D6A')
+        self.assertEqual(row['brand_on_primary'], '#F5F2ED')
+        self.assertEqual(row['brand_primary_container'], '#DDBBA4')
+        self.assertEqual(row['brand_on_primary_container'], '#3D3A33')
+        self.assertEqual(row['brand_surface'], '#E5DBC8')
+        self.assertEqual(row['brand_on_surface'], '#1A1A17')
+
+    def test_admin_post_empty_string_clears_existing_field_to_null(self):
+        # Intentional-clear path: an existing creator has brand_primary set,
+        # and the admin posts '' for it. That MUST clear the field to NULL
+        # (operator's explicit intent), distinct from the "key absent →
+        # preserve" branch above.
+        self._insert_creator(
+            id='k1-clear-creator',
+            display_name='Clear Creator',
+            brand_primary='#7C7D6A',
+            brand_surface='#E5DBC8',
+            # Untouched controls — must survive the POST below.
+            brand_on_primary='#F5F2ED',
+            logo_url='https://example.com/keep.svg',
+        )
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                'id': 'k1-clear-creator',
+                'display_name': 'Clear Creator',
+                # Explicit empty strings → clear these two fields.
+                'brand_primary': '',
+                'brand_surface': '',
+                # Other P0.7/K1 keys absent → preserve.
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        row = self.db_schema.get_creator('k1-clear-creator')
+        # Explicitly cleared.
+        self.assertIsNone(row['brand_primary'])
+        self.assertIsNone(row['brand_surface'])
+        # Absent keys preserved.
+        self.assertEqual(row['brand_on_primary'], '#F5F2ED')
+        self.assertEqual(row['logo_url'], 'https://example.com/keep.svg')
+
+    def test_admin_post_new_creator_empty_string_fields_write_null(self):
+        # NEW-creator + explicit empty string → still NULL (the normalize
+        # step is independent of the existence check). Keeps the original
+        # empty-string-normalize behavior pinned for the new-creator path.
         client = self._authed_client()
         resp = client.post(
             '/admin/creators',
