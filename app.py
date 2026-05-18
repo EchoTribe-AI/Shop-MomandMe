@@ -536,6 +536,8 @@ def _route_shop_subdomain():
         return
     if path.startswith('/branding/'):
         return
+    if path.startswith('/admin'):
+        return
 
     if request.method == 'GET':
         if path == '/' or path == '':
