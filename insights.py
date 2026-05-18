@@ -344,3 +344,227 @@ def overview(creator_id: str, start: str, end: str) -> dict:
         'total_earnings':  round(total_earnings, 2),
         'published_count': int(published_count),
     }
+
+
+# ── P0.2 v2 ranking helpers ─────────────────────────────────────────────────
+# Steph's S4 spec (R16): 4 scrolling sections — Best Collections by clicks,
+# Best Posts by clicks, Best Products by earnings, Best Retailers by earnings.
+# Each helper returns a list of dicts, sorted desc by the section's primary
+# metric. Secondary metric ("views") is intentionally left as None on every row
+# — no impressions source data exists today (tracked in issue #87).
+#
+# All four helpers:
+#   - take (creator_id, start, end) and scope by creator
+#   - are paramstyle-agnostic (work under both PG and the SQLite dev fallback)
+#   - return [] cleanly on missing tables / missing columns / empty windows
+#   - never raise into the route handler
+#
+# click_log has no creator_id column; click-based helpers scope through the
+# join target (collages.creator_id, posts.creator_id). This matches v1
+# semantics and is documented inline so anyone tightening it later sees the
+# intent.
+
+def _table_exists(conn, name: str) -> bool:
+    """True if `name` is a queryable table in the current DB connection.
+
+    Tries both SQLite (sqlite_master) and PG (information_schema) lookups; the
+    PG-compat wrapper in db_schema._adapt_sql doesn't know how to translate
+    sqlite_master, so we probe in two passes and swallow any error.
+    """
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (name,),
+        ).fetchone()
+        if row is not None:
+            return True
+    except Exception:
+        pass
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_name=?",
+            (name,),
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def collections_ranked(creator_id: str, start: str, end: str) -> list[dict]:
+    """Best Collections by click traffic (R16 section 1).
+
+    Joins click_log × collages on slug, scoped via collages.creator_id.
+    Returns rows sorted by clicks desc. `views` is None — no impressions data
+    source exists yet (issue #87).
+    """
+    if not creator_id:
+        return []
+    conn = _connect()
+    try:
+        if not (_table_exists(conn, 'click_log') and _table_exists(conn, 'collages')):
+            return []
+        where, params = _date_filter(start, end, 'cl.clicked_at')
+        rows = conn.execute(
+            f"SELECT c.slug AS slug, "
+            f"       c.hero_title AS hero_title, "
+            f"       c.theme AS theme, "
+            f"       COUNT(cl.id) AS clicks "
+            f"FROM collages c "
+            f"LEFT JOIN click_log cl ON cl.slug = c.slug AND ({where}) "
+            f"WHERE COALESCE(c.creator_id, 'everydaywithsteph') = ? "
+            f"  AND COALESCE(c.status, 'published') != 'archived' "
+            f"GROUP BY c.slug, c.hero_title, c.theme "
+            f"ORDER BY clicks DESC, c.slug ASC",
+            [*params, creator_id],
+        ).fetchall()
+        return [
+            {
+                'slug':   r['slug'],
+                'title':  r['hero_title'] or (r['slug'] or '').replace('-', ' ').title(),
+                'theme':  r['theme'] or 'coral',
+                'clicks': int(r['clicks'] or 0),
+                'views':  None,  # issue #87: no impressions source data yet
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logging.warning(f"[INSIGHTS] collections_ranked failed: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def posts_ranked(creator_id: str, start: str, end: str) -> list[dict]:
+    """Best Posts by click traffic (R16 section 2).
+
+    Joins click_log × posts on slug, scoped via posts.creator_id. posts.slug
+    and collages.slug share the click_log.slug join key by design — clicks
+    on a slug that's both a collection landing AND a post page are counted
+    in both sections. Matches v1 semantics.
+    """
+    if not creator_id:
+        return []
+    conn = _connect()
+    try:
+        if not (_table_exists(conn, 'click_log') and _table_exists(conn, 'posts')):
+            return []
+        where, params = _date_filter(start, end, 'cl.clicked_at')
+        rows = conn.execute(
+            f"SELECT p.id AS id, "
+            f"       p.slug AS slug, "
+            f"       p.product_name AS product_name, "
+            f"       p.angle AS angle, "
+            f"       p.collection_slug AS collection_slug, "
+            f"       p.status AS status, "
+            f"       COUNT(cl.id) AS clicks "
+            f"FROM posts p "
+            f"LEFT JOIN click_log cl ON cl.slug = p.slug AND ({where}) "
+            f"WHERE COALESCE(p.creator_id, 'everydaywithsteph') = ? "
+            f"  AND COALESCE(p.status, 'draft') != 'archived' "
+            f"  AND p.slug IS NOT NULL AND p.slug != '' "
+            f"GROUP BY p.id, p.slug, p.product_name, p.angle, p.collection_slug, p.status "
+            f"ORDER BY clicks DESC, p.id ASC",
+            [*params, creator_id],
+        ).fetchall()
+        return [
+            {
+                'id':              r['id'],
+                'slug':            r['slug'],
+                'title':           r['product_name'] or r['slug'],
+                'angle':           r['angle'] or '',
+                'collection_slug': r['collection_slug'] or '',
+                'status':          r['status'] or 'draft',
+                'clicks':          int(r['clicks'] or 0),
+                'views':           None,  # issue #87
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logging.warning(f"[INSIGHTS] posts_ranked failed: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def products_ranked(creator_id: str, start: str, end: str) -> list[dict]:
+    """Best Products by earnings (R16 section 3).
+
+    Sums earnings_amazon rows whose period overlaps the window, grouped by
+    ASIN. Scoped by creator_id directly (earnings_amazon has the column).
+    """
+    if not creator_id:
+        return []
+    conn = _connect()
+    try:
+        if not _table_exists(conn, 'earnings_amazon'):
+            return []
+        rows = conn.execute(
+            "SELECT asin, "
+            "       MAX(product_name) AS product_name, "
+            "       COALESCE(SUM(earnings), 0) AS earnings, "
+            "       COALESCE(SUM(units), 0) AS units "
+            "FROM earnings_amazon "
+            "WHERE creator_id = ? "
+            "  AND DATE(period_start) <= ? AND DATE(period_end) >= ? "
+            "GROUP BY asin "
+            "ORDER BY earnings DESC, asin ASC",
+            (creator_id, end, start),
+        ).fetchall()
+        return [
+            {
+                'asin':         r['asin'],
+                'product_name': r['product_name'] or r['asin'],
+                'earnings':     round(float(r['earnings'] or 0), 2),
+                'units':        int(r['units'] or 0),
+                'views':        None,  # issue #87
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logging.warning(f"[INSIGHTS] products_ranked failed: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def retailers_ranked(creator_id: str, start: str, end: str) -> list[dict]:
+    """Best Retailers by earnings (R16 section 4).
+
+    PR-1 scope: Amazon-only single row aggregating earnings_amazon for the
+    window. No per-creator Walmart earnings table exists today; once one
+    lands (P0.4 follow-on or a dedicated Walmart-creator-earnings schema),
+    add a second branch here and order by earnings desc.
+    """
+    if not creator_id:
+        return []
+    conn = _connect()
+    try:
+        if not _table_exists(conn, 'earnings_amazon'):
+            return []
+        row = conn.execute(
+            "SELECT COALESCE(SUM(earnings), 0) AS earnings, "
+            "       COALESCE(SUM(units), 0) AS units "
+            "FROM earnings_amazon "
+            "WHERE creator_id = ? "
+            "  AND DATE(period_start) <= ? AND DATE(period_end) >= ?",
+            (creator_id, end, start),
+        ).fetchone()
+        earnings = float(row['earnings'] or 0) if row else 0.0
+        units = int(row['units'] or 0) if row else 0
+        if earnings == 0 and units == 0:
+            return []
+        # TODO: when per-creator Walmart earnings land, query that table and
+        # append a {'retailer': 'Walmart', ...} row, then re-sort desc.
+        return [
+            {
+                'retailer': 'Amazon',
+                'earnings': round(earnings, 2),
+                'units':    units,
+                'views':    None,  # issue #87
+            }
+        ]
+    except Exception as e:
+        logging.warning(f"[INSIGHTS] retailers_ranked failed: {e}")
+        return []
+    finally:
+        conn.close()
