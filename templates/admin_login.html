@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sign in · EchoTribe</title>
+<title>Sign in · {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   :root {
@@ -13,7 +13,7 @@
     --text: #1a1a17;
     --text3: #606058;
     --text4: #999890;
-    --archer: #e85d26;
+    --archer: var(--brand-primary, #e85d26);
     --red: #a02828;
     --red-light: #fdecec;
     --r: 10px;
@@ -104,7 +104,7 @@
     border: none;
     border-radius: var(--r);
     background: var(--archer);
-    color: #fff;
+    color: var(--brand-on-primary, #fff);
     cursor: pointer;
     -webkit-appearance: none;
   }
@@ -116,12 +116,17 @@
     font-size: 12px;
   }
 </style>
+{# Brand-vars partial: included AFTER the inline theme <style> so the
+   legacy-compat bridge (--brand-primary/--brand-on-primary sourced from
+   the active creator row) wins over the static fallback above. NULL
+   creator colors → the bridge stays inert. #}
+{% include 'partials/_brand_vars.html' %}
 </head>
 <body>
   <main class="card">
     <div class="brand">
       <span class="dot"></span>
-      <strong>EchoTribe</strong>
+      <strong>{{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</strong>
     </div>
     <h1>Sign in</h1>
     <div class="sub">Enter the admin password to continue.</div>
