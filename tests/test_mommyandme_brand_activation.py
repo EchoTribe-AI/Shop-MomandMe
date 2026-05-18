@@ -1,0 +1,219 @@
+"""Mommy & Me brand activation — downstream-only coverage.
+
+Exercises the production-like end-to-end render path for the Sage Forward
+palette confirmed by Steph 2026-05-18. Unlike the shared upstream coverage
+in tests/test_storefront_framework_boundary.py — which monkeypatches
+app._BRANDING_DIR to an isolated tmp directory — these tests run against
+the REAL branding/ directory committed in this PR. That is the whole
+point: prove that the on-disk overrides.json + logo.png reach the rendered
+storefront response without any test scaffolding masking a misconfiguration.
+
+DB is still isolated to a tmp SQLite path so we can seed the published
+collage the end-to-end render needs without touching prod state.
+"""
+
+import json
+import os
+import sqlite3
+import tempfile
+import unittest
+
+
+# Sage Forward palette — confirmed by Steph 2026-05-18.
+# Mirrors branding/overrides.json verbatim. Any drift between this tuple
+# and the on-disk JSON should fail test_overrides_json_values_loaded.
+SAGE_FORWARD = {
+    'shop_name':                  'The Mommy & Me Collective',
+    'shop_domain':                'shop.mommyandmecollective.com',
+    'brand_primary':              '#7C7D6A',
+    'brand_on_primary':           '#F5F2ED',
+    'brand_primary_container':    '#DDBBA4',
+    'brand_on_primary_container': '#3D3A33',
+    'brand_surface':              '#E5DBC8',
+    'brand_on_surface':           '#3D3A33',
+}
+
+
+class _ActivationTestBase(unittest.TestCase):
+    """Isolated DB + real on-disk branding/ + brand cache reset."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp.name, 'mmc-activation.db')
+        os.environ['CACHE_DB_PATH'] = self.db_path
+        os.environ.pop('ACTIVE_CREATOR_ID', None)
+
+        import db_schema
+        import app
+        self.db_schema = db_schema
+        self.app_module = app
+
+        db_schema.DB_PATH = self.db_path
+        db_schema.bootstrap()
+
+        # Critical: do NOT monkeypatch _BRANDING_DIR. We want the real
+        # repo-root branding/ to drive the loader. Reset the cache so any
+        # state from earlier tests in the run (which DO monkeypatch the
+        # dir) does not leak in.
+        self.app_module._branding_cache_reset()
+
+    def tearDown(self):
+        self.app_module._branding_cache_reset()
+        self.tmp.cleanup()
+
+    def _branding_dir(self):
+        return os.path.join(
+            os.path.dirname(os.path.abspath(self.app_module.__file__)),
+            'branding',
+        )
+
+    def _seed_collage(self, slug, creator_id='everydaywithsteph'):
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO collages
+                (slug, products_json, caption, creator_id, status, hero_title, click_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (slug, json.dumps([]), 'caption', creator_id, 'published',
+                 'Mommy & Me Test', 0),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+class OverridesJsonLoaded(_ActivationTestBase):
+    """branding/overrides.json values reach the loader output."""
+
+    def test_overrides_json_values_loaded(self):
+        overrides = self.app_module._load_branding_overrides()
+        for key, expected in SAGE_FORWARD.items():
+            self.assertEqual(
+                overrides.get(key), expected,
+                f'overrides.json key {key!r} did not load with expected value',
+            )
+
+    def test_overrides_json_does_not_contain_logo_url_key(self):
+        # Loader derives logo_url from disk, not from overrides.json. The
+        # JSON file must NOT include logo_url or the on-disk path would
+        # be silently clobbered by the overrides.update(data) line.
+        path = os.path.join(self._branding_dir(), 'overrides.json')
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        self.assertNotIn(
+            'logo_url', data,
+            'branding/overrides.json must not include logo_url — let the '
+            'loader derive it from branding/logo.png on disk.',
+        )
+
+
+class LogoUrlDerivedFromDisk(_ActivationTestBase):
+    """logo_url is derived from the real branding/logo.png, not JSON."""
+
+    def test_logo_url_points_at_branding_logo_png(self):
+        overrides = self.app_module._load_branding_overrides()
+        self.assertEqual(overrides.get('logo_url'), '/branding/logo.png')
+
+    def test_branding_logo_png_exists_on_disk(self):
+        # Sanity guard: if someone removes the logo, the test that follows
+        # would silently fall back to a clean 404 and we'd lose coverage.
+        logo_path = os.path.join(self._branding_dir(), 'logo.png')
+        self.assertTrue(
+            os.path.isfile(logo_path),
+            f'branding/logo.png missing from repo at {logo_path}',
+        )
+        self.assertGreater(
+            os.path.getsize(logo_path), 0,
+            'branding/logo.png exists but is empty',
+        )
+
+
+class BrandingAssetRoutes(_ActivationTestBase):
+    """Public /branding/ route serves the logo and blocks overrides.json."""
+
+    def test_branding_logo_route_returns_200_with_body(self):
+        client = self.app_module.app.test_client()
+        resp = client.get('/branding/logo.png')
+        self.assertEqual(resp.status_code, 200)
+        self.assertGreater(
+            len(resp.data), 0,
+            '/branding/logo.png returned 200 but empty body',
+        )
+
+    def test_branding_overrides_json_route_returns_404(self):
+        client = self.app_module.app.test_client()
+        resp = client.get('/branding/overrides.json')
+        self.assertEqual(
+            resp.status_code, 404,
+            'overrides.json must be blocked by the asset extension whitelist',
+        )
+
+    def test_branding_overrides_json_does_not_leak_hex_values(self):
+        # Belt-and-braces: even if the response body were non-empty for
+        # some unforeseen reason, none of the brand hex values must
+        # appear in it.
+        client = self.app_module.app.test_client()
+        resp = client.get('/branding/overrides.json')
+        body = resp.data
+        for hex_value in (
+            b'#7C7D6A', b'#7c7d6a',
+            b'#E5DBC8', b'#e5dbc8',
+            b'#DDBBA4', b'#ddbba4',
+        ):
+            self.assertNotIn(
+                hex_value, body,
+                f'/branding/overrides.json response leaked {hex_value!r}',
+            )
+
+
+class BuildBrandContextReturnsSageForward(_ActivationTestBase):
+    """build_brand_context picks up the overrides.json values."""
+
+    def test_build_brand_context_for_everydaywithsteph(self):
+        ctx = self.app_module.build_brand_context('everydaywithsteph')
+        for key, expected in SAGE_FORWARD.items():
+            self.assertEqual(
+                ctx.get(key), expected,
+                f'build_brand_context returned wrong value for {key}: '
+                f'got {ctx.get(key)!r}, expected {expected!r}',
+            )
+        # logo_url derived from disk also reaches the context.
+        self.assertEqual(ctx.get('logo_url'), '/branding/logo.png')
+
+
+class EndToEndStorefrontRender(_ActivationTestBase):
+    """The full chain: overrides.json + logo.png → rendered HTML."""
+
+    def test_storefront_response_contains_sage_and_linen_hex(self):
+        # Seed a published collage under the demo creator id. The host
+        # match is irrelevant here — overrides.json is the highest-
+        # precedence layer, so values land regardless of which creator
+        # the request resolves to.
+        self._seed_collage(slug='mommyandme-activation-test')
+
+        client = self.app_module.app.test_client()
+        resp = client.get('/shop/mommyandme-activation-test')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8').lower()
+        # _brand_vars.html renders the dict value verbatim; the Sage
+        # Forward palette uses uppercase hex but Jinja preserves case.
+        # Lowercase the body and compare both forms to stay robust.
+        self.assertIn(
+            '#7c7d6a', body,
+            'brand_primary (sage) hex must appear in rendered storefront',
+        )
+        self.assertIn(
+            '#e5dbc8', body,
+            'brand_surface (linen) hex must appear in rendered storefront',
+        )
+        # Bridge proof: --bg mirrored from brand_surface, --text from
+        # brand_on_surface. Both must be present so legacy templates
+        # repaint to the new canvas/text.
+        self.assertIn('--bg: #e5dbc8', body)
+        self.assertIn('--text: #3d3a33', body)
+
+
+if __name__ == '__main__':
+    unittest.main()
