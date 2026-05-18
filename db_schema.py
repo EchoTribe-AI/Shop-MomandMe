@@ -80,12 +80,17 @@ DEFAULT_CREATOR = {
     # Reference (draft, NOT confirmed — see PALETTE_DRAFT.md):
     #   Option 1 (Sage forward):   primary #7C7D6A / on #F5F2ED
     #                              container #DDBBA4 / on #3D3A33
+    #                              surface #E5DBC8 (linen canvas)
     #   Option 2 (Rose forward):   primary #B98D75 / on #F5F2ED
     #                              container #7C7D6A / on #F5F2ED
     'brand_primary':              None,
     'brand_on_primary':           None,
     'brand_primary_container':    None,
     'brand_on_primary_container': None,
+    # K1 — canvas/surface pair. NULL falls through to Creator Core peach
+    # via the static fallback chain in _brand_vars.html.
+    'brand_surface':              None,
+    'brand_on_surface':           None,
 }
 
 
@@ -343,12 +348,13 @@ def init_schema() -> None:
         """)
         _add_column_if_missing(conn, 'creators', "fb_page_id TEXT")
         _add_column_if_missing(conn, 'creators', "defaults_json TEXT DEFAULT '{}'")
-        # P0.7 — per-creator brand override surface.
-        # These columns back the 4-variable brand-swap contract documented in
+        # P0.7 + K1 — per-creator brand override surface.
+        # These columns back the 6-variable brand-swap contract documented in
         # templates/partials/_brand_vars.html and
-        # design/_design-system/build-conventions.md §Brand styling.
-        # Widening to canvas/surface (--brand-surface, --brand-on-surface) is
-        # K1 in OPEN_QUESTIONS_TRACKER; intentionally not in this patch.
+        # design/_design-system/build-conventions.md §Brand styling. K1
+        # widened from 4 vars (brand_primary + container pair) to 6 by
+        # adding the canvas/surface pair so creators with non-peach canvases
+        # (Mommy & Me linen, etc.) render correctly without per-template CSS.
         _add_column_if_missing(conn, 'creators', "logo_url TEXT")
         _add_column_if_missing(conn, 'creators', "shop_domain TEXT")
         _add_column_if_missing(conn, 'creators', "meta_title_template TEXT")
@@ -357,6 +363,8 @@ def init_schema() -> None:
         _add_column_if_missing(conn, 'creators', "brand_on_primary TEXT")
         _add_column_if_missing(conn, 'creators', "brand_primary_container TEXT")
         _add_column_if_missing(conn, 'creators', "brand_on_primary_container TEXT")
+        _add_column_if_missing(conn, 'creators', "brand_surface TEXT")
+        _add_column_if_missing(conn, 'creators', "brand_on_surface TEXT")
 
         # ── earnings_amazon ───────────────────────────────────────────────
         conn.execute(f"""
@@ -891,7 +899,15 @@ def list_creators() -> list[dict]:
 
 
 def upsert_creator(creator: dict) -> dict:
-    """Insert or update a creator. Returns the saved row."""
+    """Insert or update a creator. Returns the saved row.
+
+    Persists the full P0.7 + K1 creator surface: identity/profile columns
+    plus per-creator branding metadata (logo, shop_domain, meta templates)
+    and the 6-variable brand-swap contract (brand_primary + brand_on_primary,
+    brand_primary_container + brand_on_primary_container, brand_surface +
+    brand_on_surface). Missing keys in the input dict are written as NULL,
+    matching the existing pre-K1 behavior for unset fields.
+    """
     if not creator.get('id'):
         raise ValueError("creator.id is required")
     conn = _connect()
@@ -900,6 +916,14 @@ def upsert_creator(creator: dict) -> dict:
             'id', 'display_name', 'handle', 'brand_label', 'fb_pixel_id',
             'fb_page_id', 'amazon_tag', 'meta_ad_account_id', 'ltk_url',
             'facebook_url', 'voice_prompt', 'theme_default', 'defaults_json',
+            # P0.7 — per-creator metadata.
+            'logo_url', 'shop_domain',
+            'meta_title_template', 'meta_description_template',
+            # P0.7 — primary pair of the brand-swap contract.
+            'brand_primary', 'brand_on_primary',
+            'brand_primary_container', 'brand_on_primary_container',
+            # K1 — canvas/surface pair (widened the contract to 6 vars).
+            'brand_surface', 'brand_on_surface',
         ]
         values = [creator.get(c) for c in cols]
         placeholders = ', '.join('?' for _ in cols)

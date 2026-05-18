@@ -339,9 +339,11 @@ def _load_branding_overrides() -> dict:
 #   3. demo/default creator row — db_schema.DEFAULT_CREATOR fallback
 #   4. framework defaults       — _BRAND_FRAMEWORK_DEFAULTS below
 #
-# Color fields (brand_primary etc.) stay NULL all the way through when no
-# layer sets them. _brand_vars.html's static fallbacks (var(--accent, …))
-# handle the NULL case.
+# Color fields (brand_primary, brand_surface, etc.) stay NULL all the way
+# through when no layer sets them. _brand_vars.html's static fallbacks
+# (var(--accent, …) for primary, var(--bg, …) / var(--ink, …) for surface)
+# handle the NULL case. K1 widened the contract from 4 → 6 by adding the
+# brand_surface / brand_on_surface pair.
 _BRAND_FRAMEWORK_DEFAULTS = {
     'creator_id':                 _DEFAULT_ACTIVE_CREATOR_ID,
     'display_name':               '',
@@ -362,6 +364,10 @@ _BRAND_FRAMEWORK_DEFAULTS = {
     'brand_on_primary':           None,
     'brand_primary_container':    None,
     'brand_on_primary_container': None,
+    # K1 — canvas/surface pair. NULL falls through to _brand_vars.html's
+    # static fallback chain (var(--bg, …) / var(--ink, …)).
+    'brand_surface':              None,
+    'brand_on_surface':           None,
 }
 
 # Brand-context keys that may appear in overrides.json or a creator row.
@@ -3069,6 +3075,45 @@ def admin_creators_save():
         'voice_prompt':       (body.get('voice_prompt') or '').strip(),
         'theme_default':      (body.get('theme_default') or 'coral').strip(),
     }
+    # P0.7 + K1 — pass-through for per-creator metadata and the 6-variable
+    # brand-swap contract. Optional fields with a 3-way precedence per key:
+    #   1. key present in body            → use _opt(key); '' clears to NULL
+    #   2. key absent + row already exists → carry forward existing value
+    #   3. key absent + new creator        → None (column writes NULL)
+    # The carry-forward branch closes a regression risk where an admin
+    # POST from the legacy form (which does not yet submit these fields)
+    # would otherwise wipe previously-set brand/metadata values.
+    #
+    # Note on "row already exists": db_schema.get_creator falls back to
+    # DEFAULT_CREATOR when no row is found. DEFAULT_CREATOR.id is
+    # 'everydaywithsteph', so existing['id'] == creator_id reliably
+    # distinguishes a real row from the fallback (with one benign edge:
+    # if Steph's row is missing and creator_id == 'everydaywithsteph',
+    # carry-forward picks the demo defaults — which is the desired
+    # behavior anyway).
+    existing = db_schema.get_creator(creator_id)
+    _row_exists = existing.get('id') == creator_id
+
+    def _opt(key):
+        v = body.get(key)
+        if v is None:
+            return None
+        v = v.strip() if isinstance(v, str) else v
+        return v or None
+
+    for _field in (
+        'logo_url', 'shop_domain',
+        'meta_title_template', 'meta_description_template',
+        'brand_primary', 'brand_on_primary',
+        'brand_primary_container', 'brand_on_primary_container',
+        'brand_surface', 'brand_on_surface',
+    ):
+        if _field in body:
+            payload[_field] = _opt(_field)
+        elif _row_exists:
+            payload[_field] = existing.get(_field)
+        else:
+            payload[_field] = None
     if not payload['display_name']:
         return jsonify({'error': 'display_name is required'}), 400
     saved = db_schema.upsert_creator(payload)

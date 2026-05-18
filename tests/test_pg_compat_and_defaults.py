@@ -664,7 +664,8 @@ class P07DemoCreatorSeedTest(_CollectionContentBaseCase):
             row = conn.execute(
                 "SELECT logo_url, shop_domain, meta_title_template, "
                 "meta_description_template, brand_primary, brand_on_primary, "
-                "brand_primary_container, brand_on_primary_container "
+                "brand_primary_container, brand_on_primary_container, "
+                "brand_surface, brand_on_surface "
                 "FROM creators WHERE id = ?",
                 ('everydaywithsteph',),
             ).fetchone()
@@ -683,6 +684,9 @@ class P07DemoCreatorSeedTest(_CollectionContentBaseCase):
         self.assertIsNone(row[5], "brand_on_primary should be NULL pre-Steph-confirmation")
         self.assertIsNone(row[6], "brand_primary_container should be NULL pre-Steph-confirmation")
         self.assertIsNone(row[7], "brand_on_primary_container should be NULL pre-Steph-confirmation")
+        # K1 canvas/surface pair — same NULL-until-confirmed policy.
+        self.assertIsNone(row[8], "brand_surface should be NULL pre-Steph-confirmation")
+        self.assertIsNone(row[9], "brand_on_surface should be NULL pre-Steph-confirmation")
 
     def test_seed_backfills_metadata_on_existing_row_with_null_fields(self):
         # Simulate the case where the creators row pre-dates P0.7 and has
@@ -750,10 +754,11 @@ class P07DemoCreatorSeedTest(_CollectionContentBaseCase):
 
 
 class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
-    """P0.7 — per-creator brand override surface.
+    """P0.7 + K1 — per-creator brand override surface.
 
-    Confirms the 8 brand columns added in this patch exist after bootstrap
-    and accept the contract values the framework will write.
+    Confirms the 10 brand/metadata columns exist after bootstrap and accept
+    the contract values the framework will write. K1 added the
+    brand_surface/brand_on_surface pair on top of the original P0.7 eight.
     """
 
     REQUIRED_COLUMNS = (
@@ -765,6 +770,8 @@ class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
         "brand_on_primary",
         "brand_primary_container",
         "brand_on_primary_container",
+        "brand_surface",
+        "brand_on_surface",
     )
 
     def test_brand_columns_present_after_bootstrap(self):
@@ -788,8 +795,9 @@ class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
                 INSERT INTO creators (id, display_name, logo_url, shop_domain,
                   meta_title_template, meta_description_template,
                   brand_primary, brand_on_primary,
-                  brand_primary_container, brand_on_primary_container)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  brand_primary_container, brand_on_primary_container,
+                  brand_surface, brand_on_surface)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "test-creator", "Test Creator",
@@ -799,12 +807,14 @@ class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
                     "Discover {collection} hand-picked by Test Creator.",
                     "#7C7D6A", "#F5F2ED",
                     "#DDBBA4", "#3D3A33",
+                    "#E5DBC8", "#1A1A17",
                 ),
             )
             conn.commit()
             row = conn.execute(
                 "SELECT logo_url, shop_domain, brand_primary, brand_on_primary, "
-                "brand_primary_container, brand_on_primary_container "
+                "brand_primary_container, brand_on_primary_container, "
+                "brand_surface, brand_on_surface "
                 "FROM creators WHERE id = ?",
                 ("test-creator",),
             ).fetchone()
@@ -817,6 +827,106 @@ class P07CreatorBrandColumnsTest(_CollectionContentBaseCase):
         self.assertEqual(row[3], "#F5F2ED")
         self.assertEqual(row[4], "#DDBBA4")
         self.assertEqual(row[5], "#3D3A33")
+        self.assertEqual(row[6], "#E5DBC8")
+        self.assertEqual(row[7], "#1A1A17")
+
+
+class P07K1UpsertCreatorFieldCoverageTest(_CollectionContentBaseCase):
+    """upsert_creator must persist the full P0.7 + K1 creator surface.
+
+    Pre-patch, upsert_creator only wrote the original 13 identity/profile
+    columns. The admin save route built a payload that included
+    P0.7/K1 fields but upsert silently dropped them. These tests pin the
+    widened column list (10 new metadata + brand fields) on both the
+    insert and update paths.
+    """
+
+    P07_K1_FIELDS = {
+        'logo_url':                   'https://example.com/k1-logo.svg',
+        'shop_domain':                'shop.k1-test.example.com',
+        'meta_title_template':        '{collection} | K1 Test',
+        'meta_description_template':  'Curated {collection} for K1 testing.',
+        'brand_primary':              '#7C7D6A',
+        'brand_on_primary':           '#F5F2ED',
+        'brand_primary_container':    '#DDBBA4',
+        'brand_on_primary_container': '#3D3A33',
+        'brand_surface':              '#E5DBC8',
+        'brand_on_surface':           '#1A1A17',
+    }
+
+    def _read_row(self, creator_id):
+        conn = self.db_schema._connect()
+        try:
+            cols = list(self.P07_K1_FIELDS.keys())
+            row = conn.execute(
+                f"SELECT {', '.join(cols)} FROM creators WHERE id = ?",
+                (creator_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return {col: row[i] for i, col in enumerate(cols)} if row else None
+
+    def test_upsert_creator_persists_p07_k1_fields_on_insert(self):
+        payload = {
+            'id':           'k1-insert-creator',
+            'display_name': 'K1 Insert Creator',
+            **self.P07_K1_FIELDS,
+        }
+        saved = self.db_schema.upsert_creator(payload)
+        # Returned row reflects what was written.
+        for field, expected in self.P07_K1_FIELDS.items():
+            self.assertEqual(
+                saved.get(field), expected,
+                f"upsert_creator return value missing {field}",
+            )
+        # And the row in the DB matches.
+        stored = self._read_row('k1-insert-creator')
+        self.assertIsNotNone(stored, "Inserted row not found")
+        for field, expected in self.P07_K1_FIELDS.items():
+            self.assertEqual(
+                stored[field], expected,
+                f"DB row missing/wrong value for {field}",
+            )
+
+    def test_upsert_creator_persists_p07_k1_fields_on_update(self):
+        # First insert with one set of values.
+        first = {
+            'id':           'k1-update-creator',
+            'display_name': 'K1 Update Creator',
+            **self.P07_K1_FIELDS,
+        }
+        self.db_schema.upsert_creator(first)
+        # Now upsert the same id with new values for each field.
+        second = {
+            'id':           'k1-update-creator',
+            'display_name': 'K1 Update Creator (v2)',
+            'logo_url':                   'https://example.com/v2-logo.svg',
+            'shop_domain':                'shop.v2.example.com',
+            'meta_title_template':        '{collection} v2',
+            'meta_description_template':  'v2 description.',
+            'brand_primary':              '#111111',
+            'brand_on_primary':           '#222222',
+            'brand_primary_container':    '#333333',
+            'brand_on_primary_container': '#444444',
+            'brand_surface':              '#555555',
+            'brand_on_surface':           '#666666',
+        }
+        saved = self.db_schema.upsert_creator(second)
+        # Update path persisted the new values.
+        for field in self.P07_K1_FIELDS.keys():
+            self.assertEqual(
+                saved.get(field), second[field],
+                f"upsert_creator update returned stale {field}",
+            )
+        stored = self._read_row('k1-update-creator')
+        for field in self.P07_K1_FIELDS.keys():
+            self.assertEqual(
+                stored[field], second[field],
+                f"DB row not updated for {field}",
+            )
+        # display_name was updated too — sanity check the existing identity
+        # column path didn't regress.
+        self.assertEqual(saved.get('display_name'), 'K1 Update Creator (v2)')
 
 
 if __name__ == "__main__":

@@ -269,6 +269,47 @@ class BrandContextPrecedence(_BoundaryTestBase):
         ctx = self.app_module.build_brand_context('everydaywithsteph')
         self.assertEqual(ctx['shop_name'], 'Mommy & Me Collective')
 
+    def test_brand_surface_pair_present_in_context(self):
+        # K1 — context must expose both canvas/surface keys even when null.
+        ctx = self.app_module.build_brand_context('everydaywithsteph')
+        self.assertIn('brand_surface', ctx)
+        self.assertIn('brand_on_surface', ctx)
+        # Demo creator does not seed colors; both keys stay None.
+        self.assertIsNone(ctx['brand_surface'])
+        self.assertIsNone(ctx['brand_on_surface'])
+
+    def test_brand_surface_active_row_overrides_demo(self):
+        # K1 — when the active creator row sets the surface pair, the
+        # context picks them up over the demo row's NULLs.
+        self._insert_creator(
+            id='c-canvas',
+            display_name='Canvas Creator',
+            brand_surface='#e5dbc8',
+            brand_on_surface='#1a1a17',
+        )
+        ctx = self.app_module.build_brand_context('c-canvas')
+        self.assertEqual(ctx['brand_surface'], '#e5dbc8')
+        self.assertEqual(ctx['brand_on_surface'], '#1a1a17')
+
+    def test_brand_surface_overrides_json_beats_active_row(self):
+        # K1 — overrides.json layer still wins over creator row for the
+        # surface pair (same precedence as brand_primary).
+        self._insert_creator(
+            id='c-canvas',
+            display_name='Canvas Creator',
+            brand_surface='#000001',
+            brand_on_surface='#fffffe',
+        )
+        with open(os.path.join(self.branding_dir, 'overrides.json'), 'w') as f:
+            json.dump({
+                'brand_surface': '#e5dbc8',
+                'brand_on_surface': '#1a1a17',
+            }, f)
+        self.app_module._branding_cache_reset()
+        ctx = self.app_module.build_brand_context('c-canvas')
+        self.assertEqual(ctx['brand_surface'], '#e5dbc8')
+        self.assertEqual(ctx['brand_on_surface'], '#1a1a17')
+
 
 # ── 4. context_processor wiring ───────────────────────────────────────────────
 
@@ -320,6 +361,102 @@ class BrandVarsTemplate(_BoundaryTestBase):
         ][0]
         self.assertIn('#abc123', primary_line)
         self.assertNotIn('var(--accent', primary_line)
+
+    def test_brand_surface_vars_emit_when_set(self):
+        # K1 — non-null brand_surface / brand_on_surface render literally.
+        from flask import render_template, g
+        with self.app_module.app.test_request_context('/'):
+            ctx = self.app_module.build_brand_context('everydaywithsteph')
+            ctx['brand_surface'] = '#e5dbc8'
+            ctx['brand_on_surface'] = '#3d3a33'
+            g._brand_ctx = ctx
+            css = render_template('partials/_brand_vars.html')
+        surface_line = [
+            line for line in css.splitlines()
+            if '--brand-surface:' in line and '--brand-on-surface' not in line
+        ][0]
+        self.assertIn('#e5dbc8', surface_line)
+        self.assertNotIn('var(--bg', surface_line)
+        on_surface_line = [
+            line for line in css.splitlines()
+            if '--brand-on-surface:' in line
+        ][0]
+        self.assertIn('#3d3a33', on_surface_line)
+        self.assertNotIn('var(--text', on_surface_line)
+
+    def test_brand_surface_null_renders_fallback(self):
+        # K1 — when both surface fields are NULL, the static fallback chain
+        # is emitted (var(--bg, …) / var(--text, var(--ink, …))).
+        from flask import render_template
+        with self.app_module.app.test_request_context('/'):
+            css = render_template('partials/_brand_vars.html')
+        self.assertIn('--brand-surface:', css)
+        self.assertIn('--brand-on-surface:', css)
+        self.assertIn('var(--bg,     #fff8f6)', css)
+        self.assertIn('var(--text,   var(--ink, #1a1a17))', css)
+
+    def test_bridge_mirrors_brand_surface_to_bg(self):
+        # K1 — when brand_surface is set, the partial emits a --bg override
+        # so legacy templates that consume var(--bg) become canvas-aware.
+        from flask import render_template, g
+        with self.app_module.app.test_request_context('/'):
+            ctx = self.app_module.build_brand_context('everydaywithsteph')
+            ctx['brand_surface'] = '#e5dbc8'
+            g._brand_ctx = ctx
+            css = render_template('partials/_brand_vars.html')
+        self.assertIn('--bg: #e5dbc8', css)
+
+    def test_bridge_inert_when_brand_surface_null(self):
+        # K1 — bridge must NOT emit a --bg override when surface is NULL.
+        from flask import render_template
+        with self.app_module.app.test_request_context('/'):
+            css = render_template('partials/_brand_vars.html')
+        # No bare '--bg: #...;' override line; only the fallback inside
+        # --brand-surface should reference --bg.
+        bridge_lines = [
+            line for line in css.splitlines()
+            if line.strip().startswith('--bg:')
+        ]
+        self.assertEqual(
+            bridge_lines, [],
+            "Bridge must not emit --bg override when brand_surface is NULL",
+        )
+
+    def test_bridge_mirrors_brand_on_surface_to_text_only(self):
+        # K1 — when brand_on_surface is set, mirror to --text only.
+        # --ink is intentionally NOT bridged because it's dual-use
+        # (background/border-color on walmart_trending_now.html buttons).
+        from flask import render_template, g
+        with self.app_module.app.test_request_context('/'):
+            ctx = self.app_module.build_brand_context('everydaywithsteph')
+            ctx['brand_on_surface'] = '#3d3a33'
+            g._brand_ctx = ctx
+            css = render_template('partials/_brand_vars.html')
+        self.assertIn('--text: #3d3a33', css)
+        # No bare '--ink:' override line — bridge is narrowed.
+        ink_override_lines = [
+            line for line in css.splitlines()
+            if line.strip().startswith('--ink:')
+        ]
+        self.assertEqual(
+            ink_override_lines, [],
+            "Bridge must NOT mirror brand_on_surface onto --ink "
+            "(dual-use as button background in walmart_trending_now.html)",
+        )
+
+    def test_bridge_inert_when_brand_on_surface_null(self):
+        # K1 — bridge must NOT emit --text override when on_surface is NULL.
+        from flask import render_template
+        with self.app_module.app.test_request_context('/'):
+            css = render_template('partials/_brand_vars.html')
+        text_override_lines = [
+            line for line in css.splitlines()
+            if line.strip().startswith('--text:')
+        ]
+        self.assertEqual(
+            text_override_lines, [],
+            "Bridge must not emit --text override when brand_on_surface is NULL",
+        )
 
 
 # ── 6. /branding/<path:filename> route ────────────────────────────────────────
@@ -490,6 +627,79 @@ class EndToEndBrandRender(_BoundaryTestBase):
         # And the legacy --accent override line should be present.
         self.assertIn('--accent: #7c7d6a', body)
 
+    def test_brand_surface_hex_appears_in_storefront_response(self):
+        # K1 — creator row carries sage primary + linen canvas; both hexes
+        # must reach the rendered storefront body, and the --bg bridge must
+        # be present so legacy templates' canvas paints from the row.
+        self._insert_creator(
+            id='c-sage-canvas',
+            display_name='Sage Canvas Creator',
+            shop_domain='shop.sage-canvas.example.com',
+            brand_primary='#7c7d6a',
+            brand_surface='#e5dbc8',
+            brand_on_surface='#1a1a17',
+        )
+        self._seed_collage(slug='sage-canvas-collection', creator_id='c-sage-canvas')
+
+        client = self.app_module.app.test_client()
+        resp = client.get(
+            '/shop/sage-canvas-collection',
+            base_url='http://shop.sage-canvas.example.com',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        # Both row hexes appear in the rendered HTML.
+        self.assertIn(
+            '#7c7d6a', body,
+            "brand_primary hex should appear in rendered storefront response",
+        )
+        self.assertIn(
+            '#e5dbc8', body,
+            "brand_surface hex should appear in rendered storefront response",
+        )
+        # And the legacy --bg bridge line must be present so the canvas
+        # paints from the creator row, not from the template-local --bg.
+        self.assertIn('--bg: #e5dbc8', body)
+        self.assertIn('--text: #1a1a17', body)
+
+    def test_null_brand_surface_falls_back_safely(self):
+        # K1 — when brand_surface is NULL, the bridge must stay inert and
+        # the static fallback chain in --brand-surface must be visible.
+        self._insert_creator(
+            id='c-no-surface',
+            display_name='No Surface Creator',
+            shop_domain='shop.no-surface.example.com',
+            brand_primary='#7c7d6a',
+            brand_surface=None,
+            brand_on_surface=None,
+        )
+        self._seed_collage(slug='no-surface-collection', creator_id='c-no-surface')
+
+        client = self.app_module.app.test_client()
+        resp = client.get(
+            '/shop/no-surface-collection',
+            base_url='http://shop.no-surface.example.com',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+        # Static fallback for --brand-surface is present.
+        self.assertIn('var(--bg,     #fff8f6)', body)
+        # Bridge --bg/--text overrides MUST be absent inside the brand-vars
+        # block. Slice to that block to avoid false matches in template-local
+        # :root selectors.
+        if '<style id="brand-vars">' in body:
+            brand_block = body.split(
+                '<style id="brand-vars">', 1
+            )[1].split('</style>', 1)[0]
+            self.assertNotIn(
+                '--bg: #', brand_block,
+                "Bridge must not emit --bg override when brand_surface is NULL",
+            )
+            self.assertNotIn(
+                '--text: #', brand_block,
+                "Bridge must not emit --text override when brand_on_surface is NULL",
+            )
+
     def test_null_brand_primary_falls_back_to_creator_core(self):
         # Same setup but no brand_primary set — must NOT have the bridge
         # active, and the rendered page should still paint with theme.accent
@@ -549,6 +759,191 @@ class StorefrontIncludesBrandVars(_BoundaryTestBase):
                 f'{name} must {{% include %}} partials/_brand_vars.html — '
                 f'otherwise brand columns never reach the rendered page.',
             )
+
+
+# ── 11. admin /admin/creators POST passes P0.7/K1 fields through ─────────────
+# Closes the brand-write loop: admin form → save route → upsert_creator →
+# DB row → build_brand_context picks up the new values on next request.
+
+class AdminCreatorsSavePersistsP07K1Fields(_BoundaryTestBase):
+
+    def _authed_client(self):
+        client = self.app_module.app.test_client()
+        with client.session_transaction() as sess:
+            sess['admin_authed'] = True
+        return client
+
+    def test_admin_post_persists_full_p07_k1_brand_payload(self):
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                'id': 'k1-admin-creator',
+                'display_name': 'K1 Admin Creator',
+                # P0.7 metadata
+                'logo_url':                   'https://example.com/admin.svg',
+                'shop_domain':                'shop.admin.example.com',
+                'meta_title_template':        '{collection} | Admin',
+                'meta_description_template':  'Admin curated {collection}.',
+                # Brand-primary contract
+                'brand_primary':              '#7C7D6A',
+                'brand_on_primary':           '#F5F2ED',
+                'brand_primary_container':    '#DDBBA4',
+                'brand_on_primary_container': '#3D3A33',
+                # K1 canvas/surface pair
+                'brand_surface':              '#E5DBC8',
+                'brand_on_surface':           '#1A1A17',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        # Read the row back through get_creator and confirm every field
+        # landed.
+        row = self.db_schema.get_creator('k1-admin-creator')
+        self.assertEqual(row['display_name'], 'K1 Admin Creator')
+        self.assertEqual(row['logo_url'], 'https://example.com/admin.svg')
+        self.assertEqual(row['shop_domain'], 'shop.admin.example.com')
+        self.assertEqual(row['meta_title_template'], '{collection} | Admin')
+        self.assertEqual(
+            row['meta_description_template'], 'Admin curated {collection}.',
+        )
+        self.assertEqual(row['brand_primary'], '#7C7D6A')
+        self.assertEqual(row['brand_on_primary'], '#F5F2ED')
+        self.assertEqual(row['brand_primary_container'], '#DDBBA4')
+        self.assertEqual(row['brand_on_primary_container'], '#3D3A33')
+        self.assertEqual(row['brand_surface'], '#E5DBC8')
+        self.assertEqual(row['brand_on_surface'], '#1A1A17')
+
+    def test_admin_post_new_creator_without_p07_k1_fields_writes_null(self):
+        # NEW-creator path: no prior row, so absent P0.7/K1 keys have
+        # nothing to carry forward — they write NULL.
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                'id': 'k1-bare-creator',
+                'display_name': 'K1 Bare Creator',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        row = self.db_schema.get_creator('k1-bare-creator')
+        self.assertEqual(row['display_name'], 'K1 Bare Creator')
+        for field in (
+            'logo_url', 'shop_domain',
+            'meta_title_template', 'meta_description_template',
+            'brand_primary', 'brand_on_primary',
+            'brand_primary_container', 'brand_on_primary_container',
+            'brand_surface', 'brand_on_surface',
+        ):
+            self.assertIsNone(
+                row[field],
+                f"New creator with no body key for {field} should write NULL",
+            )
+
+    def test_admin_post_existing_creator_missing_keys_preserves_values(self):
+        # EXISTING-creator regression guard. Seed a creator row that already
+        # has the full P0.7/K1 brand surface populated, then POST an
+        # old-form payload that does not include any of the P0.7/K1 keys.
+        # The row's existing values must be preserved — they must NOT be
+        # silently wiped to NULL by upsert_creator.
+        self._insert_creator(
+            id='k1-existing-creator',
+            display_name='Original Name',
+            logo_url='https://example.com/original.svg',
+            shop_domain='shop.original.example.com',
+            meta_title_template='{collection} | Original',
+            meta_description_template='Original description.',
+            brand_primary='#7C7D6A',
+            brand_on_primary='#F5F2ED',
+            brand_primary_container='#DDBBA4',
+            brand_on_primary_container='#3D3A33',
+            brand_surface='#E5DBC8',
+            brand_on_surface='#1A1A17',
+        )
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                # Legacy-form payload: only id + display_name + a couple
+                # of legacy identity fields. No P0.7/K1 keys.
+                'id': 'k1-existing-creator',
+                'display_name': 'Renamed Creator',
+                'handle': '@renamed',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        row = self.db_schema.get_creator('k1-existing-creator')
+        # Legacy fields updated as before.
+        self.assertEqual(row['display_name'], 'Renamed Creator')
+        self.assertEqual(row['handle'], '@renamed')
+        # P0.7/K1 values preserved across the upsert.
+        self.assertEqual(row['logo_url'], 'https://example.com/original.svg')
+        self.assertEqual(row['shop_domain'], 'shop.original.example.com')
+        self.assertEqual(
+            row['meta_title_template'], '{collection} | Original',
+        )
+        self.assertEqual(
+            row['meta_description_template'], 'Original description.',
+        )
+        self.assertEqual(row['brand_primary'], '#7C7D6A')
+        self.assertEqual(row['brand_on_primary'], '#F5F2ED')
+        self.assertEqual(row['brand_primary_container'], '#DDBBA4')
+        self.assertEqual(row['brand_on_primary_container'], '#3D3A33')
+        self.assertEqual(row['brand_surface'], '#E5DBC8')
+        self.assertEqual(row['brand_on_surface'], '#1A1A17')
+
+    def test_admin_post_empty_string_clears_existing_field_to_null(self):
+        # Intentional-clear path: an existing creator has brand_primary set,
+        # and the admin posts '' for it. That MUST clear the field to NULL
+        # (operator's explicit intent), distinct from the "key absent →
+        # preserve" branch above.
+        self._insert_creator(
+            id='k1-clear-creator',
+            display_name='Clear Creator',
+            brand_primary='#7C7D6A',
+            brand_surface='#E5DBC8',
+            # Untouched controls — must survive the POST below.
+            brand_on_primary='#F5F2ED',
+            logo_url='https://example.com/keep.svg',
+        )
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                'id': 'k1-clear-creator',
+                'display_name': 'Clear Creator',
+                # Explicit empty strings → clear these two fields.
+                'brand_primary': '',
+                'brand_surface': '',
+                # Other P0.7/K1 keys absent → preserve.
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        row = self.db_schema.get_creator('k1-clear-creator')
+        # Explicitly cleared.
+        self.assertIsNone(row['brand_primary'])
+        self.assertIsNone(row['brand_surface'])
+        # Absent keys preserved.
+        self.assertEqual(row['brand_on_primary'], '#F5F2ED')
+        self.assertEqual(row['logo_url'], 'https://example.com/keep.svg')
+
+    def test_admin_post_new_creator_empty_string_fields_write_null(self):
+        # NEW-creator + explicit empty string → still NULL (the normalize
+        # step is independent of the existence check). Keeps the original
+        # empty-string-normalize behavior pinned for the new-creator path.
+        client = self._authed_client()
+        resp = client.post(
+            '/admin/creators',
+            json={
+                'id': 'k1-empty-creator',
+                'display_name': 'K1 Empty Creator',
+                'brand_primary': '',
+                'brand_surface': '',
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        row = self.db_schema.get_creator('k1-empty-creator')
+        self.assertIsNone(row['brand_primary'])
+        self.assertIsNone(row['brand_surface'])
 
 
 if __name__ == '__main__':
