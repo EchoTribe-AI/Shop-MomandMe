@@ -1,0 +1,7 @@
+{# Brand logo — renders <img> when brand.logo_url is set, otherwise nothing.
+   Inert fallback preserves the text-only header for deploys that haven't
+   dropped a logo into branding/. Height pinned inline (36px) per design
+   review; tweak here if visual QA wants a different size. #}
+{% if brand and brand.logo_url %}
+<img class="brand-logo" src="{{ brand.logo_url }}" alt="{{ brand.shop_name or 'Logo' }}" style="height:36px;width:auto;display:inline-block;">
+{% endif %}

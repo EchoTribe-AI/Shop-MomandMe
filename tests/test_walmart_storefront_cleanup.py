@@ -173,10 +173,14 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         posts = self.client.get("/shop/posts").get_data(as_text=True)
         directory = self.client.get("/shop/").get_data(as_text=True)
 
+        # Nav hrefs are now relative (was https://shop.echotribe.ai/* before
+        # feature/public-nav-relative-and-header-logo). Relative paths work
+        # on whichever host serves the response, which is what every
+        # multi-deploy storefront needs.
         for html in (landing, posts, directory):
-            self.assertIn("https://shop.echotribe.ai/collections", html)
-            self.assertIn("https://shop.echotribe.ai/trends", html)
-            self.assertIn("https://shop.echotribe.ai/posts", html)
+            self.assertIn('href="/collections"', html)
+            self.assertIn('href="/trends"', html)
+            self.assertIn('href="/posts"', html)
 
         collections = self.client.get("/collections", headers={"Host": "shop.echotribe.ai"})
         self.assertEqual(collections.status_code, 200)

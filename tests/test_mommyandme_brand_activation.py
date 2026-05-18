@@ -17,6 +17,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
 
 # Sage Forward palette — confirmed by Steph 2026-05-18.
@@ -213,6 +214,171 @@ class EndToEndStorefrontRender(_ActivationTestBase):
         # repaint to the new canvas/text.
         self.assertIn('--bg: #e5dbc8', body)
         self.assertIn('--text: #3d3a33', body)
+
+
+class PublicNavUsesRelativeUrls(_ActivationTestBase):
+    """Public storefront nav must use relative paths only.
+
+    Before the patch, _public_shop_nav() built absolute hrefs prefixed
+    with https://{SHOP_SUBDOMAIN}/, which cross-domain-jumped every
+    Mommy & Me shopper back to shop.echotribe.ai. Relative paths work
+    on whichever host the framework is deployed under and remove the
+    SHOP_SUBDOMAIN coupling for the public nav surface entirely.
+    """
+
+    def test_storefront_nav_uses_relative_urls(self):
+        self._seed_collage(slug='nav-relative-test')
+
+        client = self.app_module.app.test_client()
+        resp = client.get('/shop/nav-relative-test')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+
+        # Each nav link present as a literal relative href.
+        self.assertIn('href="/collections"', body)
+        self.assertIn('href="/trends"', body)
+        self.assertIn('href="/posts"', body)
+
+        # Isolate the public nav block and assert no cross-domain hrefs
+        # leaked back in. We narrow to the nav specifically because
+        # canonical / OG / share / sitemap URLs intentionally remain
+        # absolute (cross-domain consumers need a fully-qualified host);
+        # those are tracked as a separate follow-up PR.
+        nav_start = body.find('<nav class="public-shop-nav"')
+        self.assertNotEqual(
+            nav_start, -1,
+            'public-shop-nav element missing from rendered response',
+        )
+        nav_end = body.find('</nav>', nav_start)
+        self.assertNotEqual(nav_end, -1, 'public-shop-nav not closed')
+        nav_block = body[nav_start:nav_end]
+        self.assertNotIn(
+            'shop.echotribe.ai', nav_block,
+            'Public nav must not contain absolute shop.echotribe.ai hrefs',
+        )
+        self.assertNotIn(
+            'https://', nav_block,
+            'Public nav must use relative paths only — no absolute hrefs '
+            'of any host',
+        )
+
+
+class StorefrontHeaderLogoRendering(_ActivationTestBase):
+    """Header logo renders when brand.logo_url is set."""
+
+    def test_storefront_header_renders_logo_when_brand_logo_url_set(self):
+        self._seed_collage(slug='logo-render-test')
+
+        client = self.app_module.app.test_client()
+        resp = client.get('/shop/logo-render-test')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+
+        # The partial renders a single <img> with the on-disk logo path.
+        # Match on the src + alt text together to avoid false hits from
+        # any unrelated <img> on the page.
+        self.assertIn('src="/branding/logo.png"', body)
+        self.assertIn(
+            'alt="The Mommy &amp; Me Collective"', body,
+            'Logo <img> must use brand.shop_name (HTML-escaped) for alt text',
+        )
+
+
+class StorefrontHeaderFallsBackToTextWhenLogoAbsent(unittest.TestCase):
+    """Logo partial is inert when brand.logo_url is falsy.
+
+    Uses a tmp branding/ dir with overrides.json but NO logo.png so
+    _load_branding_overrides() returns brand colors/shop_name but
+    leaves logo_url absent. The end-to-end render must then omit the
+    <img> entirely while still painting the text-only header.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmp.name, 'mmc-fallback.db')
+        os.environ['CACHE_DB_PATH'] = self.db_path
+        os.environ.pop('ACTIVE_CREATOR_ID', None)
+
+        import db_schema
+        import app
+        self.db_schema = db_schema
+        self.app_module = app
+
+        db_schema.DB_PATH = self.db_path
+        db_schema.bootstrap()
+
+        # Tmp branding/ with overrides.json + NO logo.png.
+        self.branding_dir = tempfile.mkdtemp(prefix='mmc-fallback-branding-')
+        overrides_path = os.path.join(self.branding_dir, 'overrides.json')
+        with open(overrides_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                'shop_name':     'The Mommy & Me Collective',
+                'shop_domain':   'shop.mommyandmecollective.com',
+                'brand_primary': '#7C7D6A',
+                'brand_surface': '#E5DBC8',
+            }, f)
+
+        self._branding_patch = mock.patch.object(
+            app, '_BRANDING_DIR', self.branding_dir,
+        )
+        self._branding_patch.start()
+        app._branding_cache_reset()
+
+    def tearDown(self):
+        self._branding_patch.stop()
+        self.app_module._branding_cache_reset()
+        try:
+            for entry in os.listdir(self.branding_dir):
+                os.remove(os.path.join(self.branding_dir, entry))
+            os.rmdir(self.branding_dir)
+        except FileNotFoundError:
+            pass
+        self.tmp.cleanup()
+
+    def _seed_collage(self, slug):
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO collages
+                (slug, products_json, caption, creator_id, status, hero_title, click_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (slug, json.dumps([]), 'caption', 'everydaywithsteph',
+                 'published', 'Fallback Test', 0),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_storefront_header_falls_back_to_text_when_brand_logo_url_absent(self):
+        # Sanity: the loader sees no logo_url.
+        overrides = self.app_module._load_branding_overrides()
+        self.assertNotIn(
+            'logo_url', overrides,
+            'Tmp branding/ has no logo.png — loader must not derive a '
+            'logo_url for this fallback test to be meaningful',
+        )
+
+        self._seed_collage(slug='logo-fallback-test')
+
+        client = self.app_module.app.test_client()
+        resp = client.get('/shop/logo-fallback-test')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode('utf-8')
+
+        # No <img> for the brand logo emitted.
+        self.assertNotIn(
+            'src="/branding/logo.png"', body,
+            'Logo <img> must not render when brand.logo_url is absent',
+        )
+        # And the existing text-header is still present (the .brand div
+        # is the anchor element rendered by shop_landing.html — it does
+        # not depend on the logo partial).
+        self.assertIn(
+            'class="brand"', body,
+            'Text header (.brand) must still render when logo is absent',
+        )
 
 
 if __name__ == '__main__':
