@@ -686,3 +686,62 @@ def daily_traffic(creator_id: str, start: str, end: str) -> list[dict]:
         conn.close()
 
     return [{'date': iso, 'clicks': counts[iso]} for iso in counts]
+
+
+# ── P0.2 v2 indicator helper ────────────────────────────────────────────────
+# Steph S4 #7: 🔥 flame for rows "doing well", 🔴 red dot for "needs attention."
+# Threshold approach is position-based:
+#   - sections with ≥ _RED_DOT_MIN_ROWS rows: top _FLAME_THRESHOLD = 🔥,
+#       bottom _FLAME_THRESHOLD = 🔴, middle = no indicator
+#   - sections with 1–5 rows: top 1 = 🔥 only, no 🔴 (avoid flagging a
+#       short list as both top and bottom)
+#   - sections with 0 rows: empty state, no indicators
+#
+# Position-based was picked over trend-based (would re-introduce period
+# comparison that R16 cut) and absolute thresholds (no defensible number;
+# meaning drifts with creator volume). One question per row of data we
+# already loaded — no new DB queries, no period rollups.
+#
+# Retailers section is single-row Amazon today (no per-creator Walmart
+# earnings table). With 1 row it gets the top-1 = 🔥 path. When Walmart
+# per-creator earnings land and the section grows past 6 rows, the
+# top/bottom rule kicks in automatically — no helper change needed.
+_FLAME_THRESHOLD = 3
+_RED_DOT_MIN_ROWS = 6
+
+
+def apply_indicators(rows: list[dict]) -> list[dict]:
+    """Return a NEW list of dicts with an 'indicator' field added per row.
+
+    Pure function — never mutates the input rows or list. The input list is
+    treated as already-sorted desc by its primary metric (which is the
+    contract the four ranking helpers already satisfy — clicks for
+    collections/posts, earnings for products/retailers).
+
+    Indicator values: 'flame', 'red_dot', or None.
+    """
+    if not rows:
+        return []
+    n = len(rows)
+
+    if n >= _RED_DOT_MIN_ROWS:
+        flame_cutoff = _FLAME_THRESHOLD
+        red_dot_start = n - _FLAME_THRESHOLD
+    else:
+        # Short list (1–5 rows): top 1 = flame only; never tag the same row
+        # as both top and bottom, never put a 🔴 on a list this small.
+        flame_cutoff = 1
+        red_dot_start = n  # nothing reaches this; effectively disables 🔴
+
+    def _indicator_for(idx: int) -> str | None:
+        if idx < flame_cutoff:
+            return 'flame'
+        if idx >= red_dot_start:
+            return 'red_dot'
+        return None
+
+    # New dicts via dict-unpacking — never mutate the input rows.
+    return [
+        {**row, 'indicator': _indicator_for(i)}
+        for i, row in enumerate(rows)
+    ]
