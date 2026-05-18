@@ -487,5 +487,226 @@ class TableExistsBackendAwareTests(unittest.TestCase):
             self.assertFalse(ins._table_exists(fake, 'no_such_table'))
 
 
+# ── 7. daily_traffic data helper (PR 2) ───────────────────────────────────────
+
+class DailyTrafficTests(_InsightsTestBase):
+
+    def _seed_click_on_date(self, slug, when_iso):
+        """Insert one click_log row dated YYYY-MM-DD HH:MM:SS."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                "INSERT INTO click_log (asin, slug, clicked_at) VALUES (?, ?, ?)",
+                ('B00TEST', slug, f'{when_iso} 12:00:00'),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_daily_traffic_groups_clicks_by_day(self):
+        # Two clicks on day-1, three on day-3, none on day-2; ensure each
+        # bucket carries the right count.
+        self._seed_collage('coll-a', 'creator-1')
+        d1 = (_TODAY - timedelta(days=4)).isoformat()
+        d2 = (_TODAY - timedelta(days=3)).isoformat()
+        d3 = (_TODAY - timedelta(days=2)).isoformat()
+        self._seed_click_on_date('coll-a', d1)
+        self._seed_click_on_date('coll-a', d1)
+        self._seed_click_on_date('coll-a', d3)
+        self._seed_click_on_date('coll-a', d3)
+        self._seed_click_on_date('coll-a', d3)
+
+        start, end = self._window()  # 7d window — all three days in
+        rows = self.insights.daily_traffic('creator-1', start, end)
+        by_date = {r['date']: r['clicks'] for r in rows}
+        self.assertEqual(by_date.get(d1), 2)
+        self.assertEqual(by_date.get(d2), 0)
+        self.assertEqual(by_date.get(d3), 3)
+
+    def test_daily_traffic_zero_fills_missing_dates(self):
+        # No clicks at all — every day in the 7d window must appear with 0.
+        self._seed_collage('silent-coll', 'creator-1')
+        start, end = self._window()
+        rows = self.insights.daily_traffic('creator-1', start, end)
+        self.assertEqual(len(rows), 7)
+        # Sorted ascending.
+        dates = [r['date'] for r in rows]
+        self.assertEqual(dates, sorted(dates))
+        self.assertTrue(all(r['clicks'] == 0 for r in rows))
+
+    def test_daily_traffic_scoped_to_creator_id(self):
+        # Same window, two creators each with their own collection and
+        # one click — neither should leak into the other's totals.
+        self._seed_collage('coll-c1', 'creator-1')
+        self._seed_collage('coll-c2', 'creator-2')
+        d1 = (_TODAY - timedelta(days=2)).isoformat()
+        self._seed_click_on_date('coll-c1', d1)
+        self._seed_click_on_date('coll-c2', d1)
+        self._seed_click_on_date('coll-c2', d1)
+
+        start, end = self._window()
+        c1_total = sum(r['clicks'] for r in
+                       self.insights.daily_traffic('creator-1', start, end))
+        c2_total = sum(r['clicks'] for r in
+                       self.insights.daily_traffic('creator-2', start, end))
+        self.assertEqual(c1_total, 1)
+        self.assertEqual(c2_total, 2)
+
+    def test_daily_traffic_avoids_double_counting_slug_overlap(self):
+        """The data-layer guarantee Kelly flagged: a slug that exists in
+        BOTH collages and posts must not double-count its clicks in the
+        daily-traffic total. PR 1's Best Collections / Best Posts helpers
+        intentionally allow the double-count (each section sums its own
+        join); daily_traffic uses COUNT(DISTINCT click_log.id) to render
+        a single honest line for the chart.
+        """
+        # Seed the same slug as BOTH a collection AND a post for the
+        # same creator. Then drop 4 clicks on that slug.
+        shared_slug = 'shared-slug'
+        self._seed_collage(shared_slug, 'creator-1', hero_title='Shared')
+        self._seed_post(shared_slug, 'creator-1', product_name='Shared Post')
+        d1 = (_TODAY - timedelta(days=2)).isoformat()
+        for _ in range(4):
+            self._seed_click_on_date(shared_slug, d1)
+
+        start, end = self._window()
+        rows = self.insights.daily_traffic('creator-1', start, end)
+        by_date = {r['date']: r['clicks'] for r in rows}
+        # 4 clicks total — NOT 8. UNION + COUNT(DISTINCT click_log.id)
+        # keeps each click counted once even though the slug subquery
+        # surfaces it via both collages and posts branches.
+        self.assertEqual(by_date.get(d1), 4)
+
+
+# ── 8. apply_indicators threshold logic ───────────────────────────────────────
+
+class ApplyIndicatorsTests(unittest.TestCase):
+
+    def setUp(self):
+        # Pure-Python helper — no DB needed.
+        import insights as ins
+        self.ins = ins
+
+    def _rows(self, n):
+        return [{'slug': f's{i}', 'clicks': n - i} for i in range(n)]
+
+    def test_indicators_flame_for_top_3_when_section_has_6_or_more(self):
+        out = self.ins.apply_indicators(self._rows(10))
+        self.assertEqual([r['indicator'] for r in out[:3]],
+                         ['flame', 'flame', 'flame'])
+
+    def test_indicators_red_dot_for_bottom_3_when_section_has_6_or_more(self):
+        out = self.ins.apply_indicators(self._rows(10))
+        self.assertEqual([r['indicator'] for r in out[-3:]],
+                         ['red_dot', 'red_dot', 'red_dot'])
+        # Middle rows must carry no indicator at all.
+        self.assertTrue(all(r['indicator'] is None for r in out[3:7]))
+
+    def test_indicators_flame_only_for_section_with_5_rows(self):
+        # Boundary: 5 rows is below the _RED_DOT_MIN_ROWS = 6 cutoff,
+        # so we get top-1 = flame and no red_dot anywhere.
+        out = self.ins.apply_indicators(self._rows(5))
+        self.assertEqual(out[0]['indicator'], 'flame')
+        self.assertTrue(all(r['indicator'] is None for r in out[1:]))
+        # Specifically: no red_dot at all on a 5-row section.
+        self.assertNotIn('red_dot', [r['indicator'] for r in out])
+
+    def test_indicators_flame_only_for_section_with_1_row(self):
+        # The single-row retailer case (Amazon today, pre-Walmart).
+        out = self.ins.apply_indicators(self._rows(1))
+        self.assertEqual(out[0]['indicator'], 'flame')
+
+    def test_indicators_empty_section_yields_no_indicators(self):
+        self.assertEqual(self.ins.apply_indicators([]), [])
+
+    def test_indicators_does_not_mutate_input(self):
+        # apply_indicators must return new dicts, not mutate the rows
+        # the ranking helpers handed in.
+        rows = self._rows(8)
+        snapshot = [dict(r) for r in rows]
+        _ = self.ins.apply_indicators(rows)
+        self.assertEqual(rows, snapshot)
+        self.assertFalse(any('indicator' in r for r in rows))
+
+
+# ── 9. rendered HTML — chart SVG + indicator emoji ────────────────────────────
+
+class RenderedHtmlV2Tests(_InsightsTestBase):
+
+    def _client_authed(self):
+        client = self.app_module.app.test_client()
+        with client.session_transaction() as sess:
+            sess['admin_authed'] = True
+        return client
+
+    def _seed_click_on_date(self, slug, when_iso):
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                "INSERT INTO click_log (asin, slug, clicked_at) VALUES (?, ?, ?)",
+                ('B00TEST', slug, f'{when_iso} 12:00:00'),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_rendered_html_contains_chart_svg(self):
+        # Seed enough traffic that the chart has a non-empty polyline.
+        self._seed_collage('flag-coll', 'everydaywithsteph',
+                           hero_title='Flag Collection')
+        d1 = (_TODAY - timedelta(days=2)).isoformat()
+        for _ in range(3):
+            self._seed_click_on_date('flag-coll', d1)
+
+        os.environ['INSIGHTS_V2_ENABLED'] = '1'
+        try:
+            resp = self._client_authed().get('/insights')
+        finally:
+            os.environ.pop('INSIGHTS_V2_ENABLED', None)
+
+        body = resp.data.decode('utf-8')
+        self.assertIn('iv-chart__svg', body)
+        self.assertIn('<polyline', body)
+        self.assertIn('iv-chart__line', body)
+
+    def test_rendered_html_contains_flame_for_top_collection(self):
+        # Top collection by clicks should pick up the flame emoji.
+        self._seed_collage('top-coll', 'everydaywithsteph', hero_title='Top')
+        d1 = (_TODAY - timedelta(days=2)).isoformat()
+        for _ in range(5):
+            self._seed_click_on_date('top-coll', d1)
+
+        os.environ['INSIGHTS_V2_ENABLED'] = '1'
+        try:
+            resp = self._client_authed().get('/insights')
+        finally:
+            os.environ.pop('INSIGHTS_V2_ENABLED', None)
+
+        body = resp.data.decode('utf-8')
+        # 🔥 must appear at least once in the body for the top row.
+        self.assertIn('🔥', body)
+        # And the slug it belongs to must be present in the same response.
+        self.assertIn('top-coll', body)
+
+    def test_chart_empty_state_when_all_zero_clicks(self):
+        # Codex refinement: when daily_traffic has zero clicks every day,
+        # render the empty-state copy — NOT a flat zero-polyline.
+        self._seed_collage('silent-coll', 'everydaywithsteph',
+                           hero_title='Silent Collection')
+        # No clicks seeded — every day in the window is zero.
+
+        os.environ['INSIGHTS_V2_ENABLED'] = '1'
+        try:
+            resp = self._client_authed().get('/insights')
+        finally:
+            os.environ.pop('INSIGHTS_V2_ENABLED', None)
+
+        body = resp.data.decode('utf-8')
+        # Empty-state copy is present.
+        self.assertIn('No traffic in this window', body)
+        # The polyline element is NOT present — we don't render a flat line.
+        self.assertNotIn('<polyline', body)
+
+
 if __name__ == '__main__':
     unittest.main()
