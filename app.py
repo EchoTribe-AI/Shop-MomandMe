@@ -223,6 +223,110 @@ def _fmt_date(v) -> str:
     return str(v)[:10]
 
 
+# ── P0.7 branding/ override directory ────────────────────────────────────────
+# Per-deploy assets live in a repo-root `branding/` directory. Shop-MomandMe
+# drops its logo + favicon + overrides.json there; Echo-Dashboard ships with
+# no branding/ and falls through to creator-row + framework defaults.
+#
+# Layout (all optional, missing or partial directory is fine):
+#   branding/logo.png          (or logo.svg / logo.webp — first match wins)
+#   branding/favicon.ico
+#   branding/overrides.json    (any subset of brand-context column keys)
+#
+# Asset URLs returned by the loader are root-relative ('/branding/<file>')
+# so they work uniformly in <link href>, <img src>, and meta og:image.
+_BRANDING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'branding')
+_BRANDING_LOGO_CANDIDATES = ('logo.png', 'logo.svg', 'logo.webp')
+_BRANDING_FAVICON_FILENAME = 'favicon.ico'
+
+# In-process cache. _BRANDING_CACHE holds the last-resolved overrides dict;
+# _BRANDING_CACHE_KEY pins it to a (_BRANDING_DIR) tuple so tests that
+# monkeypatch the directory get a fresh read automatically. Tests can also
+# call _branding_cache_reset() to force a reload.
+_BRANDING_CACHE: dict | None = None
+_BRANDING_CACHE_KEY: tuple | None = None
+
+
+def _branding_cache_reset() -> None:
+    """Clear the branding-override cache. Test hook."""
+    global _BRANDING_CACHE, _BRANDING_CACHE_KEY
+    _BRANDING_CACHE = None
+    _BRANDING_CACHE_KEY = None
+
+
+def _load_branding_overrides() -> dict:
+    """Read the per-deploy branding/ directory and return an overrides dict.
+
+    Returns a dict with any of these keys set:
+      logo_url     — root-relative '/branding/<file>' if a logo file exists
+      favicon_url  — root-relative '/branding/favicon.ico' if present
+      (plus any keys from overrides.json — typically the same brand-context
+       columns: brand_primary, shop_name, meta_title_template, etc.)
+
+    Behavior:
+      - Missing branding/ directory → {} (Echo-Dashboard's expected state).
+      - Partial directory (logo only, no overrides.json) → only logo_url set.
+      - Malformed overrides.json → warning logged, JSON keys omitted (file
+        assets still picked up from the directory).
+      - Never raises during normal app boot or request handling.
+
+    Cached in-process; tests can call _branding_cache_reset() or monkeypatch
+    _BRANDING_DIR to force a re-read.
+    """
+    global _BRANDING_CACHE, _BRANDING_CACHE_KEY
+    cache_key = (_BRANDING_DIR,)
+    if _BRANDING_CACHE is not None and _BRANDING_CACHE_KEY == cache_key:
+        return _BRANDING_CACHE
+
+    overrides: dict = {}
+    try:
+        if not os.path.isdir(_BRANDING_DIR):
+            _BRANDING_CACHE = overrides
+            _BRANDING_CACHE_KEY = cache_key
+            return overrides
+
+        # Logo: first match wins.
+        for name in _BRANDING_LOGO_CANDIDATES:
+            candidate = os.path.join(_BRANDING_DIR, name)
+            if os.path.isfile(candidate):
+                overrides['logo_url'] = f'/branding/{name}'
+                break
+
+        # Favicon.
+        favicon_path = os.path.join(_BRANDING_DIR, _BRANDING_FAVICON_FILENAME)
+        if os.path.isfile(favicon_path):
+            overrides['favicon_url'] = f'/branding/{_BRANDING_FAVICON_FILENAME}'
+
+        # overrides.json — tolerant-render posture (matches plan's stance).
+        overrides_path = os.path.join(_BRANDING_DIR, 'overrides.json')
+        if os.path.isfile(overrides_path):
+            try:
+                with open(overrides_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    overrides.update(data)
+                else:
+                    logging.warning(
+                        "[P07] branding/overrides.json is not a JSON object "
+                        "(got %s); ignoring contents",
+                        type(data).__name__,
+                    )
+            except (json.JSONDecodeError, OSError) as e:
+                logging.warning(
+                    "[P07] branding/overrides.json could not be parsed: %s; "
+                    "continuing with file-asset overrides only",
+                    e,
+                )
+    except Exception as e:
+        # Outermost guard: filesystem errors must never break a deploy.
+        logging.warning(f"[P07] _load_branding_overrides failed: {e}")
+        overrides = {}
+
+    _BRANDING_CACHE = overrides
+    _BRANDING_CACHE_KEY = cache_key
+    return overrides
+
+
 _SCHEMA_READY = False
 _SCHEMA_READY_LOCK = threading.Lock()
 
