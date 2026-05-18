@@ -768,6 +768,23 @@ def healthz():
     return 'ok', 200
 
 
+@app.route('/branding/<path:filename>')
+def branding_asset(filename):
+    """Serve per-deploy branding/ assets (logo, favicon, etc.).
+
+    Public, no admin guard — these are storefront chrome that anonymous
+    shoppers see on every page. Missing file or missing directory returns
+    a clean 404. send_from_directory's safe_join protects against path
+    traversal (../).
+    """
+    if not os.path.isdir(_BRANDING_DIR):
+        return jsonify({'error': 'Not found'}), 404
+    try:
+        return send_from_directory(_BRANDING_DIR, filename)
+    except Exception:
+        return jsonify({'error': 'Not found'}), 404
+
+
 @app.route('/hub')
 def hub():
     guard = _require_admin_page()
