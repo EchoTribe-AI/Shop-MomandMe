@@ -86,6 +86,11 @@
   .disclosure { padding: 14px 18px 24px; }
   .disclosure-text { font-size: 11px; color: rgba(0,0,0,0.45); line-height: 1.5; }
 </style>
+{# P0.7 brand-vars partial: included AFTER the inline theme <style> so the
+   legacy-compat bridge (--accent/--soft sourced from brand.brand_primary)
+   wins over the theme.accent set above when the active creator has brand
+   colors. NULL creator colors → the bridge stays inert. #}
+{% include 'partials/_brand_vars.html' %}
 </head>
 <body>
 <main class="page">
