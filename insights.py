@@ -367,22 +367,28 @@ def overview(creator_id: str, start: str, end: str) -> dict:
 def _table_exists(conn, name: str) -> bool:
     """True if `name` is a queryable table in the current DB connection.
 
-    Tries both SQLite (sqlite_master) and PG (information_schema) lookups; the
-    PG-compat wrapper in db_schema._adapt_sql doesn't know how to translate
-    sqlite_master, so we probe in two passes and swallow any error.
+    Backend-aware: on Postgres we query information_schema; on SQLite we
+    query sqlite_master. Probing sqlite_master first on a PG connection
+    raises and (worse) leaves psycopg2's transaction in an aborted state,
+    which makes every subsequent query on the same connection fail too —
+    in production that turned the entire v2 insights view empty. So we
+    branch up-front via db_schema._USE_PG.
+
+    The shared `?` placeholder works because db_schema._adapt_sql rewrites
+    it to `%s` on the PG path; SQLite consumes it natively.
     """
+    if db_schema._USE_PG:
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM information_schema.tables WHERE table_name=?",
+                (name,),
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
     try:
         row = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-            (name,),
-        ).fetchone()
-        if row is not None:
-            return True
-    except Exception:
-        pass
-    try:
-        row = conn.execute(
-            "SELECT 1 FROM information_schema.tables WHERE table_name=?",
             (name,),
         ).fetchone()
         return row is not None

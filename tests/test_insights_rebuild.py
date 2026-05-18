@@ -356,5 +356,82 @@ class DefaultWindowTests(_InsightsTestBase):
         self.assertEqual(start, (_TODAY - timedelta(days=6)).isoformat())
 
 
+# ── 6. _table_exists() backend awareness ──────────────────────────────────────
+# Regression: an earlier implementation probed sqlite_master first on every
+# connection. On a real Postgres connection that errors and (worse) leaves
+# psycopg2's transaction in an aborted state, so every subsequent query on
+# the same connection fails too — production v2 insights came back empty.
+# These tests pin the branch behavior with a fake connection so the suite can
+# verify both paths without standing up a real Postgres.
+
+class _FakeCursor:
+    def __init__(self, row):
+        self._row = row
+
+    def fetchone(self):
+        return self._row
+
+
+class _FakeConn:
+    """Records the last SQL string executed and returns a canned row.
+
+    Use `raise_on_pg=True` to simulate the prior aborted-transaction bug:
+    the SQLite-style probe raises, mirroring what psycopg2 does when given
+    `SELECT 1 FROM sqlite_master ...`.
+    """
+
+    def __init__(self, return_row=(1,), raise_on_sqlite_master=False):
+        self.return_row = return_row
+        self.raise_on_sqlite_master = raise_on_sqlite_master
+        self.executed = []
+
+    def execute(self, sql, params=None):
+        self.executed.append(sql)
+        if self.raise_on_sqlite_master and 'sqlite_master' in sql:
+            raise RuntimeError(
+                'simulated psycopg2 ProgrammingError: relation "sqlite_master" '
+                'does not exist'
+            )
+        return _FakeCursor(self.return_row)
+
+
+class TableExistsBackendAwareTests(unittest.TestCase):
+    """Patch db_schema._USE_PG and assert the right SQL flavor runs."""
+
+    def test_pg_branch_queries_information_schema_not_sqlite_master(self):
+        import insights as ins
+        fake = _FakeConn(return_row=(1,), raise_on_sqlite_master=True)
+        with mock.patch('db_schema._USE_PG', True):
+            result = ins._table_exists(fake, 'click_log')
+        self.assertTrue(result)
+        # Must never touch sqlite_master on the PG branch — that was the
+        # bug that aborted the connection's transaction.
+        joined = ' | '.join(fake.executed)
+        self.assertNotIn('sqlite_master', joined)
+        self.assertIn('information_schema.tables', joined)
+
+    def test_sqlite_branch_queries_sqlite_master(self):
+        import insights as ins
+        fake = _FakeConn(return_row=(1,))
+        with mock.patch('db_schema._USE_PG', False):
+            result = ins._table_exists(fake, 'click_log')
+        self.assertTrue(result)
+        joined = ' | '.join(fake.executed)
+        self.assertIn('sqlite_master', joined)
+        self.assertNotIn('information_schema', joined)
+
+    def test_pg_branch_returns_false_on_missing_table(self):
+        import insights as ins
+        fake = _FakeConn(return_row=None)
+        with mock.patch('db_schema._USE_PG', True):
+            self.assertFalse(ins._table_exists(fake, 'no_such_table'))
+
+    def test_sqlite_branch_returns_false_on_missing_table(self):
+        import insights as ins
+        fake = _FakeConn(return_row=None)
+        with mock.patch('db_schema._USE_PG', False):
+            self.assertFalse(ins._table_exists(fake, 'no_such_table'))
+
+
 if __name__ == '__main__':
     unittest.main()
