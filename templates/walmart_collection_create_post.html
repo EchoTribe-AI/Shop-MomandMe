@@ -58,7 +58,7 @@
     .secondary-tools summary::after { content:'+'; float:right; color:var(--muted); }
     .secondary-tools[open] summary::after { content:'-'; }
     .secondary-tools-body { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; padding:0 12px 12px; }
-    button, .btn { appearance:none; border:0; border-radius:14px; padding:11px 13px; background:var(--accent); color:#fff; font-weight:900; font-size:13px; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:7px; }
+    button, .btn { appearance:none; border:0; border-radius:14px; padding:11px 13px; background:var(--accent); color:var(--brand-on-primary, #fff); font-weight:900; font-size:13px; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:7px; }
     button.secondary, .btn.secondary { background:#1a1a17; }
     button.ghost, .btn.ghost { background:var(--soft); color:var(--accent); }
     button.danger, .btn.danger { background:#fff0ed; color:#a02828; }
@@ -101,6 +101,11 @@
       button, .btn { width:100%; min-height:44px; }
     }
   </style>
+  {# Brand-vars partial: included AFTER the inline theme <style> so the
+     legacy-compat bridge (--accent/--soft/--bg sourced from the active
+     creator row) wins over the static fallbacks above. NULL creator
+     colors → the bridge stays inert and the static palette renders. #}
+  {% include 'partials/_brand_vars.html' %}
 </head>
 <body>
   {% set active = 'create' %}
