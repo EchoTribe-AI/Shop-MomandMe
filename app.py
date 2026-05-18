@@ -771,6 +771,9 @@ def shop_chat():
 
 @app.route('/')
 def index():
+    ua = request.headers.get('User-Agent', '')
+    if 'GoogleHC' in ua or request.args.get('healthz') == '1':
+        return 'ok', 200
     return redirect(url_for('hub'))
 
 
