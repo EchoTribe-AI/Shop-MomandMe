@@ -1,0 +1,202 @@
+{# P0.2 Insights v2 — R16 spec, V3 Variant A (scrolling sections).
+
+   Four sections in order:
+     1. Best Collections by click traffic
+     2. Best Posts by click traffic
+     3. Best Products by earnings
+     4. Best Retailers by earnings
+
+   Each row: primary metric (large) + secondary metric (smaller, dim).
+   Secondary "Views" renders as — until an impressions data source lands
+   (issue #87). Visual polish (daily-trend graph, flame/red-dot indicators,
+   full performance matrix) is PR 2 of this rebuild.
+
+   Brand chrome: extends partials/_mobile_chrome.html so the universal
+   5-item bottom nav renders and brand vars (sage/linen/charcoal) come
+   from the P0.7 brand-context resolver. No timeline labels.
+#}
+{% extends 'partials/_mobile_chrome.html' %}
+{% set active_nav = 'insights' %}
+
+{% block title %}Insights — {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}{% endblock %}
+{% block header_title %}Insights{% endblock %}
+
+{% block head_extra %}
+<style>
+  .iv-page { padding: 16px; }
+  .iv-window {
+    font-family: Inter, sans-serif;
+    font-size: 12px;
+    color: var(--muted, rgba(26,26,23,.62));
+    margin-bottom: 20px;
+    text-align: center;
+  }
+
+  .iv-section {
+    background: var(--card, #ffffff);
+    border: 1px solid var(--line, rgba(26,26,23,.10));
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .iv-section__heading {
+    font-family: Inter, sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--brand-on-surface, var(--ink, #1a1a17));
+    margin: 0 0 12px;
+    line-height: 1.3;
+  }
+
+  .iv-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line, rgba(26,26,23,.06));
+  }
+  .iv-row:last-child { border-bottom: none; }
+
+  .iv-row__label {
+    flex: 1;
+    min-width: 0;
+    font-family: Inter, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--brand-on-surface, var(--ink, #1a1a17));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .iv-row__sublabel {
+    font-family: Inter, sans-serif;
+    font-size: 11px;
+    color: var(--muted, rgba(26,26,23,.55));
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .iv-row__metrics {
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .iv-row__primary {
+    font-family: Inter, sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--brand-primary);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .iv-row__secondary {
+    font-family: Inter, sans-serif;
+    font-size: 11px;
+    color: var(--muted, rgba(26,26,23,.55));
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .iv-empty {
+    padding: 24px 8px;
+    text-align: center;
+    font-family: Inter, sans-serif;
+    font-size: 13px;
+    color: var(--muted, rgba(26,26,23,.55));
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="iv-page">
+
+  <div class="iv-window">{{ window_label }} · {{ start }} → {{ end }}</div>
+
+  {# ── Section 1: Best Collections by click traffic ──────────────────── #}
+  <section class="iv-section" aria-labelledby="iv-sec-collections">
+    <h2 id="iv-sec-collections" class="iv-section__heading">Best Collections by click traffic</h2>
+    {% if collections %}
+      {% for c in collections %}
+      <div class="iv-row">
+        <div style="flex:1;min-width:0;">
+          <div class="iv-row__label">{{ c.title }}</div>
+          <div class="iv-row__sublabel">/{{ c.slug }}</div>
+        </div>
+        <div class="iv-row__metrics">
+          <div class="iv-row__primary">{{ '{:,}'.format(c.clicks) }}</div>
+          <div class="iv-row__secondary">{{ '{:,}'.format(c.views) if c.views is not none else '—' }} views</div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="iv-empty">No collections clicked in this window.</div>
+    {% endif %}
+  </section>
+
+  {# ── Section 2: Best Posts by click traffic ────────────────────────── #}
+  <section class="iv-section" aria-labelledby="iv-sec-posts">
+    <h2 id="iv-sec-posts" class="iv-section__heading">Best Posts by click traffic</h2>
+    {% if posts %}
+      {% for p in posts %}
+      <div class="iv-row">
+        <div style="flex:1;min-width:0;">
+          <div class="iv-row__label">{{ p.title }}</div>
+          <div class="iv-row__sublabel">{{ p.angle or p.slug }}</div>
+        </div>
+        <div class="iv-row__metrics">
+          <div class="iv-row__primary">{{ '{:,}'.format(p.clicks) }}</div>
+          <div class="iv-row__secondary">{{ '{:,}'.format(p.views) if p.views is not none else '—' }} views</div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="iv-empty">No posts clicked in this window.</div>
+    {% endif %}
+  </section>
+
+  {# ── Section 3: Best Products by earnings ──────────────────────────── #}
+  <section class="iv-section" aria-labelledby="iv-sec-products">
+    <h2 id="iv-sec-products" class="iv-section__heading">Best Products by earnings</h2>
+    {% if products %}
+      {% for pr in products %}
+      <div class="iv-row">
+        <div style="flex:1;min-width:0;">
+          <div class="iv-row__label">{{ pr.product_name }}</div>
+          <div class="iv-row__sublabel">{{ pr.asin }}{% if pr.units %} · {{ pr.units }} units{% endif %}</div>
+        </div>
+        <div class="iv-row__metrics">
+          <div class="iv-row__primary">${{ '{:,.2f}'.format(pr.earnings) }}</div>
+          <div class="iv-row__secondary">{{ '{:,}'.format(pr.views) if pr.views is not none else '—' }} views</div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="iv-empty">No product earnings recorded in this window.</div>
+    {% endif %}
+  </section>
+
+  {# ── Section 4: Best Retailers by earnings ─────────────────────────── #}
+  <section class="iv-section" aria-labelledby="iv-sec-retailers">
+    <h2 id="iv-sec-retailers" class="iv-section__heading">Best Retailers by earnings</h2>
+    {% if retailers %}
+      {% for r in retailers %}
+      <div class="iv-row">
+        <div style="flex:1;min-width:0;">
+          <div class="iv-row__label">{{ r.retailer }}</div>
+          {% if r.units %}<div class="iv-row__sublabel">{{ r.units }} units</div>{% endif %}
+        </div>
+        <div class="iv-row__metrics">
+          <div class="iv-row__primary">${{ '{:,.2f}'.format(r.earnings) }}</div>
+          <div class="iv-row__secondary">{{ '{:,}'.format(r.views) if r.views is not none else '—' }} views</div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="iv-empty">No retailer earnings recorded in this window.</div>
+    {% endif %}
+  </section>
+
+</div>
+{% endblock %}
