@@ -11,6 +11,44 @@ This file auto-loads in every Claude Code session in this repo. Read it before s
 - `branding/overrides.json` carries Steph's Sage Forward palette — these values override upstream defaults for all brand-context lookups.
 - `SHOP_SUBDOMAIN` in this deploy's Replit Secrets should be set to `shop.mommyandmecollective.com`.
 
+## Current project state — decisions Claude Code sessions need on first read
+
+### Variant picks (locked 2026-05-18)
+
+| Variant | Surface | Pick | Status |
+|---|---|---|---|
+| V1 | hub_home | **B** (urgency-first dashboard) | Build pending — needs inline "Manage your collections" link |
+| V2 | custom_collections_builder | **B** (filters in sheet) | Deferred build |
+| V3 | client_insights_dashboard | **A** (scrolling sections) | Built via P0.2 PR #88/#89 (Echo-Dashboard) + PR #13 (Shop-MomandMe). Gated behind `INSIGHTS_V2_ENABLED`. |
+| V4 | product_discovery_feed | **B** (2-col grid + FAB) | Deferred build. Add destination = EchoAgent suggests new-or-existing collection (K22 → R22). |
+| V5 | ai_generator_review_queue | **A** (full preview rows) | Deferred until AI generator features in scope. |
+| V6 | echoagent_chat | **B** (nav collapses on focus) | Deferred until P2.5 scope. |
+
+### Steph's confirmed brand palette — "Sage Forward" (R14)
+
+| Column | Hex | Role |
+|---|---|---|
+| `brand_primary` | `#7C7D6A` Sage | Primary CTAs |
+| `brand_on_primary` | `#F5F2ED` Off-white | Text on sage |
+| `brand_primary_container` | `#DDBBA4` Blush rose | Secondary surfaces |
+| `brand_on_primary_container` | `#3D3A33` Charcoal | Text on blush rose |
+| `brand_surface` | `#E5DBC8` Linen | Canvas |
+| `brand_on_surface` | `#3D3A33` Charcoal | Body text on linen |
+
+Values are live in `branding/overrides.json` at the repo root — reading that file confirms current state. The override layer beats any creator-row values, which means changing brand on this deploy is a JSON edit, not a DB write.
+
+### Where things live
+
+- **Variant mockups**: `design/_selected/<surface>/` for winners; `design/_reference/<surface>/` for losers if retired. Use these when implementing a variant pick.
+- **Design system + build conventions**: `design/_design-system/build-conventions.md`.
+- **Phase planning docs**: `docs/planning/PHASE0_*.md` (P0.1 through P0.7) — synced from Echo-Dashboard.
+- **Project-folder trackers (archive)**: `/Users/kellmaster/Documents/Claude/Projects/EchoTribe Dashboard/` — STATE_OF_PLAY.md, PROJECT_TRACKER.md, OPEN_QUESTIONS_TRACKER.md, ARCHITECTURE_ROADMAP.md, ECHOTRIBE_FEATURE_LIST_V3.md. Not in any repo. Live tracking moved to GitHub Projects.
+- **Live tracker**: GitHub Projects "EchoTribe Active Tracker" at github.com/orgs/EchoTribe-AI/projects/.
+
+### Open Steph questions
+
+S2 (SVG logo — PNG works for v1), S5, S6, S7, S8. None block her create-from-Trends workflow testing.
+
 ## Brand context (P0.7 + K1)
 
 - Use `g.active_creator_id` (resolved by `_resolve_active_creator_id` in `app.py`) for runtime creator selection. NEVER hardcode `'everydaywithsteph'` at request-time call sites. Seed defaults, test fixtures, and framework-fallback constants may keep the literal.
