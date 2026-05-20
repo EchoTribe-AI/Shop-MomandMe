@@ -33,6 +33,14 @@ import db_schema
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Feature flag — gate every Archer attribution-link upgrade attempt.
+# Default OFF: fall through to plain Amazon affiliate URLs (mommymedeals-20).
+# Flip on by exporting USE_ARCHER_ATTRIBUTION=1 in the runtime env.
+# ─────────────────────────────────────────────────────────────────────────────
+USE_ARCHER_ATTRIBUTION = os.environ.get('USE_ARCHER_ATTRIBUTION', '0').lower() in ('1', 'true', 'yes')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Network-derived utm_content fallback
 # (caller-supplied utm.content always wins; this is the default when absent)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -42,6 +50,31 @@ NETWORK_CONTENT_DEFAULTS = {
     'levanta':        'levanta',
     'walmart_impact': 'walmart-impact',
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Canonical UTM mapping for shop-side product CTAs
+# ─────────────────────────────────────────────────────────────────────────────
+def shop_utm(source_page, collection_slug, asin, platform='facebook', medium='organic'):
+    """Canonical UTM mapping for shop-side product CTAs.
+
+    Returns dict with keys: utm_source, utm_medium, utm_campaign, utm_content, utm_term.
+
+    Locked mapping (plan §5):
+        utm_source   = platform           (default 'facebook')
+        utm_medium   = medium             ('organic' for pages, 'agent' for chat)
+        utm_campaign = collection_slug    (the collection's public slug, or 'shop')
+        utm_content  = source_page        ('shop-landing', 'shop-directory',
+                                            'shop-trends', 'agent-recommend', …)
+        utm_term     = asin lowercased    (the product ASIN)
+    """
+    return {
+        'utm_source':   platform,
+        'utm_medium':   medium,
+        'utm_campaign': collection_slug or 'shop',
+        'utm_content':  source_page,
+        'utm_term':     (asin or '').lower(),
+    }
 
 
 class LinkBuilder(Protocol):
@@ -74,20 +107,23 @@ class ArcherURLGenius:
         )
         affiliate_url = f'https://www.amazon.com/dp/{item_id}?tag={amazon_tag}'
 
-        # Try to upgrade to a real Archer attribution link
-        try:
-            a = ArcherAPI()
-            label_archer = f"{creator.get('id', 'creator')}-archer-{item_id.lower()}-{int(time.time())}"
-            result = a.generate_link(item_id, label=label_archer)
-            if result:
-                affiliate_url = (
-                    result.get('attribution_link')
-                    or result.get('url')
-                    or result.get('link')
-                    or affiliate_url
-                )
-        except Exception as e:
-            logging.warning(f'[LINK_BUILDER:archer] Archer link failed for {item_id}: {e}')
+        # Try to upgrade to a real Archer attribution link.
+        # Gated by USE_ARCHER_ATTRIBUTION (default off): when flag is off, we keep
+        # the plain Amazon affiliate URL and skip the Archer outbound call entirely.
+        if USE_ARCHER_ATTRIBUTION:
+            try:
+                a = ArcherAPI()
+                label_archer = f"{creator.get('id', 'creator')}-archer-{item_id.lower()}-{int(time.time())}"
+                result = a.generate_link(item_id, label=label_archer)
+                if result:
+                    affiliate_url = (
+                        result.get('attribution_link')
+                        or result.get('url')
+                        or result.get('link')
+                        or affiliate_url
+                    )
+            except Exception as e:
+                logging.warning(f'[LINK_BUILDER:archer] Archer link failed for {item_id}: {e}')
 
         utm_source   = utm.get('source')   or 'fb-group'
         utm_medium   = utm.get('medium')   or 'organic'

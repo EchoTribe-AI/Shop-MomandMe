@@ -461,13 +461,20 @@ def response_product(
 
     if not link and network == "amazon" and item_id and make_smart_link:
         try:
+            # Canonical agent UTM mapping (plan §5):
+            #   utm_source  = 'facebook'         (platform)
+            #   utm_medium  = 'agent'            (chat/agent origin, not 'chat')
+            #   utm_campaign = collection slug   (or 'agent' fallback)
+            #   utm_content = 'agent-recommend'  (origin tag)
+            #   utm_term    = ASIN lowercased
             smart = make_smart_link(
                 asin=item_id,
                 network="amazon",
-                utm_source="shop-chat",
-                utm_medium="chat",
-                utm_campaign=current_slug or "shop",
-                utm_term=item_id.lower(),
+                utm_source="facebook",
+                utm_medium="agent",
+                utm_campaign=current_slug or "agent",
+                utm_content="agent-recommend",
+                utm_term=(item_id or "").lower(),
                 creator_id=creator.get("id") or DEFAULT_CREATOR_ID,
             )
             link = _clean_text((smart or {}).get("genius_url") or (smart or {}).get("affiliate_url"))

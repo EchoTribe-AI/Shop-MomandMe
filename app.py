@@ -517,7 +517,8 @@ def _route_shop_subdomain():
       GET  /robots.txt            → shop_robots()
       GET  /<slug>                → shop_landing(slug)
       POST /api/shop/chat         → storefront chat endpoint (passthrough)
-      POST /archer/track_click    → tracking endpoint (passthrough)
+      POST /api/clicks            → tracking endpoint (passthrough)
+      *    /api/*                 → neutral JSON API passthrough
       *    /static/*              → passthrough for assets
     Anything else 404s on the public subdomain.
     """
@@ -530,7 +531,9 @@ def _route_shop_subdomain():
     # Passthroughs the public surface itself needs
     if path == '/api/shop/chat':
         return
-    if path == '/archer/track_click':
+    if path == '/api/clicks':
+        return
+    if path.startswith('/api/'):
         return
     if path.startswith('/static/'):
         return
@@ -945,7 +948,17 @@ def dashboard_upload_csv():
 
 # ARCHIVED — see /archive/routes/
 
-@app.route('/archer/search')
+@app.route('/archer/search', methods=['GET'])
+def _legacy_archer_search():
+    """Compat 307 redirect — remove after 30 days."""
+    target = '/api/products/search'
+    qs = request.query_string.decode() if request.query_string else ''
+    if qs:
+        target += '?' + qs
+    return redirect(target, code=307)
+
+
+@app.route('/api/products/search')
 @require_admin_api
 def archer_search():
     """Search Archer and/or Levanta catalogs. Supports network=archer|levanta|both."""
@@ -1088,14 +1101,30 @@ def archer_search():
 # itself stays — /urlgenius/smart_link's archer branch and ArcherAPI's
 # internal link-creation logic still call it.
 
-@app.route('/archer/collage')
+@app.route('/archer/collage', methods=['GET'])
+def _legacy_archer_collage():
+    """Compat 307 redirect — remove after 30 days."""
+    target = '/admin/collections/edit'
+    qs = request.query_string.decode() if request.query_string else ''
+    if qs:
+        target += '?' + qs
+    return redirect(target, code=307)
+
+
+@app.route('/admin/collections/edit')
 def archer_collage():
     guard = _require_admin_page()
     if guard:
         return guard
     return render_template('archer_collage.html')
 
-@app.route('/archer/product/<asin>')
+@app.route('/archer/product/<asin>', methods=['GET'])
+def _legacy_archer_get_product(asin):
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect(f'/api/products/{asin}', code=307)
+
+
+@app.route('/api/products/<asin>')
 @require_admin_api
 def archer_get_product(asin):
     from product_api import ArcherAPI
@@ -1111,6 +1140,12 @@ def archer_get_product(asin):
     return jsonify({"error": "Product not found"}), 404
 
 @app.route('/archer/generate_caption', methods=['POST'])
+def _legacy_archer_generate_caption():
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect('/api/captions/generate', code=307)
+
+
+@app.route('/api/captions/generate', methods=['POST'])
 @require_admin_api
 def archer_generate_caption():
     _ensure_schema_ready()
@@ -1174,6 +1209,12 @@ def archer_generate_caption():
 # calls it for the collage builder's auto-caption feature.
 
 @app.route('/archer/collage/save', methods=['POST'])
+def _legacy_archer_save_collage():
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect('/api/collections/draft', code=307)
+
+
+@app.route('/api/collections/draft', methods=['POST'])
 @require_admin_api
 def archer_save_collage():
     """Save (or update) a collage.
@@ -1187,6 +1228,7 @@ def archer_save_collage():
     """
     import collection_service
     from product_api import ArcherAPI
+    from link_builder import USE_ARCHER_ATTRIBUTION
     data = request.get_json() or {}
     try:
         existing = collection_service.get_collage(data.get('slug') or '')
@@ -1199,6 +1241,13 @@ def archer_save_collage():
         archer = None
 
         def generate_link(asin, label):
+            # Gated by USE_ARCHER_ATTRIBUTION (default off): when the flag is off,
+            # skip the Archer attribution call and return a plain Amazon affiliate
+            # URL with the mommymedeals-20 tag instead.
+            if not USE_ARCHER_ATTRIBUTION:
+                tag = os.environ.get('AMAZON_AFFILIATE_TAG', 'mommymedeals-20')
+                amazon_url = f'https://www.amazon.com/dp/{asin}?tag={tag}'
+                return {'url': amazon_url, 'affiliate_url': amazon_url}
             nonlocal archer
             if archer is None:
                 archer = ArcherAPI()
@@ -1216,6 +1265,12 @@ def archer_save_collage():
 
 
 @app.route('/archer/collage/publish', methods=['POST'])
+def _legacy_archer_collage_publish():
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect('/api/collections/publish', code=307)
+
+
+@app.route('/api/collections/publish', methods=['POST'])
 @require_admin_api
 def archer_collage_publish():
     """Promote a draft collage to published. Generates Archer attribution links
@@ -1226,6 +1281,7 @@ def archer_collage_publish():
     import collection_content as cc
     import collection_service
     from product_api import ArcherAPI
+    from link_builder import USE_ARCHER_ATTRIBUTION
     data = request.get_json() or {}
     slug = data.get('slug')
     clean_slug = collection_service.normalize_slug(slug or '')
@@ -1242,6 +1298,12 @@ def archer_collage_publish():
     archer = None
 
     def generate_link(asin, label):
+        # Gated by USE_ARCHER_ATTRIBUTION (default off): on skip, synthesize the
+        # plain Amazon affiliate URL with the mommymedeals-20 tag.
+        if not USE_ARCHER_ATTRIBUTION:
+            tag = os.environ.get('AMAZON_AFFILIATE_TAG', 'mommymedeals-20')
+            amazon_url = f'https://www.amazon.com/dp/{asin}?tag={tag}'
+            return {'url': amazon_url, 'affiliate_url': amazon_url}
         nonlocal archer
         if archer is None:
             archer = ArcherAPI()
@@ -1259,6 +1321,12 @@ def archer_collage_publish():
         return jsonify({'error': str(exc)}), status_code
 
 @app.route('/archer/collage/archive', methods=['POST'])
+def _legacy_archer_collage_archive():
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect('/api/collections/archive', code=307)
+
+
+@app.route('/api/collections/archive', methods=['POST'])
 @require_admin_api
 def archer_collage_archive():
     """Soft-delete a collage by setting its status to 'archived'.
@@ -1281,6 +1349,12 @@ def archer_collage_archive():
 
 
 @app.route('/archer/collage/restore', methods=['POST'])
+def _legacy_archer_collage_restore():
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect('/api/collections/restore', code=307)
+
+
+@app.route('/api/collections/restore', methods=['POST'])
 @require_admin_api
 def archer_collage_restore():
     """Restore an archived collage to draft status without publishing it."""
@@ -1297,6 +1371,12 @@ def archer_collage_restore():
 
 
 @app.route('/archer/collage/<slug>', methods=['GET'])
+def _legacy_archer_collage_get(slug):
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect(f'/api/collections/{slug}', code=307)
+
+
+@app.route('/api/collections/<slug>', methods=['GET'])
 @require_admin_api
 def archer_collage_get(slug):
     """Return one collection's full record (used by Ad Builder auto-load
@@ -1312,7 +1392,17 @@ def archer_collage_get(slug):
     return jsonify({'collage': out})
 
 
-@app.route('/archer/collages')
+@app.route('/archer/collages', methods=['GET'])
+def _legacy_archer_list_collages():
+    """Compat 307 redirect — remove after 30 days."""
+    target = '/api/collections'
+    qs = request.query_string.decode() if request.query_string else ''
+    if qs:
+        target += '?' + qs
+    return redirect(target, code=307)
+
+
+@app.route('/api/collections')
 @require_admin_api
 def archer_list_collages():
     import collection_service
@@ -1876,11 +1966,22 @@ def _render_collection_create_post(collection_slug):
     _ensure_schema_ready()
     import collection_content as cc
 
-    collection = cc.get_walmart_collection(collection_slug)
+    # `source` query param selects which backing source loader to use. Valid:
+    # 'walmart_trend' (default) and 'archer_catalog'. Anything else falls back
+    # to walmart_trend so a typo in the URL doesn't 404 the editor entirely.
+    requested_source = (request.args.get('source') or cc.SOURCE_WALMART_TREND).strip()
+    if requested_source not in (cc.SOURCE_WALMART_TREND, cc.SOURCE_ARCHER_CATALOG):
+        requested_source = cc.SOURCE_WALMART_TREND
+
+    collection = cc.resolve_source_collection(collection_slug, requested_source)
     if not collection:
         return "Collection not found", 404
     creator_id = (request.args.get('creator_id') or 'everydaywithsteph').strip()
-    existing_draft = cc.get_latest_draft_for_source_collection(collection_slug, creator_id)
+    existing_draft = cc.get_latest_draft_for_source_collection(
+        collection_slug,
+        creator_id,
+        source_type=requested_source,
+    )
     if existing_draft and existing_draft.get('product_snapshot'):
         products = existing_draft.get('product_snapshot') or []
         product_count = len(products)
@@ -1901,6 +2002,7 @@ def _render_collection_create_post(collection_slug):
         editor_mode='create',
         shop_subdomain=SHOP_SUBDOMAIN,
         retailer_ctx=rctx,
+        source_type=requested_source,
     )
 
 
@@ -2745,6 +2847,16 @@ def shop_robots():
 
 # ── POSTS QUEUE (Branch 2B) ──────────────────────────────────────────────────
 @app.route('/archer/posts', methods=['GET'])
+def _legacy_archer_posts_list():
+    """Compat 307 redirect — remove after 30 days."""
+    target = '/api/posts'
+    qs = request.query_string.decode() if request.query_string else ''
+    if qs:
+        target += '?' + qs
+    return redirect(target, code=307)
+
+
+@app.route('/api/posts', methods=['GET'])
 @require_admin_api
 def archer_posts_list():
     """List posts for the queue UI. Query: status, collection_slug, creator_id."""
@@ -2760,7 +2872,13 @@ def archer_posts_list():
     )})
 
 
-@app.route('/archer/posts/<int:post_id>', methods=['PATCH'])
+@app.route('/archer/posts/<int:post_id>', methods=['PATCH', 'DELETE'])
+def _legacy_archer_post_method(post_id):
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect(f'/api/posts/{post_id}', code=307)
+
+
+@app.route('/api/posts/<int:post_id>', methods=['PATCH'])
 @require_admin_api
 def archer_post_update(post_id):
     """Update a single post's editable fields (copy, angle, status, UTMs, smart_link)."""
@@ -2772,7 +2890,7 @@ def archer_post_update(post_id):
     return jsonify({'post': saved})
 
 
-@app.route('/archer/posts/<int:post_id>', methods=['DELETE'])
+@app.route('/api/posts/<int:post_id>', methods=['DELETE'])
 @require_admin_api
 def archer_post_delete(post_id):
     """Hard delete. Use bulk_status with 'archived' for soft delete."""
@@ -2783,6 +2901,12 @@ def archer_post_delete(post_id):
 
 
 @app.route('/archer/posts/bulk', methods=['POST'])
+def _legacy_archer_posts_bulk():
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect('/api/posts/bulk', code=307)
+
+
+@app.route('/api/posts/bulk', methods=['POST'])
 @require_admin_api
 def archer_posts_bulk():
     """Bulk-update status on many posts at once.
@@ -2800,6 +2924,16 @@ def archer_posts_bulk():
 
 
 @app.route('/archer/posts/export.csv', methods=['GET'])
+def _legacy_archer_posts_export_csv():
+    """Compat 307 redirect — remove after 30 days."""
+    target = '/api/posts/export.csv'
+    qs = request.query_string.decode() if request.query_string else ''
+    if qs:
+        target += '?' + qs
+    return redirect(target, code=307)
+
+
+@app.route('/api/posts/export.csv', methods=['GET'])
 @require_admin_page
 def archer_posts_export_csv():
     """Export posts queue as CSV: created_at | angle | asin | copy | smart_link | image_note | status."""
@@ -2830,6 +2964,16 @@ def archer_posts_export_csv():
 
 
 @app.route('/archer/posts/manage', methods=['GET'])
+def _legacy_archer_posts_manage_page():
+    """Compat 307 redirect — remove after 30 days."""
+    target = '/admin/posts'
+    qs = request.query_string.decode() if request.query_string else ''
+    if qs:
+        target += '?' + qs
+    return redirect(target, code=307)
+
+
+@app.route('/admin/posts', methods=['GET'])
 def archer_posts_manage_page():
     """Dedicated operations page for saved organic posts and collections."""
     guard = _require_admin_page()
@@ -2850,6 +2994,12 @@ def archer_posts_manage_page():
 
 
 @app.route('/archer/posts/<int:post_id>/edit', methods=['GET'])
+def _legacy_archer_post_edit_page(post_id):
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect(f'/admin/posts/{post_id}/edit', code=307)
+
+
+@app.route('/admin/posts/<int:post_id>/edit', methods=['GET'])
 def archer_post_edit_page(post_id):
     """Edit a single saved organic post without loading the build queue."""
     guard = _require_admin_page()
@@ -2873,6 +3023,12 @@ def archer_post_edit_page(post_id):
 # region of the file and is preserved verbatim below.
 
 @app.route('/archer/track_click', methods=['POST'])
+def _legacy_archer_track_click():
+    """Compat 307 redirect — remove after 30 days."""
+    return redirect('/api/clicks', code=307)
+
+
+@app.route('/api/clicks', methods=['POST'])
 def archer_track_click():
     from product_api import ArcherAPI
     data = request.get_json() or {}
@@ -2893,7 +3049,17 @@ def archer_track_click():
 # /archer/campaigns/fetch-product removed in the same strip-down —
 # only the deleted Archer campaigns UI called it.
 
-@app.route('/archer/image_proxy')
+@app.route('/archer/image_proxy', methods=['GET'])
+def _legacy_archer_image_proxy():
+    """Compat 307 redirect — remove after 30 days."""
+    target = '/api/image_proxy'
+    qs = request.query_string.decode() if request.query_string else ''
+    if qs:
+        target += '?' + qs
+    return redirect(target, code=307)
+
+
+@app.route('/api/image_proxy')
 @require_admin_api
 def archer_image_proxy():
     """Proxy an image URL so the browser can download it without CORS issues."""

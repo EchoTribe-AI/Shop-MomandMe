@@ -20,6 +20,8 @@ import walmart_storefront_enrichment as walmart_enrichment
 
 SOURCE_WALMART_TREND = "walmart_trend"
 SOURCE_AMAZON_TREND = "amazon_trend"
+SOURCE_ARCHER_CATALOG = "archer_catalog"
+SUPPORTED_SOURCE_TYPES = (SOURCE_WALMART_TREND, SOURCE_ARCHER_CATALOG)
 DEFAULT_CREATOR_ID = "everydaywithsteph"
 DEFAULT_PLATFORM = "facebook_group"
 DEFAULT_TONE = "warm mom-to-mom"
@@ -156,6 +158,77 @@ def get_walmart_collection(collection_slug: str) -> dict[str, Any] | None:
         return None
 
 
+def load_archer_catalog_collection(slug: str) -> dict[str, Any] | None:
+    """Return an Archer-catalog–backed collection in the editor's collection shape.
+
+    The "slug" for an archer_catalog source is treated as a free-form search
+    term (or category fragment) against the locally cached Archer catalog via
+    ``ArcherAPI.search_catalog``. We deliberately stay inside the SQLite cache
+    here — no live Archer attribution / link generation is performed in this
+    code path (gated separately by ``USE_ARCHER_ATTRIBUTION``). Products are
+    shaped to match ``get_walmart_collection`` so the editor's existing
+    downstream code (``walmart_product_context``, ``collection_from_draft_snapshot``,
+    ``adapt_walmart_products_for_collage``) can consume them unchanged.
+
+    Returns None when the slug is empty, the Archer client is unavailable, or
+    the cache has no matches — callers fall through to other resolvers / a
+    404 in the editor route.
+    """
+    clean = (slug or "").strip()
+    if not clean:
+        return None
+    try:
+        from product_api import ArcherAPI
+        rows = ArcherAPI().search_catalog(clean, limit=24) or []
+    except Exception:
+        return None
+    if not rows:
+        return None
+    items: list[dict[str, Any]] = []
+    for idx, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        asin = str(row.get("asin") or "").strip()
+        if not asin:
+            continue
+        items.append({
+            "sku": asin,
+            "title": row.get("product_name") or row.get("title") or "Catalog find",
+            "brand": row.get("company_name") or row.get("brand") or "",
+            "price_display": row.get("price") or "",
+            "current_price": row.get("price") or "",
+            "image_url": row.get("image_encoded_string") or row.get("image_url") or "",
+            "shop_url": f"https://www.amazon.com/dp/{asin}",
+            "category": row.get("product_category") or "",
+            "rank": idx,
+            "badges": [],
+            "retailer": "amazon",
+            "network": "amazon",
+        })
+    if not items:
+        return None
+    name = clean.replace("-", " ").replace("_", " ").strip().title() or "Catalog finds"
+    return {
+        "id": clean,
+        "slug": clean,
+        "name": name,
+        "description": "",
+        "retailer": "amazon",
+        "items": items,
+    }
+
+
+def resolve_source_collection(slug: str, source_type: str) -> dict[str, Any] | None:
+    """Dispatch a source-aware collection load by ``source_type``.
+
+    Defaults to the Walmart-trend path so legacy callers that don't pass a
+    source type get the same behavior as before.
+    """
+    if source_type == SOURCE_ARCHER_CATALOG:
+        return load_archer_catalog_collection(slug)
+    return get_walmart_collection(slug)
+
+
 def get_latest_draft_for_public_slug(public_slug: str) -> dict[str, Any] | None:
     clean_slug = slugify(public_slug)
     if not clean_slug:
@@ -179,11 +252,17 @@ def get_latest_draft_for_public_slug(public_slug: str) -> dict[str, Any] | None:
         conn.close()
 
 
-def get_latest_draft_for_source_collection(collection_slug: str, creator_id: str = "") -> dict[str, Any] | None:
+def get_latest_draft_for_source_collection(
+    collection_slug: str,
+    creator_id: str = "",
+    *,
+    source_type: str = SOURCE_WALMART_TREND,
+) -> dict[str, Any] | None:
     clean_slug = _clean_text(collection_slug, 240)
     if not clean_slug:
         return None
-    params: list[Any] = [SOURCE_WALMART_TREND, clean_slug]
+    clean_source = source_type if source_type in SUPPORTED_SOURCE_TYPES else SOURCE_WALMART_TREND
+    params: list[Any] = [clean_source, clean_slug]
     creator_clause = ""
     clean_creator = _clean_text(creator_id, 120)
     if clean_creator:
@@ -292,9 +371,19 @@ def resolve_source_collection_slug(collection_slug: str, draft_id: Any = None) -
     return source_slug, draft
 
 
-def resolve_editor_collection(collection_slug: str, draft_id: Any = None) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
+def resolve_editor_collection(
+    collection_slug: str,
+    draft_id: Any = None,
+    *,
+    source_type: str = SOURCE_WALMART_TREND,
+) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
     source_slug, draft = resolve_source_collection_slug(collection_slug, draft_id)
-    collection = get_walmart_collection(source_slug) if source_slug else None
+    # Prefer the draft's saved source_type when present so reopening a draft
+    # always loads from the correct backing source.
+    effective_source = _clean_text((draft or {}).get("source_type"), 80) or source_type
+    if effective_source not in SUPPORTED_SOURCE_TYPES:
+        effective_source = SOURCE_WALMART_TREND
+    collection = resolve_source_collection(source_slug, effective_source) if source_slug else None
     if not collection and draft and draft.get("product_snapshot"):
         collection = collection_from_draft_snapshot({
             **draft,
@@ -616,8 +705,25 @@ def save_walmart_collection_draft(
     collection_slug: str,
     payload: dict[str, Any],
     status: str = "draft",
+    *,
+    source_type: str = SOURCE_WALMART_TREND,
 ) -> dict[str, Any]:
-    source_collection_slug, collection, existing_draft = resolve_editor_collection(collection_slug, payload.get("draft_id"))
+    # Prefer an explicit payload override, then the existing draft's persisted
+    # source_type (preserved across edits), then the caller-supplied default.
+    payload_source = _clean_text(payload.get("source_type"), 80)
+    resolved_source = payload_source or source_type
+    if resolved_source not in SUPPORTED_SOURCE_TYPES:
+        resolved_source = SOURCE_WALMART_TREND
+    source_collection_slug, collection, existing_draft = resolve_editor_collection(
+        collection_slug,
+        payload.get("draft_id"),
+        source_type=resolved_source,
+    )
+    # If the existing draft has a stored source_type, that wins to prevent
+    # silently mutating a draft's backing source on save.
+    existing_source = _clean_text((existing_draft or {}).get("source_type"), 80)
+    if existing_source in SUPPORTED_SOURCE_TYPES:
+        resolved_source = existing_source
     payload_products = _payload_product_snapshot(payload)
     if payload_products is not None:
         products = payload_products
@@ -667,7 +773,7 @@ def save_walmart_collection_draft(
     now = _now()
     draft_id = payload.get("draft_id")
     fields = {
-        "source_type": SOURCE_WALMART_TREND,
+        "source_type": resolved_source,
         "source_collection_slug": source_collection_slug,
         "source_collection_id": source_collection_slug,
         "creator_id": creator_id,
