@@ -24,6 +24,18 @@ load_dotenv()  # loads .env locally; Replit Secrets override in production
 
 app = Flask(__name__)
 
+# Expose canonical UTM helper to all templates so shop-side product CTAs
+# can build the locked 5-key UTM dict inline (plan §5). Templates call
+# it as `shop_utm(source_page, collage.slug, product.asin)` and then
+# render the dict via `utm.items() | join('&')` or pass to a urlencode
+# filter. Keeps URL construction in the view/template layer without
+# pushing UTM logic into every backend handler.
+try:
+    from link_builder import shop_utm as _shop_utm
+    app.jinja_env.globals['shop_utm'] = _shop_utm
+except Exception as _exc:  # pragma: no cover - defensive boot-time guard
+    logging.warning(f"[BOOT] failed to register shop_utm jinja global: {_exc}")
+
 # ── Admin session auth ────────────────────────────────────────────────────────
 # Single shared password for now (default 'dan', override via ADMIN_PASSWORD).
 # Auth state lives in a signed Flask session cookie (signed with SECRET_KEY).
@@ -500,10 +512,12 @@ def _public_shop_nav(active: str = '') -> list[dict]:
     # Canonical / OG / share URLs intentionally stay absolute via the
     # SHOP_SUBDOMAIN-prefixed helpers elsewhere — those serve cross-domain
     # consumers and need a fully-qualified host.
+    # Plan §7: 'Social Posts' hidden from public nav. Routes
+    # (/shop/posts, /posts, /admin/posts) remain intact — only the
+    # visible nav item is dropped. Add back here when posts ships.
     return [
         {'key': 'collections', 'label': 'Collections', 'href': '/collections'},
         {'key': 'trends', 'label': 'Trends', 'href': '/trends'},
-        {'key': 'posts', 'label': 'Social Posts', 'href': '/posts'},
     ]
 
 
@@ -1589,6 +1603,8 @@ def shop_posts():
     conn.close()
 
     from utils.retailer_labels import angle_label as _angle_label
+    from link_builder import shop_utm as _shop_utm
+    from urllib.parse import urlencode as _urlencode
     creators_by_id = {c['id']: c for c in db_schema.list_creators()}
     items = []
     for r in rows:
@@ -1596,6 +1612,33 @@ def shop_posts():
         copy = (r['copy'] or '').strip()
         _network = (r['network'] or 'amazon').lower()
         _retailer_display = 'Walmart' if _network == 'walmart' else ('Amazon' if _network == 'amazon' else '')
+        # Plan §5: build canonical UTM dict for shop-posts surface and
+        # append to outbound CTA. Collection-internal CTAs (shop subdomain
+        # links) do not get UTMs — UTMs are for outbound retailer clicks
+        # so attribution flows to Amazon/Walmart, not for cross-page
+        # navigation inside the shop.
+        _post_asin = (r['asin'] or '').strip()
+        _post_slug = r['collection_slug'] or 'shop-posts'
+        _utm = _shop_utm('shop-posts', _post_slug, _post_asin)
+        _utm_qs = _urlencode(_utm) if _post_asin else ''
+        if r['collection_slug']:
+            _cta_url = f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}"
+        elif r['smart_link']:
+            _smart = r['smart_link']
+            _cta_url = (
+                f"{_smart}{'&' if '?' in _smart else '?'}{_utm_qs}"
+                if _utm_qs else _smart
+            )
+        else:
+            _retailer_base = (
+                f"https://www.walmart.com/ip/{r['asin']}"
+                if (r['network'] or '').lower() == 'walmart'
+                else f"https://www.amazon.com/dp/{r['asin']}?tag={os.environ.get('AMAZON_ASSOC_TAG', 'mommymedeals-20')}"
+            )
+            _cta_url = (
+                f"{_retailer_base}{'&' if '?' in _retailer_base else '?'}{_utm_qs}"
+                if _utm_qs else _retailer_base
+            )
         items.append({
             'id': r['id'],
             'slug': r['slug'] or '',
@@ -1621,18 +1664,7 @@ def shop_posts():
             'created_at': _fmt_date(r['created_at']),
             'posted_at': _fmt_date(r['posted_at']),
             'shop_url': f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}" if r['collection_slug'] else '',
-            'cta_url': (
-                f"https://{SHOP_SUBDOMAIN}/{r['collection_slug']}"
-                if r['collection_slug']
-                else (
-                    r['smart_link']
-                    or (
-                        f"https://www.walmart.com/ip/{r['asin']}"
-                        if (r['network'] or '').lower() == 'walmart'
-                        else f"https://www.amazon.com/dp/{r['asin']}?tag={os.environ.get('AMAZON_ASSOC_TAG', 'mommymedeals-20')}"
-                    )
-                )
-            ),
+            'cta_url': _cta_url,
             'cta_label': (
                 'Shop collection'
                 if r['collection_slug']

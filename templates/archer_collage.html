@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Collage Builder — EchoTribe</title>
+<title>Collection Builder — EchoTribe</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -207,9 +207,9 @@
 <div class="topbar">
   <div class="tb-logo"><div class="tb-logo-dot"></div>EchoTribe</div>
   <div class="tb-divider"></div>
-  <div class="tb-page">Collage Builder</div>
+  <div class="tb-page">Collection Builder</div>
   <div class="tb-right">
-    <a href="/archer/collage" class="tb-link">Collage</a>
+    <a href="/admin/collections/edit" class="tb-link">Collection</a>
     <a href="/" class="tb-link">Chat</a>
   </div>
 </div>
@@ -297,7 +297,7 @@
 
     <!-- SAVE BAR -->
     <div class="save-bar">
-      <button class="save-btn outline" onclick="resetBuilder()">New Collage</button>
+      <button class="save-btn outline" onclick="resetBuilder()">New Collection</button>
       <button class="save-btn primary" id="save-draft-btn" onclick="saveDraftCollage()" disabled>Save Draft</button>
       <button class="save-btn publish" id="publish-btn" onclick="publishCurrentCollage()" disabled>Publish</button>
       <span class="status-chip draft" id="collection-status">Draft</span>
@@ -307,7 +307,7 @@
     <!-- EXISTING COLLAGES -->
     <div class="section-label" style="margin-top:32px;">Manage Collections</div>
     <div class="collage-list" id="collage-list">
-      <div style="font-size:12px;color:var(--text4);">No collages yet.</div>
+      <div style="font-size:12px;color:var(--text4);">No collections yet.</div>
     </div>
 
   </div>
@@ -395,7 +395,7 @@
       for (const asin of asinList) {
         await addProductByAsin(asin);
       }
-      showToast(`${asinList.length} product${asinList.length > 1 ? 's' : ''} loaded from Archer`);
+      showToast(`${asinList.length} product${asinList.length > 1 ? 's' : ''} loaded from catalog`);
     }
     renderSlots();
     if (!collectionSlug) generateSlug();
@@ -405,7 +405,7 @@
 
   async function loadCollectionForEdit(slug) {
     try {
-      const res = await fetch(`/archer/collage/${encodeURIComponent(slug)}`);
+      const res = await fetch(`/api/collections/${encodeURIComponent(slug)}`);
       const data = await res.json();
       if (!res.ok || data.error || !data.collage) throw new Error(data.error || `HTTP ${res.status}`);
       const c = data.collage;
@@ -448,7 +448,7 @@
     if (state.products.length >= MAX_SLOTS) return;
     if (state.products.find(p => p.asin === asin)) return;
     try {
-      const res = await fetch(`/archer/product/${asin}`);
+      const res = await fetch(`/api/products/${asin}`);
       if (!res.ok) return;
       const data = await res.json();
       if (data.product) {
@@ -479,7 +479,7 @@
         return;
       }
       // Search
-      const res = await fetch(`/archer/search?q=${encodeURIComponent(val)}&limit=6`);
+      const res = await fetch(`/api/products/search?q=${encodeURIComponent(val)}&limit=6`);
       const data = await res.json();
       if (!data.products?.length) { results.classList.remove('visible'); return; }
       results.innerHTML = data.products.map(p => `
@@ -654,7 +654,7 @@
     ).join(', ');
 
     try {
-      const res = await fetch('/archer/generate_caption', {
+      const res = await fetch('/api/captions/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ products: productList, theme: state.theme })
@@ -713,7 +713,7 @@
     const payload = collagePayload(status);
 
     try {
-      const res = await fetch('/archer/collage/save', {
+      const res = await fetch('/api/collections/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -758,7 +758,7 @@
     btn.disabled = true;
     btn.textContent = 'Publishing...';
     try {
-      const res = await fetch('/archer/collage/publish', {
+      const res = await fetch('/api/collections/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug })
@@ -787,18 +787,18 @@
 
   async function loadCollageList() {
     try {
-      const res = await fetch('/archer/collages?status=all');
+      const res = await fetch('/api/collections?status=all');
       const data = await res.json();
       const list = document.getElementById('collage-list');
       if (!data.collages?.length) {
-        list.innerHTML = '<div style="font-size:12px;color:var(--text4);">No collages yet.</div>';
+        list.innerHTML = '<div style="font-size:12px;color:var(--text4);">No collections yet.</div>';
         return;
       }
       list.innerHTML = data.collages.map(c => {
         const isDraft = (c.status || 'published') !== 'published';
         const viewUrl = isDraft ? `/shop/${c.slug}?preview=1` : `/shop/${c.slug}`;
         const copyUrl = isDraft ? `${location.origin}/shop/${c.slug}?preview=1` : `https://shop.echotribe.ai/${c.slug}`;
-        const editUrl = c.edit_url || `/archer/collage?collection=${encodeURIComponent(c.slug)}`;
+        const editUrl = c.edit_url || `/admin/collections/edit?collection=${encodeURIComponent(c.slug)}`;
         return `
         <div class="collage-item">
           <div class="ci-info">
