@@ -177,10 +177,12 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         # feature/public-nav-relative-and-header-logo). Relative paths work
         # on whichever host serves the response, which is what every
         # multi-deploy storefront needs.
+        # Plan §7: 'Social Posts' nav item hidden from the public nav.
+        # The /shop/posts route still exists; only the visible nav link
+        # was dropped. Add /posts assertion back when posts ships.
         for html in (landing, posts, directory):
             self.assertIn('href="/collections"', html)
             self.assertIn('href="/trends"', html)
-            self.assertIn('href="/posts"', html)
 
         collections = self.client.get("/collections", headers={"Host": "shop.echotribe.ai"})
         self.assertEqual(collections.status_code, 200)
@@ -232,14 +234,14 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         hub_html = self.client.get("/hub").get_data(as_text=True)
         self.assertIn('href="/hub" class="tb-link active"', hub_html)
         self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link"', hub_html)
-        self.assertIn('href="/archer/posts/manage" class="tb-link"', hub_html)
+        self.assertIn('href="/admin/posts" class="tb-link"', hub_html)
         self.assertIn("Content Hub", hub_html)
 
         with patch("walmart_trends.get_trending_page_data", return_value={"last_refreshed": "Today", "collections": []}):
             create_html = self.client.get("/walmart/trending-now?admin=1").get_data(as_text=True)
         self.assertIn('href="/hub" class="tb-link active"', create_html)
         self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link"', create_html)
-        self.assertIn('href="/archer/posts/manage" class="tb-link"', create_html)
+        self.assertIn('href="/admin/posts" class="tb-link"', create_html)
 
     def test_collection_editor_renders_mobile_publishing_workflow(self):
         source = _walmart_collection(2)
@@ -473,7 +475,7 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         draft_id = draft_resp.get_json()["draft_id"]
         self.assertEqual(self.client.post(f"/api/collection-content-drafts/{draft_id}/publish").status_code, 200)
 
-        archive_resp = self.client.post("/archer/collage/archive", json={
+        archive_resp = self.client.post("/api/collections/archive", json={
             "slug": "walmart-kids-room-character-favorites",
         })
         self.assertEqual(archive_resp.status_code, 200)
@@ -552,7 +554,7 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertIn("Manage Original Title", public_before)
         self.assertNotIn("Manage Current Draft Title", public_before)
 
-        manage_publish = self.client.post("/archer/collage/publish", json={
+        manage_publish = self.client.post("/api/collections/publish", json={
             "slug": "walmart-kids-room-character-favorites",
         })
         self.assertEqual(manage_publish.status_code, 200)
@@ -621,7 +623,7 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertEqual(editor.status_code, 200)
         self.assertIn("Archived Current Title", editor.get_data(as_text=True))
 
-        manage = self.client.get("/archer/posts/manage")
+        manage = self.client.get("/admin/posts")
         self.assertEqual(manage.status_code, 200)
         manage_html = manage.get_data(as_text=True)
         self.assertIn("archived", manage_html)
@@ -756,14 +758,14 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         publish_resp = self.client.post(f"/api/collection-content-drafts/{draft_id}/publish")
         self.assertEqual(publish_resp.status_code, 200)
 
-        collage_resp = self.client.get("/archer/collage/walmart-kids-room-character-favorites")
+        collage_resp = self.client.get("/api/collections/walmart-kids-room-character-favorites")
         self.assertEqual(collage_resp.status_code, 200)
         collage = collage_resp.get_json()["collage"]
         self.assertEqual(collage["editor_type"], "trend_collection")
         self.assertEqual(collage["edit_url"], "/collections/walmart-kids-room-character-favorites/edit")
         self.assertEqual(len(collage["products"]), 12)
 
-        generic_save = self.client.post("/archer/collage/save", json={
+        generic_save = self.client.post("/api/collections/draft", json={
             "slug": "walmart-kids-room-character-favorites",
             "products": [{"asin": "B000000001", "product_name": "Flattened"}],
             "caption": "Generic caption",

@@ -97,7 +97,7 @@ class OrganicOperationsTestCase(unittest.TestCase):
     def test_post_patch_persists_smart_link_for_public_cta(self):
         post_id = self._insert_post(status="approved")
         smart = "https://go.urlgeni.us/organic-test"
-        resp = self.client.patch(f"/archer/posts/{post_id}", json={"smart_link": smart})
+        resp = self.client.patch(f"/api/posts/{post_id}", json={"smart_link": smart})
         self.assertEqual(resp.status_code, 200)
 
         html = self.client.get("/shop/posts").get_data(as_text=True)
@@ -111,7 +111,7 @@ class OrganicOperationsTestCase(unittest.TestCase):
 
     def test_post_edit_page_renders_for_existing_post(self):
         post_id = self._insert_post(status="draft")
-        edit = self.client.get(f"/archer/posts/{post_id}/edit")
+        edit = self.client.get(f"/admin/posts/{post_id}/edit")
         self.assertEqual(edit.status_code, 200)
         html = edit.get_data(as_text=True)
         self.assertIn("Edit Organic Post", html)
@@ -121,7 +121,7 @@ class OrganicOperationsTestCase(unittest.TestCase):
 
     def test_manage_page_lists_posts_without_using_build_queue(self):
         self._insert_post(status="approved")
-        resp = self.client.get("/archer/posts/manage")
+        resp = self.client.get("/admin/posts")
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
         self.assertIn("Saved Posts & Collections", html)
@@ -188,7 +188,7 @@ class OrganicOperationsTestCase(unittest.TestCase):
         self.assertIn("utm_content=organic_gift_static", data["final_url"])
 
         post_id = self._insert_post(status="approved")
-        patch = self.client.patch(f"/archer/posts/{post_id}", json={
+        patch = self.client.patch(f"/api/posts/{post_id}", json={
             "smart_link": data["genius_url"],
             "smart_link_id": data["link_id"],
             "smart_link_affiliate_url": data["affiliate_url"],

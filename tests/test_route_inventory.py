@@ -47,6 +47,8 @@ PUBLIC_ROUTES = {
     '/archer/track_click': 'Public click logger (anonymous shoppers). '
                            'Bot defense + rate limiting designed in P0.4. '
                            'Will be renamed to /api/clicks per P0.1.',
+    '/api/clicks': 'Public click logger (anonymous shoppers). '
+                   'Successor of /archer/track_click per Phase 1A.',
     # SEO assets.
     '/sitemap.xml': 'Public SEO.',
     '/robots.txt': 'Public SEO.',

@@ -38,6 +38,12 @@ class LegacyArcherRedirectsTestCase(unittest.TestCase):
         db_schema.bootstrap()
         cls.app_module = app
         cls.client = app.app.test_client()
+        # Authenticate so the guards on the legacy stubs (added back
+        # alongside the new neutral routes) don't 302→/admin/login
+        # before the redirect can fire. Page-guarded stubs need a session;
+        # API-guarded stubs accept the same session.
+        with cls.client.session_transaction() as sess:
+            sess['admin_authed'] = True
 
     @classmethod
     def tearDownClass(cls):

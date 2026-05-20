@@ -963,6 +963,7 @@ def dashboard_upload_csv():
 # ARCHIVED — see /archive/routes/
 
 @app.route('/archer/search', methods=['GET'])
+@require_admin_api
 def _legacy_archer_search():
     """Compat 307 redirect — remove after 30 days."""
     target = '/api/products/search'
@@ -1116,6 +1117,7 @@ def archer_search():
 # internal link-creation logic still call it.
 
 @app.route('/archer/collage', methods=['GET'])
+@require_admin_page
 def _legacy_archer_collage():
     """Compat 307 redirect — remove after 30 days."""
     target = '/admin/collections/edit'
@@ -1133,6 +1135,7 @@ def archer_collage():
     return render_template('archer_collage.html')
 
 @app.route('/archer/product/<asin>', methods=['GET'])
+@require_admin_api
 def _legacy_archer_get_product(asin):
     """Compat 307 redirect — remove after 30 days."""
     return redirect(f'/api/products/{asin}', code=307)
@@ -1154,6 +1157,7 @@ def archer_get_product(asin):
     return jsonify({"error": "Product not found"}), 404
 
 @app.route('/archer/generate_caption', methods=['POST'])
+@require_admin_api
 def _legacy_archer_generate_caption():
     """Compat 307 redirect — remove after 30 days."""
     return redirect('/api/captions/generate', code=307)
@@ -1223,6 +1227,7 @@ def archer_generate_caption():
 # calls it for the collage builder's auto-caption feature.
 
 @app.route('/archer/collage/save', methods=['POST'])
+@require_admin_api
 def _legacy_archer_save_collage():
     """Compat 307 redirect — remove after 30 days."""
     return redirect('/api/collections/draft', code=307)
@@ -1279,6 +1284,7 @@ def archer_save_collage():
 
 
 @app.route('/archer/collage/publish', methods=['POST'])
+@require_admin_api
 def _legacy_archer_collage_publish():
     """Compat 307 redirect — remove after 30 days."""
     return redirect('/api/collections/publish', code=307)
@@ -1335,6 +1341,7 @@ def archer_collage_publish():
         return jsonify({'error': str(exc)}), status_code
 
 @app.route('/archer/collage/archive', methods=['POST'])
+@require_admin_api
 def _legacy_archer_collage_archive():
     """Compat 307 redirect — remove after 30 days."""
     return redirect('/api/collections/archive', code=307)
@@ -1363,6 +1370,7 @@ def archer_collage_archive():
 
 
 @app.route('/archer/collage/restore', methods=['POST'])
+@require_admin_api
 def _legacy_archer_collage_restore():
     """Compat 307 redirect — remove after 30 days."""
     return redirect('/api/collections/restore', code=307)
@@ -1385,6 +1393,7 @@ def archer_collage_restore():
 
 
 @app.route('/archer/collage/<slug>', methods=['GET'])
+@require_admin_api
 def _legacy_archer_collage_get(slug):
     """Compat 307 redirect — remove after 30 days."""
     return redirect(f'/api/collections/{slug}', code=307)
@@ -1407,6 +1416,7 @@ def archer_collage_get(slug):
 
 
 @app.route('/archer/collages', methods=['GET'])
+@require_admin_api
 def _legacy_archer_list_collages():
     """Compat 307 redirect — remove after 30 days."""
     target = '/api/collections'
@@ -2879,6 +2889,7 @@ def shop_robots():
 
 # ── POSTS QUEUE (Branch 2B) ──────────────────────────────────────────────────
 @app.route('/archer/posts', methods=['GET'])
+@require_admin_api
 def _legacy_archer_posts_list():
     """Compat 307 redirect — remove after 30 days."""
     target = '/api/posts'
@@ -2905,6 +2916,7 @@ def archer_posts_list():
 
 
 @app.route('/archer/posts/<int:post_id>', methods=['PATCH', 'DELETE'])
+@require_admin_api
 def _legacy_archer_post_method(post_id):
     """Compat 307 redirect — remove after 30 days."""
     return redirect(f'/api/posts/{post_id}', code=307)
@@ -2933,6 +2945,7 @@ def archer_post_delete(post_id):
 
 
 @app.route('/archer/posts/bulk', methods=['POST'])
+@require_admin_api
 def _legacy_archer_posts_bulk():
     """Compat 307 redirect — remove after 30 days."""
     return redirect('/api/posts/bulk', code=307)
@@ -2956,6 +2969,7 @@ def archer_posts_bulk():
 
 
 @app.route('/archer/posts/export.csv', methods=['GET'])
+@require_admin_page
 def _legacy_archer_posts_export_csv():
     """Compat 307 redirect — remove after 30 days."""
     target = '/api/posts/export.csv'
@@ -2996,6 +3010,7 @@ def archer_posts_export_csv():
 
 
 @app.route('/archer/posts/manage', methods=['GET'])
+@require_admin_page
 def _legacy_archer_posts_manage_page():
     """Compat 307 redirect — remove after 30 days."""
     target = '/admin/posts'
@@ -3026,6 +3041,7 @@ def archer_posts_manage_page():
 
 
 @app.route('/archer/posts/<int:post_id>/edit', methods=['GET'])
+@require_admin_page
 def _legacy_archer_post_edit_page(post_id):
     """Compat 307 redirect — remove after 30 days."""
     return redirect(f'/admin/posts/{post_id}/edit', code=307)
@@ -3082,6 +3098,7 @@ def archer_track_click():
 # only the deleted Archer campaigns UI called it.
 
 @app.route('/archer/image_proxy', methods=['GET'])
+@require_admin_api
 def _legacy_archer_image_proxy():
     """Compat 307 redirect — remove after 30 days."""
     target = '/api/image_proxy'

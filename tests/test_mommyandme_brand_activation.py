@@ -235,9 +235,11 @@ class PublicNavUsesRelativeUrls(_ActivationTestBase):
         body = resp.data.decode('utf-8')
 
         # Each nav link present as a literal relative href.
+        # Plan §7: 'Social Posts' is hidden from the public nav (routes
+        # /shop/posts, /posts, /admin/posts remain intact — only the visible
+        # nav item is dropped). Add back here when posts ships.
         self.assertIn('href="/collections"', body)
         self.assertIn('href="/trends"', body)
-        self.assertIn('href="/posts"', body)
 
         # Isolate the public nav block and assert no cross-domain hrefs
         # leaked back in. We narrow to the nav specifically because
@@ -387,7 +389,7 @@ class UniversalBottomNav(unittest.TestCase):
     Pinned to the canonical app routes:
         Home    → /hub
         Create  → /walmart/trending-now?admin=1
-        Manage  → /archer/posts/manage
+        Manage  → /admin/posts
         Chat    → /chat
         Insights → /insights
 
@@ -398,7 +400,7 @@ class UniversalBottomNav(unittest.TestCase):
     EXPECTED_NAV = (
         ('home',     '/hub',                          'Home'),
         ('create',   '/walmart/trending-now?admin=1', 'Create'),
-        ('manage',   '/archer/posts/manage',          'Manage'),
+        ('manage',   '/admin/posts',                  'Manage'),
         ('chat',     '/chat',                         'Chat'),
         ('insights', '/insights',                     'Insights'),
     )
