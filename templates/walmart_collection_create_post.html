@@ -100,6 +100,119 @@
       .quick-actions, .secondary-tools-body, .status-actions { grid-template-columns:1fr; }
       button, .btn { width:100%; min-height:44px; }
     }
+
+    /* ───────── Editor polish: 3-step Content → Design → Preview ─────────
+       Larger inputs, sage primary CTAs, linen canvas, clearer hierarchy.
+       Save/publish logic is unchanged — these are visual overlays only.
+    */
+    :root {
+      --editor-sage: #cfe3d0;
+      --editor-sage-deep: #2f5d44;
+      --editor-sage-soft: #eaf3eb;
+      --editor-linen: #f5f0e6;
+    }
+    body {
+      background: linear-gradient(180deg, var(--editor-linen, #f5f0e6), #fff 50%);
+    }
+
+    /* Step indicator — visual progress affordance */
+    .editor-stepper {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      margin: 4px 0 8px;
+      padding: 12px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 8px 22px rgba(26,26,23,.05);
+    }
+    .editor-step {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px;
+      border-radius: 12px;
+      background: transparent;
+      min-width: 0;
+    }
+    .editor-step--active {
+      background: var(--editor-sage-soft, #eaf3eb);
+    }
+    .editor-step__num {
+      flex: 0 0 auto;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      background: var(--line);
+      color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 900;
+    }
+    .editor-step--active .editor-step__num {
+      background: var(--editor-sage-deep, #2f5d44);
+      color: #fff;
+    }
+    .editor-step__label {
+      font-size: 12px; font-weight: 800;
+      letter-spacing: -.01em;
+      color: var(--ink);
+      min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .editor-step--active .editor-step__label {
+      color: var(--editor-sage-deep, #2f5d44);
+    }
+    .editor-step__sub {
+      display: block;
+      font-size: 10px; font-weight: 700;
+      color: var(--muted);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    /* Larger, friendlier inputs */
+    input, textarea {
+      padding: 13px 14px;
+      font-size: 15px;
+      border-radius: 14px;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--editor-sage-deep, #2f5d44);
+      box-shadow: 0 0 0 3px var(--editor-sage-soft, #eaf3eb);
+    }
+    textarea { min-height: 128px; }
+
+    /* Sage primary CTA — Save changes / Publish / Generate post.
+       Public-shop "Shop Walmart"/"Shop Amazon" retailer CTAs live on the
+       trending page and are not in this template; the .btn here is the
+       admin/system action surface. */
+    button, .btn { background: var(--editor-sage-deep, #2f5d44); color: #fff; }
+    button.secondary, .btn.secondary { background: #1a1a17; }
+    button.ghost, .btn.ghost {
+      background: var(--editor-sage-soft, #eaf3eb);
+      color: var(--editor-sage-deep, #2f5d44);
+    }
+    button.danger, .btn.danger { background: #fff0ed; color: #a02828; }
+
+    /* Hero summary card: brighter linen */
+    .editor-card.summary-card {
+      background: linear-gradient(135deg, var(--editor-sage-soft, #eaf3eb), #fff 55%);
+      border: 1px solid rgba(47,93,68,.18);
+    }
+    .editor-card.summary-card h1 { color: var(--editor-sage-deep, #2f5d44); }
+
+    /* Preview/quick-actions section emphasis */
+    .editor-card[aria-label="Quick actions"] h2,
+    .editor-card[aria-label="Publishing"] h2 {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .editor-card[aria-label="Quick actions"] h2::before,
+    .editor-card[aria-label="Publishing"] h2::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--editor-sage-deep, #2f5d44);
+    }
   </style>
   {# Brand-vars partial: included AFTER the inline theme <style> so the
      legacy-compat bridge (--accent/--soft/--bg sourced from the active
@@ -114,6 +227,27 @@
   {% include 'partials/admin_header.html' %}
   <main class="page">
     <div class="editor-stack">
+      <ol class="editor-stepper" aria-label="Editor progress">
+        <li class="editor-step editor-step--active">
+          <span class="editor-step__num">1</span>
+          <span class="editor-step__label">Content
+            <span class="editor-step__sub">Words &amp; products</span>
+          </span>
+        </li>
+        <li class="editor-step">
+          <span class="editor-step__num">2</span>
+          <span class="editor-step__label">Design
+            <span class="editor-step__sub">Theme &amp; layout</span>
+          </span>
+        </li>
+        <li class="editor-step">
+          <span class="editor-step__num">3</span>
+          <span class="editor-step__label">Preview
+            <span class="editor-step__sub">Publish or save</span>
+          </span>
+        </li>
+      </ol>
+
       <section class="editor-card summary-card" aria-label="Page summary">
         <h1>{% if editor_mode == 'edit' %}Edit Page{% else %}Create Page{% endif %}</h1>
         <div class="summary-subtitle">{{ collection['name'] }}</div>

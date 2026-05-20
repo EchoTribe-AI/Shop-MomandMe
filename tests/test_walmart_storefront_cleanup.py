@@ -229,11 +229,16 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertIn("CONCETTA", admin_html)
 
     def test_admin_header_links_distinguish_hub_create_and_manage(self):
+        # /hub uses the _mobile_chrome bottom-nav after the V1-B redesign
+        # (active_nav='home' wires aria-current="page" onto the Home link).
+        # The trending-admin page still uses the admin_header topbar (.tb-link).
         hub_html = self.client.get("/hub").get_data(as_text=True)
-        self.assertIn('href="/hub" class="tb-link active"', hub_html)
-        self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link"', hub_html)
-        self.assertIn('href="/archer/posts/manage" class="tb-link"', hub_html)
-        self.assertIn("Content Hub", hub_html)
+        self.assertIn('href="/hub"', hub_html)
+        self.assertIn('aria-current="page"', hub_html)
+        self.assertIn('href="/walmart/trending-now?admin=1"', hub_html)
+        self.assertIn('href="/archer/posts/manage"', hub_html)
+        # V1-B surface marker — replaces the old "Content Hub" page title.
+        self.assertIn('data-surface="hub-v1b"', hub_html)
 
         with patch("walmart_trends.get_trending_page_data", return_value={"last_refreshed": "Today", "collections": []}):
             create_html = self.client.get("/walmart/trending-now?admin=1").get_data(as_text=True)
