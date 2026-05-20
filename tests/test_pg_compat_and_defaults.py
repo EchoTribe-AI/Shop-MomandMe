@@ -328,7 +328,10 @@ class PostSmartLinkDefaultCampaignTest(_CollectionContentBaseCase):
 
     def test_post_edit_page_renders_default_campaign_fallback(self):
         post = self._insert_post()
-        resp = self.client.get(f"/archer/posts/{post['id']}/edit")
+        # Phase 1A URL restructure: /archer/posts/<id>/edit now 307-redirects to
+        # /admin/posts/<id>/edit. Hit the new canonical path directly so this
+        # test continues to render the page (status 200) instead of seeing 307.
+        resp = self.client.get(f"/admin/posts/{post['id']}/edit")
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
         # The JS contract that prevents the blank-campaign 4xx from URLGenius.
