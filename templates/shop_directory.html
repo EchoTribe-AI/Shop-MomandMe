@@ -22,6 +22,11 @@
 
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  /* Page-local color tokens are scoped to neutral / semantic values. The
+     brand palette (--brand-primary, --brand-on-primary, --brand-surface,
+     etc.) is provided by partials/_brand_vars.html below and the legacy
+     bridge in that partial repaints --accent/--soft/--bg/--text from the
+     active creator row when those columns are set. */
   :root {
     --bg: #fff8f6;
     --surface: #fff;
@@ -43,50 +48,51 @@
     --rlg: 20px;
     --mono: ui-monospace, 'SF Mono', Menlo, monospace;
   }
-  body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: linear-gradient(180deg, var(--bg), #fff 42%); color: var(--text); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+  body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: linear-gradient(180deg, var(--brand-surface, var(--bg)), #fff 42%); color: var(--brand-on-surface, var(--text)); -webkit-font-smoothing: antialiased; min-height: 100vh; }
 
   .header { border-bottom: 1px solid var(--border); padding: 20px 18px 14px; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: rgba(255,248,246,.94); }
   .header-inner { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .brand { font-size: 18px; font-weight: 700; }
+  .brand { font-size: 18px; font-weight: 700; color: var(--brand-on-surface, var(--text)); }
   .brand-sub { font-size: 12px; color: var(--text3); margin-top: 1px; }
-  .eyebrow { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--soft); color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .02em; margin-bottom: 6px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--brand-primary-container, var(--soft)); color: var(--brand-primary, var(--accent)); font-size: 12px; font-weight: 800; letter-spacing: .02em; margin-bottom: 6px; }
   .top-nav { display:flex; gap:10px; align-items:center; }
-  .top-link { font-size:12px; color:var(--accent); text-decoration:none; font-weight:800; }
+  .top-link { font-size:12px; color: var(--brand-primary, var(--accent)); text-decoration:none; font-weight:800; }
   .public-shop-nav { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
-  .public-shop-link { font-size:11px; color:var(--accent); text-decoration:none; font-weight:850; border:1px solid var(--border); border-radius:999px; padding:7px 10px; background:#fff; }
-  .public-shop-link.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .public-shop-link { font-size:11px; color: var(--brand-primary, var(--accent)); text-decoration:none; font-weight:850; border:1px solid var(--border); border-radius:999px; padding:7px 10px; background:#fff; }
+  .public-shop-link.active { background: var(--brand-primary, var(--accent)); color: var(--brand-on-primary, #fff); border-color: var(--brand-primary, var(--accent)); }
 
   .hero { max-width: 1100px; margin: 0 auto; padding: 22px 18px 14px; }
-  .h1 { font-size: 30px; font-weight: 700; line-height: 1; letter-spacing: -.03em; margin-bottom: 6px; }
+  .h1 { font-size: 30px; font-weight: 700; line-height: 1; letter-spacing: -.03em; margin-bottom: 6px; color: var(--brand-on-surface, var(--text)); }
   .h-sub { font-size: 14px; color: var(--text3); line-height: 1.45; }
 
-  .grid { max-width: 1100px; margin: 0 auto; padding: 14px 18px 60px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .grid { max-width: 1100px; margin: 0 auto; padding: 14px 18px 60px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--rlg); overflow: hidden; transition: transform 0.15s, box-shadow 0.15s; text-decoration: none; color: inherit; display: flex; flex-direction: column; box-shadow: 0 10px 26px rgba(26,26,23,.07); }
-  .card:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(26,26,23,.10); }
+  /* V1-B card polish: brand-aware surface, soft border, lifted hover shadow. */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--rlg); overflow: hidden; transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; text-decoration: none; color: inherit; display: flex; flex-direction: column; box-shadow: 0 8px 22px rgba(26,26,23,.06); }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 16px 32px rgba(26,26,23,.10); border-color: rgba(26,26,23,.14); }
 
   .card-img { width: 100%; aspect-ratio: 1/1; background: #f6f3ef; overflow: hidden; display: flex; align-items: center; justify-content: center; }
   .card-img img { width: 100%; height: 100%; object-fit: cover; }
   .card-img-placeholder { font-size: 36px; opacity: 0.4; }
 
   .card-body { padding: 14px 16px 16px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
-  .card-creator { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); font-weight: 800; }
-  .card-title { font-size: 16px; font-weight: 700; line-height: 1.3; }
+  .card-creator { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--brand-primary, var(--accent)); font-weight: 800; }
+  .card-title { font-size: 16px; font-weight: 700; line-height: 1.3; color: var(--brand-on-surface, var(--text)); }
   .card-sub { font-size: 13px; color: var(--text3); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .badge-retailer { display: inline-flex; align-items: center; width: fit-content; font-size: 10px; line-height: 1; font-weight: 800; border-radius: 999px; padding: 5px 8px; }
-  .badge-retailer-walmart { color: var(--accent); background: var(--soft); }
+  .badge-retailer-walmart { color: var(--brand-primary, var(--accent)); background: var(--brand-primary-container, var(--soft)); }
   .badge-retailer-amazon { color: #b35900; background: var(--amazon-soft); }
   .card-meta { display: flex; gap: 10px; align-items: center; font-size: 11px; color: var(--text4); margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); font-weight: 700; }
   .card-meta span { display: flex; align-items: center; gap: 3px; }
 
-  .empty { max-width: 600px; margin: 80px auto; text-align: center; padding: 40px 24px; }
+  .empty { max-width: 600px; margin: 80px auto; text-align: center; padding: 40px 24px; background: #fff; border: 1px solid var(--border); border-radius: var(--rlg); box-shadow: 0 8px 22px rgba(26,26,23,.05); }
   .empty-emoji { font-size: 48px; margin-bottom: 16px; }
-  .empty-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+  .empty-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; color: var(--brand-on-surface, var(--text)); }
   .empty-sub { font-size: 14px; color: var(--text3); }
 
   .footer { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; text-align: center; border-top: 0.5px solid var(--border); }
   .footer-text { font-size: 12px; color: var(--text4); }
-  .footer-link { color: var(--accent); text-decoration: none; }
+  .footer-link { color: var(--brand-primary, var(--accent)); text-decoration: none; }
 
   /* Landing chat parity */
   .lp-chat { max-width: 560px; margin: 0 auto 18px; padding: 0 20px; }
@@ -97,7 +103,7 @@
   .lp-chat-row.user { justify-content: flex-end; }
   .lp-chat-bubble { max-width: 84%; padding: 8px 10px; border-radius: 12px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
   .lp-chat-bubble.bot { background: #f4f5f7; color: #1a1a17; border-top-left-radius: 4px; }
-  .lp-chat-bubble.user { background: var(--accent); color: #fff; border-top-right-radius: 4px; }
+  .lp-chat-bubble.user { background: var(--brand-primary, var(--accent)); color: var(--brand-on-primary, #fff); border-top-right-radius: 4px; }
   .lp-chat-products { margin-top: 8px; display: grid; gap: 8px; }
   .lp-chat-product { border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; overflow: hidden; background: #fff; }
   .lp-chat-product-body { display: flex; align-items: center; gap: 10px; padding: 10px; }
@@ -108,8 +114,8 @@
   .lp-chat-product-btn { display: block; margin: 0 10px 10px; text-align: center; background: var(--blue); color: #fff; text-decoration: none; font-size: 12px; font-weight: 600; border-radius: 8px; padding: 8px; }
   .lp-chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
   .lp-chat-input { flex: 1; border: 1px solid rgba(0,0,0,0.15); border-radius: 10px; padding: 9px 10px; font-size: 12px; outline: none; }
-  .lp-chat-input:focus { border-color: var(--accent); }
-  .lp-chat-send { border: none; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; font-size: 12px; padding: 0 12px; cursor: pointer; }
+  .lp-chat-input:focus { border-color: var(--brand-primary, var(--accent)); }
+  .lp-chat-send { border: none; border-radius: 10px; background: var(--brand-primary, var(--accent)); color: var(--brand-on-primary, #fff); font-weight: 700; font-size: 12px; padding: 0 12px; cursor: pointer; }
   .disclosure { max-width: 560px; margin: 0 auto; padding: 0 20px 24px; }
   .disclosure-text { font-size: 11px; color: rgba(0,0,0,0.45); line-height: 1.5; }
 </style>

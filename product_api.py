@@ -2027,14 +2027,23 @@ class ProductResolver:
         # Step 2: Archer catalog
         if len(results) < max_results:
             try:
+                from link_builder import USE_ARCHER_ATTRIBUTION
                 archer_matches = self.archer_api.search_catalog(
                     query, category, limit=max_results - len(results)
                 )
                 for p in archer_matches:
-                    link_data = self.archer_api.generate_link(
-                        p['asin'], label=f"chat-{category or 'general'}"
-                    )
-                    url = link_data.get('url') if link_data else None
+                    # Gated by USE_ARCHER_ATTRIBUTION (default off): when the flag
+                    # is off, synthesize a plain Amazon affiliate URL instead of
+                    # calling Archer's attribution endpoint.
+                    if USE_ARCHER_ATTRIBUTION:
+                        link_data = self.archer_api.generate_link(
+                            p['asin'], label=f"chat-{category or 'general'}"
+                        )
+                        url = link_data.get('url') if link_data else None
+                    else:
+                        tag = os.environ.get('AMAZON_AFFILIATE_TAG', 'mommymedeals-20')
+                        url = f"https://www.amazon.com/dp/{p['asin']}?tag={tag}"
+                        link_data = {'url': url, 'affiliate_url': url}
                     results.append(self.archer_api.format_for_frontend(p, url))
             except Exception as e:
                 logging.error(f"[ARCHER] Resolution error: {e}")

@@ -56,25 +56,31 @@
   .draft-banner { position: fixed; top: 0; left: 0; right: 0; background: #fff3e0; color: #e65100; text-align: center; padding: 6px 12px; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: 1px; z-index: 999; border-bottom: 1px solid #ffb74d; }
   body.is-preview { padding-top: 28px; }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  /* Theme palette: when the active creator has brand columns set, the
+     legacy bridge in _brand_vars.html already mirrors brand_primary onto
+     --accent + brand_surface onto --bg. The theme defaults below only win
+     for creators with no brand colors. Page-specific aliases below map
+     theme tokens onto the canonical 6-var contract so V1-B polish reads
+     brand-primary / brand-surface / brand-on-surface throughout. */
   :root {
     --bg: {{ theme.bg }};
     --accent: {{ theme.accent }};
     --btn: {{ theme.btn }};
     --text: {{ theme.text }};
   }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: var(--brand-surface, var(--bg)); color: var(--brand-on-surface, var(--text)); min-height: 100vh; -webkit-font-smoothing: antialiased; }
 
   .header { padding: 20px 20px 16px; border-bottom: 0.5px solid rgba(0,0,0,0.08); background: rgba(255,255,255,0.9); backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 10; }
   .header-inner { max-width: 480px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
-  .brand { font-size: 15px; font-weight: 600; color: var(--text); }
+  .brand { font-size: 15px; font-weight: 600; color: var(--brand-on-surface, var(--text)); }
   .handle { font-size: 12px; color: rgba(0,0,0,0.4); margin-top: 1px; }
-  .header-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .header-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--brand-primary, var(--accent)); color: var(--brand-on-primary, #fff); display: flex; align-items: center; justify-content: center; font-size: 16px; }
   .public-shop-nav { max-width: 480px; margin: 12px auto 0; display: flex; gap: 8px; align-items: center; }
   .public-shop-link { color: rgba(0,0,0,0.62); background: rgba(255,255,255,0.76); border: 1px solid rgba(0,0,0,0.08); border-radius: 999px; padding: 6px 9px; font-size: 11px; font-weight: 700; text-decoration: none; }
-  .public-shop-link.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .public-shop-link.active { color: var(--brand-on-primary, #fff); background: var(--brand-primary, var(--accent)); border-color: var(--brand-primary, var(--accent)); }
 
   .hero { max-width: 480px; margin: 0 auto; padding: 20px 20px 0; }
-  .caption { font-size: 14px; line-height: 1.7; color: var(--text); margin-bottom: 20px; white-space: pre-wrap; }
+  .caption { font-size: 14px; line-height: 1.7; color: var(--brand-on-surface, var(--text)); margin-bottom: 20px; white-space: pre-wrap; }
 
   .products { max-width: 480px; margin: 0 auto; padding: 0 16px 40px; }
   .products-grid { display: grid; gap: 12px; }
@@ -82,32 +88,36 @@
   .products-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
   .products-grid.cols-featured .product-card:first-child { grid-column: span 2; }
 
-  .product-card { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: transform 0.15s, box-shadow 0.15s; }
-  .product-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+  /* V1-B card polish: brand-surface canvas, rounded corners, lifted shadow. */
+  .product-card { background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 14px rgba(26,26,23,0.08); border: 1px solid rgba(26,26,23,0.06); transition: transform 0.15s ease, box-shadow 0.15s ease; }
+  .product-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(26,26,23,0.12); }
   .product-card:active { transform: translateY(0); }
 
   .pc-img-wrap { width: 100%; aspect-ratio: 1; background: #f5f5f3; overflow: hidden; display: flex; align-items: center; justify-content: center; }
   .pc-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
   .pc-img-placeholder { font-size: 32px; }
 
-  .pc-body { padding: 10px 12px 12px; }
+  .pc-body { padding: 12px 14px 14px; }
   .pc-social-proof { display: inline-flex; align-items: center; width: fit-content; max-width: 100%; margin-bottom: 7px; padding: 4px 8px; border-radius: 999px; background: #fff7d6; color: #7a4a00; font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: 0.1px; }
   .pc-retailer-badge { display:inline-flex; align-items:center; width:fit-content; margin-bottom:6px; padding:4px 8px; border-radius:999px; font-size:10px; font-weight:800; line-height:1; letter-spacing:.02em; }
-  .pc-retailer-walmart { color:#e65100; background:#ffe9df; }
+  .pc-retailer-walmart { color: var(--brand-primary, #e65100); background: var(--brand-primary-container, #ffe9df); }
   .pc-retailer-amazon { color:#b35900; background:#fff4e0; }
   .pc-brand { font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: rgba(0,0,0,0.35); margin-bottom: 3px; }
   .pc-name { font-size: 12px; font-weight: 500; color: #1a1a17; line-height: 1.4; margin-bottom: 6px; }
-  .pc-price-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-bottom: 8px; }
-  .pc-price { font-size: 14px; font-weight: 600; color: var(--accent); }
+  .pc-price-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-bottom: 10px; }
+  .pc-price { font-size: 14px; font-weight: 700; color: var(--brand-primary, var(--accent)); }
   .pc-was { font-size: 11px; color: rgba(0,0,0,0.38); text-decoration: line-through; }
   .pc-now-label { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: rgba(0,0,0,0.42); margin-right: 4px; }
-  .pc-deal { font-size: 10px; background: #fff3e0; color: #e65100; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+  .pc-deal { font-size: 10px; background: var(--brand-primary-container, #fff3e0); color: var(--brand-primary, #e65100); padding: 2px 6px; border-radius: 4px; font-weight: 600; }
   .pc-detail-row { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px; }
   .pc-detail { font-size:10px; border:1px solid rgba(0,0,0,0.08); border-radius:999px; padding:3px 6px; color:rgba(0,0,0,0.56); background:#fff; }
 
-  .shop-btn { display: block; width: 100%; padding: 10px; background: var(--btn); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; text-align: center; cursor: pointer; text-decoration: none; transition: opacity 0.15s; }
-  .shop-btn:hover { opacity: 0.9; }
-  .shop-btn:active { opacity: 0.8; }
+  /* Primary CTA reads from brand-primary / brand-on-primary so per-creator
+     swap repaints buttons. Falls back to theme.btn for legacy theme-only
+     deploys with no brand columns set. */
+  .shop-btn { display: block; width: 100%; padding: 11px 12px; background: var(--brand-primary, var(--btn)); color: var(--brand-on-primary, #fff); border: none; border-radius: 10px; font-size: 13px; font-weight: 700; text-align: center; cursor: pointer; text-decoration: none; transition: filter 0.15s ease, transform 0.1s ease; }
+  .shop-btn:hover { filter: brightness(1.05); }
+  .shop-btn:active { transform: translateY(1px); filter: brightness(0.95); }
 
   /* Landing chat */
   .lp-chat { max-width: 480px; margin: 4px auto 0; padding: 0 16px 14px; }
@@ -118,7 +128,7 @@
   .lp-chat-row.user { justify-content: flex-end; }
   .lp-chat-bubble { max-width: 84%; padding: 8px 10px; border-radius: 12px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
   .lp-chat-bubble.bot { background: #f4f5f7; color: #1a1a17; border-top-left-radius: 4px; }
-  .lp-chat-bubble.user { background: var(--accent); color: #fff; border-top-right-radius: 4px; }
+  .lp-chat-bubble.user { background: var(--brand-primary, var(--accent)); color: var(--brand-on-primary, #fff); border-top-right-radius: 4px; }
   .lp-chat-products { margin-top: 8px; display: grid; gap: 8px; }
   .lp-chat-product { border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; overflow: hidden; background: #fff; }
   .lp-chat-product-body { display: flex; align-items: center; gap: 10px; padding: 10px; }
@@ -126,15 +136,15 @@
   .lp-chat-product-ph { width: 54px; height: 54px; border-radius: 8px; background: #f4f5f7; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
   .lp-chat-product-name { font-size: 12px; font-weight: 600; color: #1a1a17; line-height: 1.3; margin-bottom: 3px; }
   .lp-chat-product-price { font-size: 12px; color: rgba(0,0,0,0.6); }
-  .lp-chat-product-btn { display: block; margin: 0 10px 10px; text-align: center; background: var(--btn); color: #fff; text-decoration: none; font-size: 12px; font-weight: 600; border-radius: 8px; padding: 8px; }
+  .lp-chat-product-btn { display: block; margin: 0 10px 10px; text-align: center; background: var(--brand-primary, var(--btn)); color: var(--brand-on-primary, #fff); text-decoration: none; font-size: 12px; font-weight: 600; border-radius: 8px; padding: 8px; }
   .lp-chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
   .lp-chat-input { flex: 1; border: 1px solid rgba(0,0,0,0.15); border-radius: 10px; padding: 9px 10px; font-size: 12px; outline: none; }
-  .lp-chat-input:focus { border-color: var(--accent); }
-  .lp-chat-send { border: none; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; font-size: 12px; padding: 0 12px; cursor: pointer; }
+  .lp-chat-input:focus { border-color: var(--brand-primary, var(--accent)); }
+  .lp-chat-send { border: none; border-radius: 10px; background: var(--brand-primary, var(--accent)); color: var(--brand-on-primary, #fff); font-weight: 700; font-size: 12px; padding: 0 12px; cursor: pointer; }
 
   .footer { max-width: 480px; margin: 0 auto; padding: 20px 20px 40px; text-align: center; }
   .footer-text { font-size: 11px; color: rgba(0,0,0,0.3); line-height: 1.6; }
-  .footer-link { color: var(--accent); text-decoration: none; }
+  .footer-link { color: var(--brand-primary, var(--accent)); text-decoration: none; }
 
   /* Disclosure */
   .disclosure { max-width: 480px; margin: 0 auto; padding: 12px 20px; }
@@ -247,17 +257,25 @@ fbq('track', 'PageView');
         </div>
         {% endif %}
         {% set shop_label = ('Shop Walmart →' if is_walmart_product else ('Shop Amazon →' if (is_amazon_product or collage.direct_to_amazon) else 'Shop Now →')) %}
+        {# Plan §5: append canonical 5-key UTM to every outbound product
+           CTA so attribution flows to the retailer with the locked
+           mapping (utm_source=facebook, utm_medium=organic,
+           utm_campaign=<collection-slug>, utm_content=shop-landing,
+           utm_term=<asin>). #}
+        {% set _utm = shop_utm('shop-landing', collage.slug, product.asin) %}
+        {% set _utm_qs = _utm | urlencode if product.asin else '' %}
         {% if collage.direct_to_amazon and not is_walmart_product %}
-        <a class="shop-btn"
-           href="https://www.amazon.com/dp/{{ product.asin }}?tag=mommymedeals-20"
-           onclick="trackClick('{{ product.asin }}', '{{ product.attribution_link or '' }}')"
-           target="_blank" rel="noopener">{{ shop_label }}</a>
+          {% set _base = 'https://www.amazon.com/dp/' ~ product.asin ~ '?tag=mommymedeals-20' %}
+          {% set _href = (_base ~ '&' ~ _utm_qs) if _utm_qs else _base %}
         {% else %}
+          {% set _base = product.attribution_link or (('https://www.walmart.com/ip/' ~ product.asin) if is_walmart_product else ('https://www.amazon.com/dp/' ~ product.asin)) %}
+          {% set _sep = '&' if '?' in _base else '?' %}
+          {% set _href = (_base ~ _sep ~ _utm_qs) if _utm_qs else _base %}
+        {% endif %}
         <a class="shop-btn"
-           href="{{ product.attribution_link or ('https://www.walmart.com/ip/' + product.asin if is_walmart_product else 'https://www.amazon.com/dp/' + product.asin) }}"
+           href="{{ _href }}"
            onclick="trackClick('{{ product.asin }}', '{{ product.attribution_link or '' }}')"
            target="_blank" rel="noopener">{{ shop_label }}</a>
-        {% endif %}
       </div>
     </div>
     {% endfor %}
@@ -315,7 +333,7 @@ function trackClick(asin, attributionUrl) {
   }
   // Log to our backend for attribution
   const fbclid = sessionStorage.getItem('fbclid');
-  fetch('/archer/track_click', {
+  fetch('/api/clicks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

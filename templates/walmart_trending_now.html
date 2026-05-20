@@ -19,14 +19,18 @@
   <meta name="twitter:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
 
   <style>
+    /* Page-local tokens: --ink is dual-use (used as button background on
+       .workbook-run-btn / .retailer-tab pressed / .admin-action) so per
+       CLAUDE.md it does NOT bridge to brand context. Body text reads
+       --brand-on-surface; canvas reads --brand-surface. */
     :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; --amazon:#ff9900; --amazon-soft:#fff4e0; }
     * { box-sizing: border-box; }
     {% include 'partials/admin_header_styles.html' %}
-    body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:linear-gradient(180deg, var(--bg), #fff 42%); }
+    body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--brand-on-surface, var(--ink)); background:linear-gradient(180deg, var(--brand-surface, var(--bg)), #fff 42%); }
     .page { max-width: 520px; margin:0 auto; padding-bottom: 34px; }
     .hero { padding: 22px 18px 14px; position: sticky; top: 0; z-index: 5; background: rgba(255,248,246,.94); backdrop-filter: blur(12px); border-bottom:1px solid var(--line); }
     .admin-mode .hero { position:static; top:auto; background:transparent; backdrop-filter:none; border-bottom:0; padding-top:18px; }
-    .eyebrow { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:var(--soft); color:var(--accent); font-size:12px; font-weight:800; letter-spacing:.02em; }
+    .eyebrow { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background: var(--brand-primary-container, var(--soft)); color: var(--brand-primary, var(--accent)); font-size:12px; font-weight:800; letter-spacing:.02em; }
     .admin-mode .eyebrow { display:none; }
     h1 { margin:12px 0 6px; font-size:32px; line-height: .98; letter-spacing:-.04em; }
     .admin-mode h1 { margin-top:0; font-size:26px; line-height:1.05; }
@@ -41,7 +45,7 @@
     .workbook-row { display:flex; gap:8px; align-items:center; }
     .workbook-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .workbook-select { flex:1; font-size:11px; font-weight:700; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 12px; appearance:none; -webkit-appearance:none; cursor:pointer; outline:none; min-width:0; overflow:hidden; text-overflow:ellipsis; }
-    .workbook-select:focus { border-color:var(--accent); }
+    .workbook-select:focus { border-color: var(--brand-primary, var(--accent)); }
     .workbook-run-btn { flex:0 0 auto; font-size:11px; font-weight:850; color:#fff; background:var(--ink); border:none; border-radius:999px; padding:7px 12px; cursor:pointer; white-space:nowrap; }
     .workbook-run-btn:disabled { opacity:.45; cursor:not-allowed; }
     .amazon-enrich-btn { flex:0 0 auto; font-size:11px; font-weight:850; color:#1a1a17; background:var(--amazon-soft); border:1px solid rgba(179,89,0,.22); border-radius:999px; padding:7px 12px; cursor:pointer; white-space:nowrap; }
@@ -52,20 +56,22 @@
     .admin-error { margin-top:10px; padding:10px 12px; border:1px solid #ffd1c7; background:#fff0ed; color:#a02828; border-radius:14px; font-size:12px; font-weight:800; line-height:1.4; }
     .workbook-none { font-size:11px; color:rgba(26,26,23,.5); font-style:italic; }
     .public-shop-nav { margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .public-shop-link { color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; text-decoration:none; }
-    .public-shop-link.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-    /* Retailer filter tabs */
+    .public-shop-link { color: var(--brand-primary, var(--accent)); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; text-decoration:none; }
+    .public-shop-link.active { background: var(--brand-primary, var(--accent)); color: var(--brand-on-primary, #fff); border-color: var(--brand-primary, var(--accent)); }
+    /* Retailer filter tabs — .retailer-tab[aria-pressed="true"] keeps the
+       --ink fill (dual-use, doesn't bridge). Walmart tab repaints from
+       brand-primary so per-creator swap recolors the active state. */
     .retailer-tabs { margin-top:10px; display:flex; gap:6px; align-items:center; }
     .retailer-tab { padding:6px 12px; border-radius:999px; border:1px solid var(--line); background:#fff; color:var(--muted); font-size:11px; font-weight:800; cursor:pointer; transition:background .15s,color .15s,border-color .15s; }
     .retailer-tab[aria-pressed="true"] { background:var(--ink); color:#fff; border-color:var(--ink); }
-    .retailer-tab.tab-walmart[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); }
+    .retailer-tab.tab-walmart[aria-pressed="true"] { background: var(--brand-primary, var(--accent)); border-color: var(--brand-primary, var(--accent)); color: var(--brand-on-primary, #fff); }
     .retailer-tab.tab-amazon[aria-pressed="true"] { background:var(--amazon); border-color:var(--amazon); color:#1a1a17; }
     .section[data-retailer-hidden="true"] { display:none; }
     .empty { margin: 22px 18px; padding: 18px; border:1px dashed var(--line); border-radius:20px; background:#fff; color:var(--muted); line-height:1.45; }
     .section { padding: 18px 0 4px; }
     .section-head { padding: 0 18px 10px; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; }
     .admin-action { flex:0 0 auto; align-self:flex-start; text-decoration:none; color:#fff; background:var(--ink); border-radius:999px; padding:8px 10px; font-size:11px; font-weight:850; box-shadow:0 6px 14px rgba(26,26,23,.14); }
-    .section h2 { margin:0; font-size:20px; letter-spacing:-.025em; }
+    .section h2 { margin:0; font-size:20px; letter-spacing:-.025em; color: var(--brand-on-surface, var(--ink)); }
     .section-desc { margin:4px 0 0; color:var(--muted); font-size:12px; line-height:1.35; }
     .rail { display:flex; gap:12px; overflow-x:auto; padding: 2px 18px 16px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling: touch; }
     .rail::-webkit-scrollbar { display:none; }
@@ -80,15 +86,15 @@
     .badges { min-height: 23px; display:flex; gap:5px; flex-wrap:wrap; margin-bottom:7px; }
     .badge { font-size:10px; line-height:1; font-weight:800; color:var(--green); background:#e8f6ef; border-radius:999px; padding:6px 7px; }
     .badge-retailer { font-size:10px; line-height:1; font-weight:800; border-radius:999px; padding:6px 7px; }
-    .badge-retailer-walmart { color:var(--accent); background:var(--soft); }
+    .badge-retailer-walmart { color: var(--brand-primary, var(--accent)); background: var(--brand-primary-container, var(--soft)); }
     .badge-retailer-amazon { color:#b35900; background:var(--amazon-soft); }
     .name { min-height: 45px; font-size:13px; font-weight:750; line-height:1.25; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
     .brand { margin-bottom:4px; color:var(--muted); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .meta { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-    .price { font-size:15px; font-weight:900; color:var(--accent); }
+    .price { font-size:15px; font-weight:900; color: var(--brand-primary, var(--accent)); }
     .price-amazon { color:var(--amazon); }
     .detail-note { color:var(--muted); font-size:10px; white-space:nowrap; }
-    .cta { margin-top:10px; display:block; text-align:center; text-decoration:none; color:#fff; background:var(--accent); border-radius:12px; padding:10px 8px; font-size:12px; font-weight:850; box-shadow:0 7px 16px rgba(232,93,38,.22); }
+    .cta { margin-top:10px; display:block; text-align:center; text-decoration:none; color: var(--brand-on-primary, #fff); background: var(--brand-primary, var(--accent)); border-radius:12px; padding:10px 8px; font-size:12px; font-weight:850; box-shadow:0 7px 16px rgba(232,93,38,.22); }
     .cta-amazon { background:var(--amazon); color:#1a1a17; box-shadow:0 7px 16px rgba(255,153,0,.22); }
     .fine { padding: 8px 18px 0; color:rgba(26,26,23,.42); font-size:10px; line-height:1.45; text-align:center; }
     @media (min-width: 560px) { .page { border-left:1px solid var(--line); border-right:1px solid var(--line); min-height:100vh; } }
@@ -269,7 +275,20 @@
                       {% set missing_price = not price_text or price_lower == 'shop deal' or price_text in ['0', '0.0', '0.00', '$0', '$0.0', '$0.00'] %}
                       <div class="price {% if is_amazon %}price-amazon{% endif %}">{{ ('See price at ' ~ retailer_label) if missing_price else price_text }}</div>
                     </div>
-                    <a class="cta {% if is_amazon %}cta-amazon{% endif %}" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Shop {{ retailer_label }}</a>
+                    {# Plan §5: append canonical 5-key UTM dict to every
+                       outbound trending CTA. Uses product['sku'] (Walmart) or
+                       product['sku'] (Amazon ASIN) — both stored on the same
+                       'sku' key by walmart_trends._build_*_item_from_rows().
+                       Collection slug for the trends surface = the section's
+                       collection.slug (e.g. 'top-sellers', 'spring-yard-refresh'). #}
+                    {% set _trend_asin = (product.get('sku') or product.get('asin') or '') %}
+                    {% set _trend_slug = collection.get('slug') or 'shop-trends' %}
+                    {% set _utm = shop_utm('shop-trends', _trend_slug, _trend_asin) %}
+                    {% set _utm_qs = _utm | urlencode if _trend_asin else '' %}
+                    {% set _base = product['shop_url'] or '' %}
+                    {% set _sep = '&' if '?' in _base else '?' %}
+                    {% set _href = (_base ~ _sep ~ _utm_qs) if (_base and _utm_qs) else _base %}
+                    <a class="cta {% if is_amazon %}cta-amazon{% endif %}" href="{{ _href }}" target="_blank" rel="nofollow noopener sponsored">Shop {{ retailer_label }}</a>
                   </div>
                 </article>
               {% endif %}

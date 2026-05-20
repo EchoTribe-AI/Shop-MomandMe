@@ -190,7 +190,7 @@ async function save(extra = {}) {
     utm_term: val('utm_term'),
     ...extra,
   };
-  const res = await fetch(`/archer/posts/${postId}`, {
+  const res = await fetch(`/api/posts/${postId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

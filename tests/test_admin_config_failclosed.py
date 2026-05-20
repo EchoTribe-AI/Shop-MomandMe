@@ -286,7 +286,7 @@ class ArcherRoutesGuarded(unittest.TestCase):
             client = self._client_and_prod(app_mod)
             with client.session_transaction() as sess:
                 sess['admin_authed'] = True
-            resp = client.get('/archer/collage')
+            resp = client.get('/archer/collage', follow_redirects=True)
         self.assertEqual(resp.status_code, 200)
 
     def test_header_token_unblocks_archer_api(self):

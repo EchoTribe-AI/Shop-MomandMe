@@ -82,7 +82,7 @@
           {% if 'walmart_trend' in (c.campaign_types or []) or 'amazon_trend' in (c.campaign_types or []) %}
           <a class="btn primary" href="/collections/{{ c.slug }}/edit">Edit</a>
           {% else %}
-          <a class="btn primary" href="/archer/collage?collection={{ c.slug }}">Edit</a>
+          <a class="btn primary" href="/admin/collections/edit?collection={{ c.slug }}">Edit</a>
           {% endif %}
           <a class="btn" href="/shop/{{ c.slug }}{% if is_draft %}?preview=1{% endif %}" target="_blank">{% if is_draft %}Preview{% else %}View{% endif %}</a>
           {% if is_archived %}
@@ -103,7 +103,7 @@
   <section class="section" data-section>
     <div class="section-head">
       <div class="label">Saved Organic Posts</div>
-      <a class="btn" href="/archer/posts/export.csv?creator_id={{ creator_id }}">Export CSV</a>
+      <a class="btn" href="/api/posts/export.csv?creator_id={{ creator_id }}">Export CSV</a>
     </div>
     <div class="table">
       <div class="row post-row header-row"><div>ID</div><div>Product</div><div>Post</div><div>Status</div><div>Actions</div></div>
@@ -114,7 +114,7 @@
         <div class="cell" data-label="Post"><div>{{ (p['copy'] or '')[:110] }}{% if (p['copy'] or '')|length > 110 %}...{% endif %}</div><div class="meta">{{ p['angle'] or 'organic' }}</div></div>
         <div class="cell" data-label="Status"><span class="pill {{ p['status'] or 'draft' }}" id="status-{{ p['id'] }}">{{ p['status'] or 'draft' }}</span></div>
         <div class="cell actions" data-label="Actions">
-          <a class="btn primary" href="/archer/posts/{{ p['id'] }}/edit">Edit</a>
+          <a class="btn primary" href="/admin/posts/{{ p['id'] }}/edit">Edit</a>
           <button class="btn green" onclick="setPostStatus({{ p['id'] }}, 'approved')">Approve</button>
           <button class="btn blue" onclick="setPostStatus({{ p['id'] }}, 'posted')">Posted</button>
           <button class="btn red" onclick="setPostStatus({{ p['id'] }}, 'archived')">Archive</button>
@@ -156,7 +156,7 @@ function clearManageSearch() {
   input?.focus();
 }
 async function setPostStatus(id, status) {
-  const res = await fetch(`/archer/posts/${id}`, {
+  const res = await fetch(`/api/posts/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
@@ -172,7 +172,7 @@ async function setPostStatus(id, status) {
 async function publishCollection(slug, btn) {
   const old = btn.textContent;
   btn.disabled = true; btn.textContent = 'Publishing...';
-  const res = await fetch('/archer/collage/publish', {
+  const res = await fetch('/api/collections/publish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ slug }),
@@ -185,7 +185,7 @@ async function archiveCollection(slug, btn) {
   if (!confirm(`Archive collection "${slug}"? It will be removed from the public shop directory.`)) return;
   const old = btn.textContent;
   btn.disabled = true; btn.textContent = 'Archiving...';
-  const res = await fetch('/archer/collage/archive', {
+  const res = await fetch('/api/collections/archive', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ slug }),
@@ -202,7 +202,7 @@ async function archiveCollection(slug, btn) {
 async function restoreCollection(slug, btn) {
   const old = btn.textContent;
   btn.disabled = true; btn.textContent = 'Restoring...';
-  const res = await fetch('/archer/collage/restore', {
+  const res = await fetch('/api/collections/restore', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ slug }),

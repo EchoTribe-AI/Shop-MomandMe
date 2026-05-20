@@ -43,7 +43,7 @@ class CollectionPublishingTestCase(unittest.TestCase):
             conn.close()
 
     def _save(self, slug, status="draft", products=None):
-        return self.client.post("/archer/collage/save", json={
+        return self.client.post("/api/collections/draft", json={
             "slug": slug,
             "status": status,
             "products": products or [{"asin": "B000000001", "product_name": "Test Product"}],
@@ -93,7 +93,7 @@ class CollectionPublishingTestCase(unittest.TestCase):
         generate.assert_not_called()
 
     def test_collage_builder_exposes_draft_publish_and_management_actions(self):
-        resp = self.client.get("/archer/collage")
+        resp = self.client.get("/admin/collections/edit")
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
         self.assertIn("Save Draft", html)
@@ -106,7 +106,7 @@ class CollectionPublishingTestCase(unittest.TestCase):
     def test_publish_flips_status_and_returns_public_url(self):
         self._save("publish-me", status="draft")
         with patch("product_api.ArcherAPI.generate_link", return_value={"url": "https://archer.example/publish-me"}):
-            resp = self.client.post("/archer/collage/publish", json={"slug": "publish-me"})
+            resp = self.client.post("/api/collections/publish", json={"slug": "publish-me"})
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertEqual(data["status"], "published")
@@ -176,10 +176,10 @@ class CollectionPublishingTestCase(unittest.TestCase):
         with patch("product_api.ArcherAPI.generate_link", return_value={"url": "https://archer.example/published-row"}):
             self._save("published-row", status="published")
 
-        published = self.client.get("/archer/collages?status=published").get_json()["collages"]
+        published = self.client.get("/api/collections?status=published").get_json()["collages"]
         self.assertEqual([row["slug"] for row in published], ["published-row"])
 
-        all_rows = self.client.get("/archer/collages?status=all").get_json()["collages"]
+        all_rows = self.client.get("/api/collections?status=all").get_json()["collages"]
         self.assertEqual({row["slug"] for row in all_rows}, {"draft-row", "published-row"})
 
     def test_amazon_only_draft_publishes_with_amazon_cta(self):
@@ -226,7 +226,7 @@ class CollectionPublishingTestCase(unittest.TestCase):
         self.assertEqual(self.client.get("/shop/visibility-draft?preview=1").status_code, 200)
 
         with patch("product_api.ArcherAPI.generate_link", return_value={"url": "https://archer.example/visibility"}):
-            self.client.post("/archer/collage/publish", json={"slug": "visibility-draft"})
+            self.client.post("/api/collections/publish", json={"slug": "visibility-draft"})
         self.assertEqual(self.client.get("/shop/visibility-draft").status_code, 200)
 
 
