@@ -130,6 +130,14 @@
     }
   },
   "admin-manage": {
+    "320x844": {
+      "docScrollW": 320,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/archer/posts/manage"
+    },
     "390x844": {
       "docScrollW": 390,
       "overflowX": false,

@@ -1,14 +1,26 @@
-.topbar { min-height:72px; background:rgba(255,255,255,.94); border-bottom:1px solid var(--border, var(--line, rgba(0,0,0,.10))); display:flex; align-items:center; gap:14px; padding:12px 20px; position:sticky; top:0; z-index:20; backdrop-filter:blur(14px); }
+.topbar { min-height:64px; background:rgba(255,255,255,.94); border-bottom:1px solid var(--border, var(--line, rgba(0,0,0,.10))); display:flex; align-items:center; gap:8px; padding:10px 14px; position:sticky; top:0; z-index:20; backdrop-filter:blur(14px); }
 .topbar-brand { display:flex; align-items:center; gap:10px; min-width:0; }
 .dot { width:9px; height:9px; border-radius:50%; background:var(--brand-primary, var(--archer, var(--accent, #7C7D6A))); flex:0 0 auto; }
-.topbar strong { display:block; font-size:20px; letter-spacing:-.04em; line-height:1; color:var(--ink, var(--text, #1a1a17)); }
-.topbar-shop { display:block; max-width:210px; margin-top:4px; color:var(--text3, var(--muted, rgba(26,26,23,.62))); font-size:12px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.topbar strong { display:block; font-size:18px; letter-spacing:-.04em; line-height:1; color:var(--ink, var(--text, #1a1a17)); }
+.topbar-shop { display:block; max-width:150px; margin-top:4px; color:var(--text3, var(--muted, rgba(26,26,23,.62))); font-size:11px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .topbar-title { color:var(--text3, var(--muted, rgba(26,26,23,.62))); font-size:16px; }
-.tb-right { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-.tb-link { min-height:44px; display:inline-flex; align-items:center; justify-content:center; font-size:13px; color:var(--text3, var(--muted, rgba(26,26,23,.62))); text-decoration:none; padding:8px 14px; border:1px solid var(--border, var(--line, rgba(0,0,0,.10))); border-radius:999px; background:#fff; cursor:pointer; font-weight:650; line-height:1.2; box-shadow:0 1px 0 rgba(26,26,23,.03); }
+.tb-right { margin-left:auto; display:flex; gap:8px; flex-wrap:nowrap; justify-content:flex-end; }
+.tb-link { min-width:72px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; font-size:13px; color:var(--text3, var(--muted, rgba(26,26,23,.62))); text-decoration:none; padding:8px 12px; border:1px solid var(--border, var(--line, rgba(0,0,0,.10))); border-radius:999px; background:#fff; cursor:pointer; font-weight:650; line-height:1.2; white-space:nowrap; box-shadow:0 1px 0 rgba(26,26,23,.03); }
 .tb-link.active { color:var(--brand-on-primary, #fff); background:var(--brand-primary, var(--archer, var(--accent, #7C7D6A))); border-color:var(--brand-primary, var(--archer, var(--accent, #7C7D6A))); }
+@media (max-width:360px) {
+  .topbar { padding-left:12px; padding-right:12px; }
+  .topbar strong { font-size:17px; }
+  .topbar-shop { max-width:124px; }
+  .tb-link { min-width:68px; padding-left:10px; padding-right:10px; font-size:12px; }
+}
+@media (min-width:768px) {
+  .topbar { min-height:72px; gap:14px; padding:12px 20px; }
+  .topbar strong { font-size:20px; }
+  .topbar-shop { max-width:210px; font-size:12px; }
+  .tb-link { min-width:0; padding:8px 14px; }
+}
 @media (max-width:900px) {
-  .topbar { align-items:center; padding:14px 18px; }
+  .topbar { align-items:center; }
   .topbar-title { display:none; }
   .tb-right { margin-left:auto; }
   .tb-right .tb-link:not(:last-child) { display:none; }
