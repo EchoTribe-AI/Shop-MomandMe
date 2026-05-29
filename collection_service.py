@@ -117,7 +117,7 @@ def list_collages(status: str = "published", limit: int = 50) -> list[dict[str, 
     try:
         rows = conn.execute(
             "SELECT slug, theme, layout, created_at, click_count, products_json, "
-            "creator_id, status, campaign_types "
+            "creator_id, status, campaign_types, hero_title, hero_subtitle, caption "
             f"FROM collages WHERE {where} ORDER BY created_at DESC LIMIT ?",
             params,
         ).fetchall()
@@ -137,6 +137,10 @@ def list_collages(status: str = "published", limit: int = 50) -> list[dict[str, 
             "creator_id": row["creator_id"] or DEFAULT_CREATOR_ID,
             "status": row["status"] or "published",
             "campaign_types": _loads_list(row["campaign_types"], ["organic"]),
+            "hero_title": row["hero_title"] or "",
+            "hero_subtitle": row["hero_subtitle"] or "",
+            "caption": row["caption"] or "",
+            "products_preview": products[:6],
         })
     return collages
 

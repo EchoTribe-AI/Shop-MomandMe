@@ -1,469 +1,385 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>What's Trending Now · The Mommy &amp; Me Collective</title>
-  <meta name="description" content="Fresh finds from Walmart and Amazon hand-picked by The Mommy &amp; Me Collective — home upgrades, kids&apos; picks, everyday deals, and more.">
-
-  <meta property="og:type" content="website">
-  <meta property="og:title" content="Shop - The Mommy &amp; Me Collective">
-  <meta property="og:description" content="Fresh finds from Walmart and Amazon hand-picked by The Mommy &amp; Me Collective — home upgrades, kids&apos; picks, everyday deals, and more.">
-  <meta property="og:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
-  <meta property="og:image:width" content="1731">
-  <meta property="og:image:height" content="909">
-
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Shop - The Mommy &amp; Me Collective">
-  <meta name="twitter:description" content="Fresh finds from Walmart and Amazon, hand-picked by The Mommy &amp; Me Collective.">
-  <meta name="twitter:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
-
-  <style>
-    :root { --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52; --amazon:#ff9900; --amazon-soft:#fff4e0; }
-    * { box-sizing: border-box; }
-    {% include 'partials/admin_header_styles.html' %}
-    body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:linear-gradient(180deg, var(--bg), #fff 42%); }
-    .page { max-width: 520px; margin:0 auto; padding-bottom: 34px; }
-    .hero { padding: 22px 18px 14px; position: sticky; top: 0; z-index: 5; background: rgba(255,248,246,.94); backdrop-filter: blur(12px); border-bottom:1px solid var(--line); }
-    .admin-mode .hero { position:static; top:auto; background:transparent; backdrop-filter:none; border-bottom:0; padding-top:18px; }
-    .eyebrow { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:var(--soft); color:var(--accent); font-size:12px; font-weight:800; letter-spacing:.02em; }
-    .admin-mode .eyebrow { display:none; }
-    h1 { margin:12px 0 6px; font-size:32px; line-height: .98; letter-spacing:-.04em; }
-    .admin-mode h1 { margin-top:0; font-size:26px; line-height:1.05; }
-    .subhead { margin:0; color:var(--muted); font-size:14px; line-height:1.45; }
-    .refreshed { margin-top:10px; color:rgba(26,26,23,.45); font-size:11px; }
-    .admin-bar { margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-top:1px solid var(--line); padding-top:10px; }
-    .admin-mode .admin-bar { display:block; border-top:0; padding-top:0; margin-top:10px; }
-    .admin-note { color:rgba(26,26,23,.58); font-size:11px; line-height:1.35; font-weight:750; }
-    .admin-link { flex:0 0 auto; text-decoration:none; color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; }
-    .workbook-panel { margin-top:10px; border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:8px; }
-    .workbook-panel-label { font-size:10px; font-weight:800; color:rgba(26,26,23,.5); text-transform:uppercase; letter-spacing:.06em; }
-    .workbook-row { display:flex; gap:8px; align-items:center; }
-    .workbook-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .workbook-select { flex:1; font-size:11px; font-weight:700; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 12px; appearance:none; -webkit-appearance:none; cursor:pointer; outline:none; min-width:0; overflow:hidden; text-overflow:ellipsis; }
-    .workbook-select:focus { border-color:var(--accent); }
-    .workbook-run-btn { flex:0 0 auto; font-size:11px; font-weight:850; color:#fff; background:var(--ink); border:none; border-radius:999px; padding:7px 12px; cursor:pointer; white-space:nowrap; }
-    .workbook-run-btn:disabled { opacity:.45; cursor:not-allowed; }
-    .amazon-enrich-btn { flex:0 0 auto; font-size:11px; font-weight:850; color:#1a1a17; background:var(--amazon-soft); border:1px solid rgba(179,89,0,.22); border-radius:999px; padding:7px 12px; cursor:pointer; white-space:nowrap; }
-    .amazon-enrich-btn:disabled { opacity:.45; cursor:not-allowed; }
-    .workbook-status { font-size:11px; line-height:1.4; color:rgba(26,26,23,.6); min-height:14px; }
-    .workbook-status.ok { color:var(--green); font-weight:750; }
-    .workbook-status.err { color:#c0392b; font-weight:750; }
-    .admin-error { margin-top:10px; padding:10px 12px; border:1px solid #ffd1c7; background:#fff0ed; color:#a02828; border-radius:14px; font-size:12px; font-weight:800; line-height:1.4; }
-    .workbook-none { font-size:11px; color:rgba(26,26,23,.5); font-style:italic; }
-    .public-shop-nav { margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .public-shop-link { color:var(--accent); background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 10px; font-size:11px; font-weight:850; text-decoration:none; }
-    .public-shop-link.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-    /* Retailer filter tabs */
-    .retailer-tabs { margin-top:10px; display:flex; gap:6px; align-items:center; }
-    .retailer-tab { padding:6px 12px; border-radius:999px; border:1px solid var(--line); background:#fff; color:var(--muted); font-size:11px; font-weight:800; cursor:pointer; transition:background .15s,color .15s,border-color .15s; }
-    .retailer-tab[aria-pressed="true"] { background:var(--ink); color:#fff; border-color:var(--ink); }
-    .retailer-tab.tab-walmart[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); }
-    .retailer-tab.tab-amazon[aria-pressed="true"] { background:var(--amazon); border-color:var(--amazon); color:#1a1a17; }
-    .section[data-retailer-hidden="true"] { display:none; }
-    .empty { margin: 22px 18px; padding: 18px; border:1px dashed var(--line); border-radius:20px; background:#fff; color:var(--muted); line-height:1.45; }
-    .section { padding: 18px 0 4px; }
-    .section-head { padding: 0 18px 10px; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; }
-    .admin-action { flex:0 0 auto; align-self:flex-start; text-decoration:none; color:#fff; background:var(--ink); border-radius:999px; padding:8px 10px; font-size:11px; font-weight:850; box-shadow:0 6px 14px rgba(26,26,23,.14); }
-    .section h2 { margin:0; font-size:20px; letter-spacing:-.025em; }
-    .section-desc { margin:4px 0 0; color:var(--muted); font-size:12px; line-height:1.35; }
-    .rail { display:flex; gap:12px; overflow-x:auto; padding: 2px 18px 16px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling: touch; }
-    .rail::-webkit-scrollbar { display:none; }
-    .card { width: 178px; min-width:178px; background:var(--card); border:1px solid var(--line); border-radius:20px; overflow:hidden; box-shadow:0 10px 26px rgba(26,26,23,.07); scroll-snap-align:start; }
-    .top-sellers .card { width: 210px; min-width:210px; }
-    .image-wrap { width:100%; aspect-ratio:1/1; background:#f6f3ef; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; }
-    .image-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
-    .image-placeholder { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:18px; text-align:center; background:linear-gradient(135deg, #f7f1ec, #fff8f2); color:rgba(26,26,23,.48); font-size:12px; font-weight:800; letter-spacing:.01em; }
-    .image-wrap img + .image-placeholder { display:none; }
-    .image-wrap img.is-hidden + .image-placeholder { display:flex; }
-    .body { padding: 11px 11px 12px; }
-    .badges { min-height: 23px; display:flex; gap:5px; flex-wrap:wrap; margin-bottom:7px; }
-    .badge { font-size:10px; line-height:1; font-weight:800; color:var(--green); background:#e8f6ef; border-radius:999px; padding:6px 7px; }
-    .badge-retailer { font-size:10px; line-height:1; font-weight:800; border-radius:999px; padding:6px 7px; }
-    .badge-retailer-walmart { color:var(--accent); background:var(--soft); }
-    .badge-retailer-amazon { color:#b35900; background:var(--amazon-soft); }
-    .name { min-height: 45px; font-size:13px; font-weight:750; line-height:1.25; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
-    .brand { margin-bottom:4px; color:var(--muted); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .meta { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-    .price { font-size:15px; font-weight:900; color:var(--accent); }
-    .price-amazon { color:var(--amazon); }
-    .detail-note { color:var(--muted); font-size:10px; white-space:nowrap; }
-    .cta { margin-top:10px; display:block; text-align:center; text-decoration:none; color:#fff; background:var(--accent); border-radius:12px; padding:10px 8px; font-size:12px; font-weight:850; box-shadow:0 7px 16px rgba(232,93,38,.22); }
-    .cta-amazon { background:var(--amazon); color:#1a1a17; box-shadow:0 7px 16px rgba(255,153,0,.22); }
-    .fine { padding: 8px 18px 0; color:rgba(26,26,23,.42); font-size:10px; line-height:1.45; text-align:center; }
-    @media (min-width: 560px) { .page { border-left:1px solid var(--line); border-right:1px solid var(--line); min-height:100vh; } }
-    /* Chat box */
-    .lp-chat { max-width: 520px; margin: 0 auto 18px; padding: 0 18px; }
-    .lp-chat-card { background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 12px; }
-    .lp-chat-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
-    .lp-chat-bubbles { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 2px; }
-    .lp-chat-row { display: flex; }
-    .lp-chat-row.user { justify-content: flex-end; }
-    .lp-chat-bubble { max-width: 84%; padding: 8px 10px; border-radius: 12px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
-    .lp-chat-bubble.bot { background: #f4f5f7; color: #1a1a17; border-top-left-radius: 4px; }
-    .lp-chat-bubble.user { background: var(--accent); color: var(--brand-on-primary, #fff); border-top-right-radius: 4px; }
-    .lp-chat-products { margin-top: 8px; display: grid; gap: 8px; }
-    .lp-chat-product { border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; overflow: hidden; background: #fff; }
-    .lp-chat-product-body { display: flex; align-items: center; gap: 10px; padding: 10px; }
-    .lp-chat-product-img { width: 54px; height: 54px; border-radius: 8px; background: #f4f5f7; object-fit: cover; flex-shrink: 0; }
-    .lp-chat-product-ph { width: 54px; height: 54px; border-radius: 8px; background: #f4f5f7; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
-    .lp-chat-product-name { font-size: 12px; font-weight: 600; color: #1a1a17; line-height: 1.3; margin-bottom: 3px; }
-    .lp-chat-product-price { font-size: 12px; color: rgba(0,0,0,0.6); }
-    .lp-chat-product-btn { display: block; margin: 0 10px 10px; text-align: center; background: var(--accent); color: var(--brand-on-primary, #fff); text-decoration: none; font-size: 12px; font-weight: 600; border-radius: 8px; padding: 8px; }
-    .lp-chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
-    .lp-chat-input { flex: 1; border: 1px solid rgba(0,0,0,0.15); border-radius: 10px; padding: 9px 10px; font-size: 12px; outline: none; }
-    .lp-chat-input:focus { border-color: var(--accent); }
-    .lp-chat-send { border: none; border-radius: 10px; background: var(--accent); color: var(--brand-on-primary, #fff); font-weight: 700; font-size: 12px; padding: 0 12px; cursor: pointer; }
-  </style>
-  {# P0.7 brand-vars partial: included AFTER the inline theme <style> so the
-     legacy-compat bridge (--accent/--soft sourced from brand.brand_primary)
-     wins over the theme.accent set above when the active creator has brand
-     colors. NULL creator colors → the bridge stays inert. #}
-  {% include 'partials/_brand_vars.html' %}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% if admin_mode %}Trends Workspace{% else %}Trending with Steph{% endif %} · {{ brand.shop_name or 'The Mommy &amp; Me Collective' }}</title>
+<meta name="description" content="Fresh finds from Walmart and Amazon, hand-picked by {{ brand.shop_name or 'The Mommy &amp; Me Collective' }}.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Trending with Steph">
+<meta property="og:description" content="Top individual products and themed trend collections.">
+<meta property="og:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+{% include 'partials/_brand_vars.html' %}
+<style>
+  :root { --bg:#fbfaf7; --card:#fff; --ink:var(--brand-on-surface,#1a1a17); --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --primary:var(--brand-primary,#7C7D6A); --soft:var(--brand-primary-container,#F3E9E1); --warm:#f7e9e2; --success:#0a6b52; --warning:#b85c00; --price:#c43d16; --amazon:#ff9900; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body { font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:linear-gradient(180deg,#fff 0%,var(--bg) 42%,#fff 100%); color:var(--ink); -webkit-font-smoothing:antialiased; }
+  {% include 'partials/admin_header_styles.html' %}
+  {% include 'partials/admin_mobile_nav_styles.html' %}
+  .page { max-width:860px; margin:0 auto; min-height:100vh; border-left:1px solid var(--line); border-right:1px solid var(--line); background:rgba(255,255,255,.76); padding-bottom:36px; }
+  .admin-mode .page { border:0; padding:34px 30px 112px; background:transparent; }
+  .shop-header { position:sticky; top:0; z-index:20; background:rgba(255,255,255,.94); backdrop-filter:blur(14px); border-bottom:1px solid var(--line); padding:18px 28px 14px; }
+  .brand-row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  .brand-lockup { display:flex; align-items:center; gap:14px; min-width:0; }
+  .brand-logo { width:58px; height:58px; border-radius:999px; border:1px solid color-mix(in srgb,var(--primary) 42%,#fff); display:grid; place-items:center; overflow:hidden; background:#fff; flex:0 0 auto; }
+  .brand-logo img { width:100%; height:100%; object-fit:cover; }
+  .brand-logo-fallback { width:28px; height:28px; border-radius:999px; border:2px solid var(--primary); }
+  .brand-name { font-family:Georgia, "Times New Roman", serif; font-size:30px; line-height:1.05; letter-spacing:-.045em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bookmark { width:46px; height:46px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--ink); font-size:22px; }
+  .public-shop-nav { display:flex; gap:10px; align-items:center; margin-top:20px; }
+  .public-shop-link { min-width:116px; text-align:center; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:999px; padding:10px 18px; font-size:16px; font-weight:650; text-decoration:none; }
+  .public-shop-link.active { color:var(--brand-on-primary,#fff); background:var(--primary); border-color:var(--primary); box-shadow:0 10px 24px rgba(124,125,106,.18); }
+  .hero { position:relative; padding:44px 34px 28px; overflow:hidden; border-bottom:1px solid var(--line); }
+  .admin-mode .hero { padding:0 0 22px; border:0; }
+  .hero h1 { position:relative; z-index:1; max-width:560px; margin:0; font-family:Georgia, "Times New Roman", serif; font-size:50px; line-height:1.02; letter-spacing:-.06em; }
+  .admin-mode .hero h1 { font-size:47px; }
+  .hero p { position:relative; z-index:1; max-width:520px; margin:14px 0 0; color:var(--muted); font-size:22px; line-height:1.35; letter-spacing:-.02em; }
+  .refreshed { margin-top:12px; color:rgba(26,26,23,.45); font-size:13px; }
+  .filters { padding:24px 30px 8px; display:grid; gap:16px; }
+  .admin-mode .filters { padding:0; margin-top:22px; grid-template-columns:minmax(0,1fr) auto; }
+  .search { display:flex; align-items:center; gap:12px; min-height:58px; border:1px solid var(--line); border-radius:20px; padding:0 18px; background:#fff; box-shadow:0 12px 28px rgba(26,26,23,.05); }
+  .search span { color:var(--muted); font-size:24px; }
+  .search input { width:100%; border:0; outline:0; font:inherit; font-size:18px; background:transparent; color:var(--ink); }
+  .chips { display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; }
+  .chips::-webkit-scrollbar { display:none; }
+  .chip { flex:0 0 auto; min-height:42px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--ink); padding:0 18px; font:inherit; font-size:15px; font-weight:700; }
+  .chip.active { background:var(--primary); border-color:var(--primary); color:var(--brand-on-primary,#fff); }
+  .section { padding:24px 30px 6px; }
+  .section-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:14px; }
+  .section h2 { margin:0; font-family:Georgia, "Times New Roman", serif; font-size:32px; line-height:1.04; letter-spacing:-.045em; }
+  .section-desc { margin:6px 0 0; color:var(--muted); font-size:16px; line-height:1.4; }
+  .view-all, .admin-action { flex:0 0 auto; min-height:42px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--ink); text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:0 16px; font-weight:850; }
+  .admin-action { background:var(--primary); color:var(--brand-on-primary,#fff); border-color:var(--primary); border-radius:15px; }
+  .rail { display:flex; gap:14px; overflow-x:auto; padding:2px 0 18px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; }
+  .rail::-webkit-scrollbar { display:none; }
+  .product-card { flex:0 0 220px; scroll-snap-align:start; border:1px solid var(--line); border-radius:22px; background:#fff; overflow:hidden; box-shadow:0 12px 28px rgba(26,26,23,.06); }
+  .product-img { position:relative; aspect-ratio:1/1; background:#f7f4ef; display:grid; place-items:center; overflow:hidden; }
+  .product-img img { width:100%; height:100%; object-fit:cover; display:block; }
+  .product-img-empty { color:var(--muted); font-size:13px; font-weight:750; }
+  .rank { position:absolute; top:10px; left:10px; min-height:30px; border-radius:9px; padding:0 9px; display:inline-flex; align-items:center; background:var(--primary); color:var(--brand-on-primary,#fff); font-size:12px; font-weight:850; }
+  .save { position:absolute; right:10px; top:10px; width:38px; height:38px; border:1px solid var(--line); border-radius:999px; background:#fff; font-size:18px; }
+  .product-body { padding:14px; }
+  .retailer { display:inline-flex; align-items:center; min-height:28px; border-radius:999px; padding:0 10px; background:#fff8ed; font-size:12px; font-weight:850; color:#b45c00; margin-bottom:8px; }
+  .retailer.amazon { color:#1a1a17; }
+  .brand { min-height:16px; color:var(--muted); text-transform:uppercase; font-size:11px; font-weight:850; letter-spacing:.08em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .name { margin-top:5px; min-height:44px; font-size:16px; line-height:1.24; font-weight:850; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .price { margin-top:12px; color:var(--price); font-size:18px; font-weight:950; }
+  .buy { margin-top:12px; display:flex; justify-content:center; align-items:center; min-height:44px; border-radius:13px; background:var(--primary); color:var(--brand-on-primary,#fff); font-size:15px; font-weight:850; text-decoration:none; }
+  .collection-card { border:1px solid var(--line); border-radius:28px; background:#fff; box-shadow:0 16px 36px rgba(26,26,23,.06); padding:20px 20px 0; margin-bottom:18px; overflow:hidden; }
+  .collection-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; padding-bottom:14px; }
+  .collection-card h3 { margin:0; font-family:Georgia, "Times New Roman", serif; font-size:29px; line-height:1.05; letter-spacing:-.04em; }
+  .collection-card p { margin:7px 0 0; color:var(--muted); line-height:1.4; }
+  .trend-badges { margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; }
+  .trend-badge { min-height:32px; border-radius:999px; padding:0 12px; display:inline-flex; align-items:center; background:rgba(10,107,82,.10); color:var(--success); font-size:13px; font-weight:850; }
+  .create-panel { border:1px solid var(--line); border-radius:28px; background:linear-gradient(110deg,#fff,rgba(124,125,106,.08)); box-shadow:0 18px 42px rgba(26,26,23,.07); padding:22px; margin:22px 0 22px; }
+  .create-grid { display:grid; grid-template-columns:70px minmax(0,1fr); gap:16px; align-items:start; }
+  .create-icon { width:58px; height:58px; border-radius:999px; background:var(--primary); color:var(--brand-on-primary,#fff); display:grid; place-items:center; font-size:28px; }
+  .select-strip { margin-top:18px; display:flex; gap:14px; overflow-x:auto; padding-bottom:4px; }
+  .select-card { position:relative; flex:0 0 168px; aspect-ratio:1/1; border:1px solid var(--line); border-radius:18px; background:#fff; overflow:hidden; display:grid; place-items:center; }
+  .select-card img { width:100%; height:100%; object-fit:cover; }
+  .select-check { position:absolute; top:10px; right:10px; width:34px; height:34px; border-radius:999px; border:2px solid var(--line); background:#fff; }
+  .select-card.selected .select-check { background:var(--success); border-color:var(--success); color:#fff; }
+  .create-footer { margin-top:18px; border-top:1px solid var(--line); padding-top:16px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
+  .workbook { border:1px solid var(--line); border-radius:20px; background:#fff; padding:14px; margin-top:14px; }
+  .workbook-title { font-weight:900; margin-bottom:10px; }
+  .workbook-row { display:flex; gap:10px; align-items:center; }
+  .workbook-select { flex:1; min-width:0; min-height:42px; border:1px solid var(--line); border-radius:999px; padding:0 14px; background:#fff; font:inherit; }
+  .workbook-run-btn, .amazon-enrich-btn { min-height:42px; border:0; border-radius:999px; padding:0 16px; background:var(--primary); color:var(--brand-on-primary,#fff); font-weight:850; }
+  .amazon-enrich-btn { margin-top:10px; background:#fff7ec; color:#a45700; border:1px solid rgba(164,87,0,.18); }
+  .workbook-status { margin-top:8px; color:var(--muted); font-size:13px; min-height:18px; }
+  .workbook-status.ok { color:var(--success); font-weight:800; }
+  .workbook-status.err { color:#ba1a1a; font-weight:800; }
+  .admin-error { margin:16px 0; padding:12px 14px; border:1px solid #ffd1c7; background:#fff0ed; color:#a02828; border-radius:16px; font-weight:850; }
+  .empty { margin:24px 30px; padding:24px; border:1px dashed var(--line); border-radius:22px; background:#fff; color:var(--muted); }
+  .fine { padding:8px 30px 32px; color:rgba(26,26,23,.48); font-size:12px; line-height:1.5; }
+  @media (max-width:720px) {
+    .page { border:0; }
+    .admin-mode .page { padding:30px 24px 112px; }
+    .shop-header { padding:16px 24px 12px; }
+    .brand-name { font-size:25px; }
+    .brand-logo { width:52px; height:52px; }
+    .public-shop-link { min-width:auto; flex:1; padding:9px 10px; font-size:15px; }
+    .hero { padding:34px 28px 24px; }
+    .hero h1, .admin-mode .hero h1 { font-size:42px; }
+    .hero p { font-size:20px; }
+    .filters, .section { padding-left:24px; padding-right:24px; }
+    .admin-mode .filters { grid-template-columns:1fr; }
+    .product-card { flex-basis:206px; }
+    .collection-card-head, .create-footer, .workbook-row { flex-direction:column; align-items:stretch; }
+  }
+</style>
 </head>
 <body class="{% if admin_mode %}admin-mode{% endif %}">
-  {% if admin_mode %}
-    {% set active = 'home' %}
-    {% set page_title = 'Trends' %}
-    {% include 'partials/admin_header.html' %}
-  {% endif %}
-  <main class="page">
-    <header class="hero">
-      {% if not admin_mode %}{% include 'partials/_brand_logo.html' %}{% endif %}
-      <div class="eyebrow">🔥 The Mommy &amp; Me Collective · Top Finds</div>
-      <h1>What’s Trending Now <span style="font-size:0.55em;font-weight:600;opacity:.65;">· The Mommy &amp; Me Collective</span></h1>
-      <p class="subhead">Fresh finds from Walmart and Amazon, hand-picked by The Mommy &amp; Me Collective — home upgrades, kids’ picks, everyday deals, and more.</p>
-      <div class="refreshed">Updated: {{ data['last_refreshed'] or 'Today' }}</div>
-      {% if not admin_mode %}{% include 'partials/public_shop_nav.html' %}{% endif %}
-      <div class="retailer-tabs" role="group" aria-label="Filter by retailer">
-        <button class="retailer-tab tab-all" aria-pressed="true" onclick="filterRetailer('all', this)">All</button>
-        <button class="retailer-tab tab-walmart" aria-pressed="false" onclick="filterRetailer('walmart', this)">Walmart</button>
-        <button class="retailer-tab tab-amazon" aria-pressed="false" onclick="filterRetailer('amazon', this)">Amazon</button>
+{% if admin_mode %}
+  {% set active = 'create' %}
+  {% set page_title = 'Creator workspace' %}
+  {% include 'partials/admin_header.html' %}
+{% endif %}
+{% set collections = data['collections'] or [] %}
+{% set top_collection = collections[0] if collections else None %}
+<main class="page">
+  {% if not admin_mode %}
+  <header class="shop-header">
+    <div class="brand-row">
+      <div class="brand-lockup">
+        <div class="brand-logo">{% if brand and brand.logo_url %}<img src="{{ brand.logo_url }}" alt="{{ brand.shop_name or brand.brand_label or 'Shop' }}">{% else %}<div class="brand-logo-fallback"></div>{% endif %}</div>
+        <div class="brand-name">{{ brand.shop_name or brand.brand_label or 'The Mommy & Me Collective' }}</div>
       </div>
-      {% if admin_mode %}
-        <div class="admin-bar">
-          <div class="admin-note">Choose a section below → click <strong>Create post</strong> → add your voice → Save draft → Preview → Publish.</div>
-        </div>
-        {% if admin_error %}
-          <div class="admin-error">{{ admin_error }}</div>
-        {% endif %}
-        <div class="workbook-panel">
-          <div class="workbook-panel-label">Workbook Import</div>
-          {% if workbooks %}
-            <div class="workbook-row">
-              <select id="wb-select" class="workbook-select">
-                {% for wb in workbooks %}
-                  <option value="{{ wb.path }}" {% if loop.first %}selected{% endif %}>
-                    {{ wb.source }} · {{ wb.date_label or wb.filename }} · {{ wb.modified_display }}
-                  </option>
-                {% endfor %}
-              </select>
-              <button id="wb-run-btn" class="workbook-run-btn" onclick="runWorkbookImport()">Run Import</button>
-            </div>
-            <div id="wb-status" class="workbook-status"></div>
-          {% else %}
-            <div class="workbook-none">No .xlsx workbook files found in attached_assets/. Drop a workbook file there and reload.</div>
-          {% endif %}
-          <div class="workbook-actions">
-            <button id="amz-enrich-btn" class="amazon-enrich-btn" onclick="runAmazonEnrichment()">Enrich Amazon prices/images</button>
-          </div>
-          <div id="amazon-enrich-status" class="workbook-status"></div>
-        </div>
-      {% endif %}
-    </header>
-
-    {% if not data['collections'] %}
-      <div class="empty">
-        Fresh Walmart finds are being gathered. Check back soon for the latest picks.
-      </div>
-    {% endif %}
-
-    {% set collection_descriptions = {
-      'Spring Yard Refresh: Mulch, Soil & Sand': 'Easy outdoor refresh picks for gardens, patios, planters, and weekend yard projects.',
-      'Backyard Fun: Trampolines, Pools & Bubbles': 'Pool-day picks, backyard activities, and outdoor fun for warmer weather.',
-      'Patio Cookout & Outdoor Living': 'Grills, patio pieces, and outdoor upgrades made for easy weekends outside.',
-      'Organize + Moving Day Essentials': 'Storage bins, baskets, and practical helpers for getting your space under control.',
-      'Kids Room + Character Favorites': 'Fun bedding, room refreshes, and character finds kids will actually get excited about.',
-      'Kids Summer Basics & Underwear': 'Everyday kid essentials to stock up on before the next growth spurt.',
-      'Beauty, Sunscreen & Personal Care Stock-Up': 'Easy personal-care and sun-care picks to keep on hand.',
-      'Pet Pantry: Food, Litter & Treats': 'Pet food, litter, and treats worth adding to the next Walmart run.',
-      'Kitchen Prep, Serveware & Small Appliances': 'Kitchen helpers, prep tools, and serveware for easier meals and hosting.',
-      'High-AOV Home, Furniture & Electronics': 'Bigger-ticket home and tech finds shoppers are checking out now.'
-    } %}
-
-    {% for collection in data['collections'] %}
-      {% set collection_retailer = collection.get('retailer', 'walmart') %}
-      {% set display_title = 'Trending Now' if loop.first else collection['name'] %}
-      {% set display_description = ('Popular finds shoppers are checking out right now.' if loop.first else collection_descriptions.get(collection['name'], 'Fresh finds worth checking out right now.')) %}
-      {% set is_top_collection = loop.first %}
-      <section class="section {% if collection['slug'] == 'top-sellers' %}top-sellers{% endif %}" data-retailer="{{ collection_retailer }}">
-        <div class="section-head">
-          <div>
-            <h2>{{ display_title }}</h2>
-            {% if display_description %}<p class="section-desc">{{ display_description }}</p>{% endif %}
-          </div>
-          {% if admin_mode %}
-            <a class="admin-action" href="/collections/{{ collection['slug'] }}/create-post?creator_id=everydaywithsteph">Create post</a>
-          {% endif %}
-        </div>
-        {% if collection['items'] %}
-          <div class="rail" aria-label="{{ display_title }} products">
-            {% set top_display = namespace(count=0, seen_families=[]) %}
-            {% for product in collection['items'] %}
-              {% set title_key = (' ' ~ product['title']|lower ~ ' ')
-                .replace(' brown ', ' ')
-                .replace(' red ', ' ')
-                .replace(' black ', ' ')
-                .replace(' white ', ' ')
-                .replace(' blue ', ' ')
-                .replace(' gray ', ' ')
-                .replace(' grey ', ' ')
-                .replace(' green ', ' ')
-                .replace('  ', ' ')
-                .strip() %}
-              {% set family_key = title_key.split()[:6]|join(' ') %}
-              {% set show_card = not (is_top_collection and top_display.count < 8 and family_key in top_display.seen_families) %}
-              {% if show_card %}
-                {% if is_top_collection %}
-                  {% set top_display.count = top_display.count + 1 %}
-                  {% if family_key %}{% set _ = top_display.seen_families.append(family_key) %}{% endif %}
-                {% endif %}
-                {% set item_retailer = product.get('retailer', 'walmart') %}
-                {% set is_amazon = item_retailer == 'amazon' %}
-                {% set retailer_label = 'Amazon' if is_amazon else 'Walmart' %}
-                <article class="card" data-item-retailer="{{ item_retailer }}">
-                  <div class="image-wrap">
-                    {% set image_url = (product['image_url'] or product.get('fallback_image_url') or '')|trim %}
-                    {% set image_lower = image_url|lower %}
-                    {% if image_url and image_url.startswith('http') and 'placeholder' not in image_lower %}
-                      <img src="{{ image_url }}" alt="{{ product['title'] }}" loading="lazy" onerror="this.classList.add('is-hidden'); this.setAttribute('aria-hidden', 'true');">
-                      <div class="image-placeholder">Image coming soon</div>
-                    {% else %}
-                      <div class="image-placeholder">Image coming soon</div>
-                    {% endif %}
-                  </div>
-                  <div class="body">
-                    <div class="badges">
-                      <span class="badge-retailer {% if is_amazon %}badge-retailer-amazon{% else %}badge-retailer-walmart{% endif %}">{{ retailer_label }}</span>
-                      {% set has_top_units = 'Top by Units' in product['badges'] %}
-                      {% set has_top_earnings = 'Top by Earnings' in product['badges'] %}
-                      {% set has_top_clicks = 'Top by Clicks' in product['badges'] %}
-                      {% if is_top_collection and top_display.count <= 10 %}<span class="badge">#{{ top_display.count }} trending</span>{% endif %}
-                      {% if has_top_units and has_top_earnings %}
-                        <span class="badge">Hot Find</span>
-                      {% elif has_top_units %}
-                        <span class="badge">Popular Pick</span>
-                      {% elif has_top_earnings %}
-                        <span class="badge">Trending Deal</span>
-                      {% elif has_top_clicks %}
-                        <span class="badge">Top by Clicks</span>
-                      {% elif not is_top_collection %}
-                        {% for badge in product['badges'] if badge not in ['Top by Units', 'Top by Earnings', 'Top by Clicks'] %}<span class="badge">{{ badge }}</span>{% endfor %}
-                      {% endif %}
-                    </div>
-                    {% if product['brand'] %}<div class="brand">{{ product['brand'] }}</div>{% endif %}
-                    <div class="name">{{ product['title'] }}</div>
-                    <div class="meta">
-                      {% set price_text = (product['price_display'] or '')|trim %}
-                      {% set price_lower = price_text|lower %}
-                      {% set missing_price = not price_text or price_lower == 'shop deal' or price_text in ['0', '0.0', '0.00', '$0', '$0.0', '$0.00'] %}
-                      <div class="price {% if is_amazon %}price-amazon{% endif %}">{{ ('See price at ' ~ retailer_label) if missing_price else price_text }}</div>
-                    </div>
-                    <a class="cta {% if is_amazon %}cta-amazon{% endif %}" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Shop {{ retailer_label }}</a>
-                  </div>
-                </article>
-              {% endif %}
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="empty">This collection is waiting on product data.</div>
-        {% endif %}
-      </section>
-    {% endfor %}
-
-    <p class="fine">As an affiliate, we may earn from qualifying purchases. Product details, prices, and availability can change at Walmart and Amazon.</p>
-
-    <div class="lp-chat">
-      <div class="lp-chat-card">
-        <div class="lp-chat-title">Ask for more deals 💬</div>
-        <div class="lp-chat-bubbles" id="lpChatBubbles">
-          <div class="lp-chat-row">
-            <div class="lp-chat-bubble bot">Tell me what you're looking for — budget, category, or vibe — and I'll pull picks from trending finds, collections, and recent posts.</div>
-          </div>
-        </div>
-        <div class="lp-chat-input-row">
-          <input id="lpChatInput" class="lp-chat-input" placeholder="Example: outdoor toys under $40" onkeydown="if(event.key==='Enter') sendLandingChat()">
-          <button class="lp-chat-send" onclick="sendLandingChat()">Send</button>
-        </div>
-      </div>
+      <button class="bookmark" type="button" aria-label="Saved picks">♡</button>
     </div>
-  </main>
-  <script>
-    function filterRetailer(retailer, btn) {
-      document.querySelectorAll('.retailer-tab').forEach(t => t.setAttribute('aria-pressed', 'false'));
-      btn.setAttribute('aria-pressed', 'true');
-      document.querySelectorAll('.section[data-retailer]').forEach(section => {
-        const r = section.getAttribute('data-retailer') || 'walmart';
-        section.setAttribute('data-retailer-hidden', retailer !== 'all' && r !== retailer ? 'true' : 'false');
-      });
-    }
-  </script>
-  <script>
-    function _appendLandingBubble(text, who) {
-      const wrap = document.getElementById('lpChatBubbles');
-      const row = document.createElement('div');
-      row.className = ('lp-chat-row ' + (who === 'user' ? 'user' : '')).trim();
-      const b = document.createElement('div');
-      b.className = 'lp-chat-bubble ' + (who === 'user' ? 'user' : 'bot');
-      b.textContent = text || '';
-      row.appendChild(b);
-      wrap.appendChild(row);
-      wrap.scrollTop = wrap.scrollHeight;
-    }
-
-    function _appendLandingProducts(products) {
-      if (!products || !products.length) return;
-      const wrap = document.getElementById('lpChatBubbles');
-      const row = document.createElement('div');
-      row.className = 'lp-chat-row';
-      const list = document.createElement('div');
-      list.className = 'lp-chat-products';
-      products.forEach(function(p) {
-        const card = document.createElement('div');
-        card.className = 'lp-chat-product';
-        const imgHtml = p.image
-          ? '<img class="lp-chat-product-img" src="' + p.image + '" alt="' + (p.name || '') + '">'
-          : '<div class="lp-chat-product-ph">📦</div>';
-        card.innerHTML = '<div class="lp-chat-product-body">' + imgHtml + '<div style="min-width:0;flex:1"><div class="lp-chat-product-name">' + (p.name || 'Product') + '</div><div class="lp-chat-product-price">' + (p.price || '') + '</div></div></div><a class="lp-chat-product-btn" href="' + (p.link || '#') + '" target="_blank" rel="noopener">View deal →</a>';
-        list.appendChild(card);
-      });
-      row.appendChild(list);
-      wrap.appendChild(row);
-      wrap.scrollTop = wrap.scrollHeight;
-    }
-
-    async function sendLandingChat() {
-      const input = document.getElementById('lpChatInput');
-      const msg = (input.value || '').trim();
-      if (!msg) return;
-      input.value = '';
-      _appendLandingBubble(msg, 'user');
-      const chatSessionKey = 'storefront_chat_session_everydaywithsteph';
-      let chatSessionId = '';
-      try { chatSessionId = localStorage.getItem(chatSessionKey) || ''; } catch(e) {}
-      try {
-        const res = await fetch('/api/shop/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: msg, creator_id: 'everydaywithsteph', slug: 'trends', session_id: chatSessionId }),
-        });
-        const data = await res.json();
-        if (data.session_id) { try { localStorage.setItem(chatSessionKey, data.session_id); } catch(e) {} }
-        if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status);
-        _appendLandingBubble(data.reply || 'Here are a few good picks for that.', 'bot');
-        _appendLandingProducts(data.products || []);
-      } catch(e) {
-        _appendLandingBubble('Sorry — chat is having trouble right now. Please try again in a moment.', 'bot');
-      }
-    }
-  </script>
-  {% if admin_mode %}
-  <script>
-    function describeAmazonEnrichment(counts) {
-      const c = counts || {};
-      const enriched = (Number(c.creators) || 0) + (Number(c.crawlbase) || 0);
-      const parts = [];
-      if (enriched) parts.push('enriched ' + enriched);
-      if (c.skipped) parts.push(c.skipped + ' already ready');
-      if (c.pending) parts.push(c.pending + ' pending');
-      if (c.fallback) parts.push(c.fallback + ' fallback');
-      if (c.fatal_reason) parts.push('needs API fix: ' + c.fatal_reason);
-      if (!parts.length && c.queued === 0) parts.push('nothing pending');
-      return parts.join(' · ') || 'complete';
-    }
-
-    async function runAmazonEnrichment(options = {}) {
-      const btn = document.getElementById('amz-enrich-btn');
-      const status = options.statusEl || document.getElementById('amazon-enrich-status') || document.getElementById('wb-status');
-      if (btn && !options.inline) btn.disabled = true;
-      if (status) {
-        status.className = 'workbook-status';
-        status.textContent = (options.prefix || '') + 'Enriching Amazon prices/images…';
-      }
-      try {
-        const resp = await fetch('/admin/amazon-trends/enrich', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limit: 30, max_workers: 4 })
-        });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.error || resp.status);
-        if (status) {
-          status.className = data.counts && data.counts.fatal ? 'workbook-status err' : 'workbook-status ok';
-          status.textContent = (options.prefix || 'Amazon enrichment ') + describeAmazonEnrichment(data.counts || {});
-        }
-        return data;
-      } catch (e) {
-        if (status) {
-          status.className = 'workbook-status err';
-          status.textContent = (options.prefix || 'Amazon enrichment ') + 'failed: ' + e.message;
-        }
-        return null;
-      } finally {
-        if (btn) btn.disabled = false;
-      }
-    }
-
-    async function runWorkbookImport() {
-      const select = document.getElementById('wb-select');
-      const btn = document.getElementById('wb-run-btn');
-      const status = document.getElementById('wb-status');
-      const path = select.value;
-      if (!path) return;
-      btn.disabled = true;
-      status.className = 'workbook-status';
-      status.textContent = 'Running import…';
-      try {
-        const resp = await fetch('/admin/walmart-trends/bootstrap', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type': 'application/json'
-            // Auth: signed session cookie travels automatically with
-            // same-origin fetch. Legacy X-Walmart-Trends-Admin-Token
-            // header remains accepted server-side for external automation.
-          },
-          body: JSON.stringify({ workbook: path })
-        });
-        const data = await resp.json();
-        if (resp.ok) {
-          const c = data.counts || {};
-          const parts = [];
-          if (c.products) parts.push(c.products + ' products');
-          if (c.collections) parts.push(c.collections + ' collections');
-          if (c.affiliate_links) parts.push(c.affiliate_links + ' links seeded');
-          status.className = 'workbook-status ok';
-          status.textContent = 'Done — run #' + data.run_id + (parts.length ? ' · ' + parts.join(', ') : '') + '.';
-          if (data.source === 'Amazon') {
-            await runAmazonEnrichment({
-              inline: true,
-              statusEl: status,
-              prefix: 'Import complete. '
-            });
-          }
-        } else {
-          status.className = 'workbook-status err';
-          status.textContent = 'Error: ' + (data.error || resp.status);
-        }
-      } catch (e) {
-        status.className = 'workbook-status err';
-        status.textContent = 'Request failed: ' + e.message;
-      } finally {
-        btn.disabled = false;
-      }
-    }
-  </script>
+    {% include 'partials/public_shop_nav.html' %}
+  </header>
   {% endif %}
+
+  <section class="hero">
+    <h1>{% if admin_mode %}Trends workspace{% else %}Trending with Steph{% endif %}</h1>
+    <p>{% if admin_mode %}Browse what's trending at Walmart and Amazon, then turn trend products into a collection.{% else %}Fresh finds from Walmart and Amazon, hand-picked by me for your busy days, little moments, and everything in between.{% endif %}</p>
+    {% if not admin_mode %}<div class="refreshed">Updated: {{ data['last_refreshed'] or 'Today' }}</div>{% endif %}
+  </section>
+
+  {% if admin_mode %}
+    <section class="create-panel">
+      <div class="create-grid">
+        <div class="create-icon" aria-hidden="true">+</div>
+        <div>
+          <h2 style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:31px;line-height:1.04;letter-spacing:-.04em;">Create your own</h2>
+          <p class="section-desc">Select one trend product for a future individual recommendation, or combine several into a custom collection.</p>
+        </div>
+      </div>
+      {% if top_collection and top_collection['items'] %}
+      <div class="select-strip" aria-label="Selectable trend products">
+        {% for product in top_collection['items'][:6] %}
+        {% set image_url = (product['image_url'] or product.get('fallback_image_url') or '')|trim %}
+        <div class="select-card {% if loop.index in [1,2] %}selected{% endif %}">
+          {% if image_url %}<img src="{{ image_url }}" alt="{{ product['title'] }}" loading="lazy" onerror="this.style.display='none'">{% else %}Product{% endif %}
+          <div class="select-check">{% if loop.index in [1,2] %}✓{% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="create-footer">
+        <span class="section-desc">2 items selected</span>
+        <a class="admin-action" href="{% if collections|length > 1 %}/collections/{{ collections[1]['slug'] }}/create-post?creator_id=everydaywithsteph{% else %}/walmart/trending-now?admin=1{% endif %}">Create collection -></a>
+      </div>
+    </section>
+
+    {% if admin_error %}<div class="admin-error">{{ admin_error }}</div>{% endif %}
+    <section class="workbook">
+      <div class="workbook-title">Workbook Import</div>
+      {% if workbooks %}
+      <div class="workbook-row">
+        <select id="wb-select" class="workbook-select">
+          {% for wb in workbooks %}
+          <option value="{{ wb.path }}" {% if loop.first %}selected{% endif %}>{{ wb.source }} · {{ wb.date_label or wb.filename }} · {{ wb.modified_display }}</option>
+          {% endfor %}
+        </select>
+        <button id="wb-run-btn" class="workbook-run-btn" onclick="runWorkbookImport()">Run import</button>
+      </div>
+      <div id="wb-status" class="workbook-status"></div>
+      {% else %}
+      <div class="section-desc">No .xlsx workbook files found in attached_assets/. Drop a workbook file there and reload.</div>
+      <div id="wb-status" class="workbook-status"></div>
+      {% endif %}
+      <button id="amz-enrich-btn" class="amazon-enrich-btn" onclick="runAmazonEnrichment()">Enrich Amazon prices/images</button>
+      <div id="amazon-enrich-status" class="workbook-status"></div>
+    </section>
+  {% endif %}
+
+  <section class="filters" aria-label="Trend filters">
+    <label class="search"><span aria-hidden="true">⌕</span><input id="trendSearch" type="search" placeholder="Search trending finds" oninput="filterTrends()"></label>
+    <div class="chips" role="group" aria-label="Filter trends">
+      <button class="chip active" type="button" data-filter="all" onclick="setTrendFilter(this)">All</button>
+      <button class="chip" type="button" data-filter="walmart" onclick="setTrendFilter(this)">Walmart</button>
+      <button class="chip" type="button" data-filter="amazon" onclick="setTrendFilter(this)">Amazon</button>
+      <button class="chip" type="button" data-filter="kids" onclick="setTrendFilter(this)">Kids</button>
+      <button class="chip" type="button" data-filter="home" onclick="setTrendFilter(this)">Home</button>
+    </div>
+  </section>
+
+  {% if not collections %}
+    <div class="empty">Fresh finds are being gathered. Check back soon for the latest picks.</div>
+  {% endif %}
+
+  {% if top_collection and top_collection['items'] %}
+  <section class="section trend-section" data-retailer="{{ top_collection.get('retailer','walmart') }}" data-search="{{ (top_collection['name'] ~ ' trending right now')|lower|e }}">
+    <div class="section-head">
+      <div><h2>{% if admin_mode %}Trending right now{% else %}Trending right now{% endif %}</h2><p class="section-desc">What shoppers are loving this hour.</p></div>
+      <a class="view-all" href="#trend-collections">View all -></a>
+    </div>
+    <div class="rail" aria-label="Trending right now products">
+      {% for product in top_collection['items'][:12] %}
+      {% set item_retailer = product.get('retailer', top_collection.get('retailer','walmart')) %}
+      {% set is_amazon = item_retailer == 'amazon' %}
+      {% set retailer_label = 'Amazon' if is_amazon else 'Walmart' %}
+      {% set image_url = (product['image_url'] or product.get('fallback_image_url') or '')|trim %}
+      {% set price_text = (product['price_display'] or '')|trim %}
+      {% set missing_price = not price_text or price_text|lower == 'shop deal' or price_text in ['0','0.0','0.00','$0','$0.0','$0.00'] %}
+      <article class="product-card" data-retailer="{{ item_retailer }}" data-search="{{ (product['title'] ~ ' ' ~ product['brand'] ~ ' ' ~ retailer_label)|lower|e }}">
+        <div class="product-img">
+          {% if image_url %}<img src="{{ image_url }}" alt="{{ product['title'] }}" loading="lazy" onerror="this.style.display='none'">{% else %}<div class="product-img-empty">Image coming soon</div>{% endif %}
+          <span class="rank">#{{ loop.index }} trending</span>
+          <button class="save" type="button" aria-label="Save {{ product['title'] }}">♡</button>
+        </div>
+        <div class="product-body">
+          <div class="retailer {{ item_retailer }}">{{ retailer_label }}</div>
+          {% if product['brand'] %}<div class="brand">{{ product['brand'] }}</div>{% endif %}
+          <div class="name">{{ product['title'] }}</div>
+          <div class="price">{{ ('See price at ' ~ retailer_label) if missing_price else price_text }}</div>
+          <a class="buy" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">Buy Now</a>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="section" id="trend-collections">
+    <div class="section-head">
+      <div><h2>{% if admin_mode %}Trend collections{% else %}Trend collections{% endif %}</h2><p class="section-desc">Curated themes built from what's trending now.</p></div>
+      {% if not admin_mode %}<a class="view-all" href="/trends">View all -></a>{% endif %}
+    </div>
+    {% for collection in collections[1:] %}
+    {% set collection_retailer = collection.get('retailer','walmart') %}
+    <article class="collection-card trend-section" id="trend-{{ collection['slug'] }}" data-retailer="{{ collection_retailer }}" data-search="{{ (collection['name'] ~ ' ' ~ collection_retailer)|lower|e }}">
+      <div class="collection-card-head">
+        <div>
+          <h3>{{ collection['name'] }}</h3>
+          <p>{{ collection.get('description') or 'Fresh finds worth checking out right now.' }}</p>
+          <div class="trend-badges">
+            <span class="trend-badge">High demand</span>
+            <span class="trend-badge">{{ collection['items']|length }} products</span>
+          </div>
+        </div>
+        {% if admin_mode %}<a class="admin-action" href="/collections/{{ collection['slug'] }}/create-post?creator_id=everydaywithsteph">Create collection</a>{% else %}<a class="view-all" href="#trend-{{ collection['slug'] }}">View collection -></a>{% endif %}
+      </div>
+      {% if collection['items'] %}
+      <div class="rail" aria-label="{{ collection['name'] }} products">
+        {% for product in collection['items'][:8] %}
+        {% set item_retailer = product.get('retailer', collection_retailer) %}
+        {% set is_amazon = item_retailer == 'amazon' %}
+        {% set retailer_label = 'Amazon' if is_amazon else 'Walmart' %}
+        {% set image_url = (product['image_url'] or product.get('fallback_image_url') or '')|trim %}
+        {% set price_text = (product['price_display'] or '')|trim %}
+        {% set missing_price = not price_text or price_text|lower == 'shop deal' or price_text in ['0','0.0','0.00','$0','$0.0','$0.00'] %}
+        <article class="product-card" data-retailer="{{ item_retailer }}" data-search="{{ (product['title'] ~ ' ' ~ product['brand'] ~ ' ' ~ retailer_label)|lower|e }}">
+          <div class="product-img">{% if image_url %}<img src="{{ image_url }}" alt="{{ product['title'] }}" loading="lazy" onerror="this.style.display='none'">{% else %}<div class="product-img-empty">Image coming soon</div>{% endif %}<button class="save" type="button" aria-label="Save {{ product['title'] }}">♡</button></div>
+          <div class="product-body">
+            <div class="retailer {{ item_retailer }}">{{ retailer_label }}</div>
+            {% if product['brand'] %}<div class="brand">{{ product['brand'] }}</div>{% endif %}
+            <div class="name">{{ product['title'] }}</div>
+            <div class="price">{{ ('See price at ' ~ retailer_label) if missing_price else price_text }}</div>
+            <a class="buy" href="{{ product['shop_url'] }}" target="_blank" rel="nofollow noopener sponsored">{% if admin_mode %}Create collection{% else %}Buy Now{% endif %}</a>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </section>
+  <p class="fine">As an affiliate, we may earn from qualifying purchases. Product details, prices, and availability can change at Walmart and Amazon.</p>
+</main>
+{% if admin_mode %}{% include 'partials/admin_mobile_nav.html' %}{% endif %}
+<script>
+  let activeTrendFilter = 'all';
+  function setTrendFilter(btn) {
+    activeTrendFilter = btn.getAttribute('data-filter') || 'all';
+    document.querySelectorAll('.chip[data-filter]').forEach((chip) => chip.classList.toggle('active', chip === btn));
+    filterTrends();
+  }
+  function filterTrends() {
+    const q = (document.getElementById('trendSearch')?.value || '').trim().toLowerCase();
+    document.querySelectorAll('.trend-section').forEach((section) => {
+      const text = (section.getAttribute('data-search') || section.textContent || '').toLowerCase();
+      const retailer = section.getAttribute('data-retailer') || '';
+      const filterMatch = activeTrendFilter === 'all' || retailer === activeTrendFilter || text.includes(activeTrendFilter);
+      const searchMatch = !q || text.includes(q);
+      section.style.display = filterMatch && searchMatch ? '' : 'none';
+    });
+  }
+</script>
+{% if admin_mode %}
+<script>
+  function describeAmazonEnrichment(counts) {
+    const c = counts || {};
+    const enriched = (Number(c.creators) || 0) + (Number(c.crawlbase) || 0);
+    const parts = [];
+    if (enriched) parts.push('enriched ' + enriched);
+    if (c.skipped) parts.push(c.skipped + ' already ready');
+    if (c.pending) parts.push(c.pending + ' pending');
+    if (c.fallback) parts.push(c.fallback + ' fallback');
+    if (c.fatal_reason) parts.push('needs API fix: ' + c.fatal_reason);
+    if (!parts.length && c.queued === 0) parts.push('nothing pending');
+    return parts.join(' · ') || 'complete';
+  }
+  async function runAmazonEnrichment(options = {}) {
+    const btn = document.getElementById('amz-enrich-btn');
+    const status = options.statusEl || document.getElementById('amazon-enrich-status') || document.getElementById('wb-status');
+    if (btn && !options.inline) btn.disabled = true;
+    if (status) { status.className = 'workbook-status'; status.textContent = (options.prefix || '') + 'Enriching Amazon prices/images...'; }
+    try {
+      const resp = await fetch('/admin/amazon-trends/enrich', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 30, max_workers: 4 })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || resp.status);
+      if (status) {
+        status.className = data.counts && data.counts.fatal ? 'workbook-status err' : 'workbook-status ok';
+        status.textContent = (options.prefix || 'Amazon enrichment ') + describeAmazonEnrichment(data.counts || {});
+      }
+      return data;
+    } catch (e) {
+      if (status) { status.className = 'workbook-status err'; status.textContent = (options.prefix || 'Amazon enrichment ') + 'failed: ' + e.message; }
+      return null;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+  async function runWorkbookImport() {
+    const select = document.getElementById('wb-select');
+    const btn = document.getElementById('wb-run-btn');
+    const status = document.getElementById('wb-status');
+    const path = select ? select.value : '';
+    if (!path) return;
+    btn.disabled = true;
+    status.className = 'workbook-status';
+    status.textContent = 'Running import...';
+    try {
+      const resp = await fetch('/admin/walmart-trends/bootstrap', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workbook: path })
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        const c = data.counts || {};
+        const parts = [];
+        if (c.products) parts.push(c.products + ' products');
+        if (c.collections) parts.push(c.collections + ' collections');
+        if (c.affiliate_links) parts.push(c.affiliate_links + ' links seeded');
+        status.className = 'workbook-status ok';
+        status.textContent = 'Done - run #' + data.run_id + (parts.length ? ' · ' + parts.join(', ') : '') + '.';
+        if (data.source === 'Amazon') {
+          await runAmazonEnrichment({ inline: true, statusEl: status, prefix: 'Import complete. ' });
+        }
+      } else {
+        status.className = 'workbook-status err';
+        status.textContent = 'Error: ' + (data.error || resp.status);
+      }
+    } catch (e) {
+      status.className = 'workbook-status err';
+      status.textContent = 'Request failed: ' + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+</script>
+{% endif %}
 </body>
 </html>

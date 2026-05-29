@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EchoAgent · {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</title>
+{% include 'partials/_brand_vars.html' %}
+<style>
+  :root { --bg:#fbfaf7; --card:#fff; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --primary:var(--brand-primary,#7C7D6A); --soft:var(--brand-primary-container,#F3E9E1); --success:#0a6b52; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body { font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:linear-gradient(180deg,#fff 0%,var(--bg) 42%,#fff 100%); color:var(--ink); -webkit-font-smoothing:antialiased; }
+  {% include 'partials/admin_header_styles.html' %}
+  {% include 'partials/admin_mobile_nav_styles.html' %}
+  .page { max-width:860px; margin:0 auto; min-height:calc(100vh - 72px); padding:24px 30px 162px; }
+  .agent-head { text-align:center; padding:4px 0 22px; border-bottom:1px solid var(--line); }
+  .agent-head h1 { margin:0; font-size:36px; line-height:1; letter-spacing:-.05em; }
+  .agent-head p { margin:8px 0 0; color:var(--muted); font-size:18px; }
+  .creator-switch { margin-top:18px; display:inline-flex; align-items:center; gap:10px; min-height:42px; padding:0 14px; border:1px solid var(--line); border-radius:999px; background:#fff; font-weight:800; }
+  .dot-small { width:10px; height:10px; border-radius:999px; background:var(--primary); }
+  .chat { display:grid; gap:18px; padding-top:22px; }
+  .bubble-row { display:flex; }
+  .bubble-row.user { justify-content:flex-end; }
+  .bubble { max-width:76%; border:1px solid var(--line); border-radius:24px; padding:18px 20px; background:#fff; font-size:20px; line-height:1.38; box-shadow:0 12px 28px rgba(26,26,23,.05); }
+  .bubble.user { background:#fff6f1; border-color:#f0d2c4; }
+  .agent-mark { width:54px; height:54px; border-radius:999px; display:grid; place-items:center; background:var(--primary); color:var(--brand-on-primary,#fff); font-size:28px; margin-right:12px; flex:0 0 auto; }
+  .work-card { margin-left:66px; border:1px solid var(--line); border-radius:26px; background:#fff; box-shadow:0 18px 42px rgba(26,26,23,.07); padding:18px; }
+  .work-card h2 { margin:0; font-size:24px; letter-spacing:-.03em; }
+  .work-card p { margin:5px 0 14px; color:var(--muted); }
+  .mini-rail { display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; }
+  .mini { width:156px; min-width:156px; border:1px solid var(--line); border-radius:16px; background:#f7f4ef; aspect-ratio:1.12/1; overflow:hidden; display:grid; place-items:center; color:var(--muted); }
+  .mini img { width:100%; height:100%; object-fit:cover; }
+  .pills { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 14px; }
+  .pill { min-height:32px; border-radius:999px; padding:0 12px; display:inline-flex; align-items:center; background:rgba(10,107,82,.10); color:var(--success); font-weight:850; font-size:13px; }
+  .primary-action { min-height:50px; border-radius:15px; display:flex; align-items:center; justify-content:center; background:var(--primary); color:var(--brand-on-primary,#fff); text-decoration:none; font-weight:900; }
+  .caption-card { margin-left:66px; border:1px solid var(--line); border-radius:24px; background:#fff; padding:20px; box-shadow:0 14px 34px rgba(26,26,23,.06); }
+  .caption-top { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+  .caption-title { font-size:22px; font-weight:900; }
+  .copy-btn { border:1px solid var(--line); background:#fff; border-radius:999px; min-height:38px; padding:0 14px; font:inherit; font-weight:850; }
+  .quick-prompts { display:flex; gap:10px; overflow-x:auto; padding:6px 0 0 66px; }
+  .quick-prompts button { flex:0 0 auto; border:1px solid var(--line); background:#fff; border-radius:16px; min-height:46px; padding:0 16px; font:inherit; font-weight:800; }
+  .composer-wrap { position:fixed; left:0; right:0; bottom:0; max-width:860px; margin:0 auto; background:rgba(255,255,255,.96); border-top:1px solid var(--line); box-shadow:0 -18px 42px rgba(26,26,23,.10); backdrop-filter:blur(14px); padding:18px 24px calc(18px + env(safe-area-inset-bottom,0px)); z-index:30; }
+  .composer { display:grid; grid-template-columns:auto minmax(0,1fr) 54px; gap:12px; align-items:end; border:1px solid var(--line); border-radius:24px; background:#fff; padding:12px; }
+  .composer textarea { width:100%; min-height:58px; max-height:150px; border:0; outline:0; resize:none; font:inherit; font-size:18px; line-height:1.35; }
+  .attach, .send { width:48px; height:48px; border-radius:999px; border:0; font-size:22px; }
+  .attach { background:#fff; color:var(--muted); }
+  .send { background:var(--primary); color:var(--brand-on-primary,#fff); }
+  .show-nav { display:none; margin:12px auto 0; border:0; background:transparent; color:var(--primary); font:inherit; font-weight:900; }
+  body.composer-focused .mc-bottom-nav { display:none; }
+  body.composer-focused .show-nav { display:block; }
+  @media (max-width:720px) {
+    .page { padding:22px 24px 172px; }
+    .bubble { max-width:86%; font-size:18px; }
+    .work-card, .caption-card { margin-left:0; }
+    .quick-prompts { padding-left:0; }
+  }
+</style>
+</head>
+<body>
+{% set active = 'chat' %}
+{% set page_title = 'EchoAgent' %}
+{% include 'partials/admin_header.html' %}
+<main class="page">
+  <span style="position:absolute;left:-9999px;">Coming soon — EchoAgent chat lands in Phase 2.5</span>
+  <section class="agent-head">
+    <h1>EchoAgent</h1>
+    <p>Your AI creative partner</p>
+    <div class="creator-switch"><span class="dot-small"></span>{{ brand.shop_name or brand.brand_label or 'The Mommy & Me Collective' }}</div>
+  </section>
+  <section class="chat" aria-label="EchoAgent conversation">
+    <div class="bubble-row user"><div class="bubble user">Can you help me turn the water-play trends into a collection and write a fun social caption?</div></div>
+    <div class="bubble-row"><div class="agent-mark">+</div><div class="bubble">Absolutely. I curated a Backyard Splash & Summer Play collection based on what's trending at Walmart and Amazon. I also wrote a playful caption you can use.</div></div>
+    <article class="work-card">
+      <h2>Backyard Splash & Summer Play</h2>
+      <p>Water fun, outdoor games, and sunny day must-haves.</p>
+      <div class="mini-rail">
+        <div class="mini"><img src="https://i5.walmartimages.com/asr/2e44b2c4-7d65-4afb-93b1-7755f418a2b5.86e37e6ed6d1b642ff82d2de8f332c29.jpeg" alt=""></div>
+        <div class="mini"><img src="https://m.media-amazon.com/images/I/71S7qPnrQXL._AC_SL1500_.jpg" alt=""></div>
+        <div class="mini"><img src="https://i5.walmartimages.com/asr/2d208de3-4966-40d1-9b7d-84f5b4e882c1.994f7c5c5e85a7ac1298d829f3f133c0.jpeg" alt=""></div>
+      </div>
+      <div class="pills"><span class="pill">24 products</span><span class="pill">Curated by EchoAgent</span><span class="pill">Updated just now</span></div>
+      <a class="primary-action" href="/walmart/trending-now?admin=1">View collection preview -></a>
+    </article>
+    <article class="caption-card">
+      <div class="caption-top"><div class="caption-title">Social caption</div><button class="copy-btn" type="button">Copy</button></div>
+      <p style="margin:0;color:var(--muted);line-height:1.45;">Sunshine, giggles, and backyard adventures. From splash parks to water tables, these are our go-to picks for keeping kids happy and cool all summer long.</p>
+    </article>
+    <div class="quick-prompts">
+      <button type="button">Suggest a collection</button>
+      <button type="button">Write a post</button>
+      <button type="button">Show top trends</button>
+    </div>
+  </section>
+</main>
+<div class="composer-wrap">
+  <div class="composer">
+    <button class="attach" type="button" aria-label="Attach">+</button>
+    <textarea id="composer" placeholder="Ask anything about trends, collections, or content..." onfocus="document.body.classList.add('composer-focused')"></textarea>
+    <button class="send" type="button" aria-label="Send">➤</button>
+  </div>
+  <button class="show-nav" type="button" onclick="document.body.classList.remove('composer-focused'); document.getElementById('composer').blur();">Show nav ↑</button>
+</div>
+{% include 'partials/admin_mobile_nav.html' %}
+</body>
+</html>

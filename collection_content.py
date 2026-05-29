@@ -648,7 +648,7 @@ def save_walmart_collection_draft(
     )
     # Editor design controls (allow-list).
     valid_themes = {"coral", "peach", "sage", "sand", "midnight", "mommyme"}
-    valid_layouts = {"layout-2", "layout-3", "layout-4", "layout-featured"}
+    valid_layouts = {"layout-2", "layout-3", "layout-4", "layout-featured", "layout-single"}
     theme = _clean_text(payload.get("theme"), 40) or "mommyme"
     if theme not in valid_themes:
         theme = "mommyme"

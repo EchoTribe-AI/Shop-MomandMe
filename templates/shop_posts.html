@@ -1,247 +1,148 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Latest Picks · The Mommy &amp; Me Collective</title>
-<meta name="description" content="Tap through to shop the products mentioned in recent posts from The Mommy &amp; Me Collective.">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Steph's Latest Picks · {{ brand.shop_name or 'The Mommy &amp; Me Collective' }}</title>
+<meta name="description" content="Shop products mentioned in recent posts from {{ brand.shop_name or 'The Mommy &amp; Me Collective' }}.">
 <link rel="canonical" href="{{ canonical_url }}">
-
 <meta property="og:type" content="website">
-<meta property="og:title" content="Shop - The Mommy &amp; Me Collective">
-<meta property="og:description" content="Tap through to shop the products mentioned in recent posts from The Mommy &amp; Me Collective.">
+<meta property="og:title" content="Steph's Latest Picks">
+<meta property="og:description" content="Creator recommendations with product visuals, voice, and Buy Now links.">
 <meta property="og:url" content="{{ canonical_url }}">
 <meta property="og:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
-<meta property="og:image:width" content="1731">
-<meta property="og:image:height" content="909">
-
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Shop - The Mommy &amp; Me Collective">
-<meta name="twitter:description" content="Tap through to shop the products mentioned in recent posts from The Mommy &amp; Me Collective.">
-<meta name="twitter:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
-
-<style>
-  :root {
-    --bg:#fff8f6; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10);
-    --accent:#e85d26; --soft:#ffe9df; --card:#fff; --green:#0a6b52;
-    --amazon:#ff9900; --amazon-soft:#fff4e0;
-  }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: linear-gradient(180deg, var(--bg), #fff 42%); min-height: 100vh; -webkit-font-smoothing: antialiased; }
-
-  .page { max-width: 520px; margin: 0 auto; padding-bottom: 34px; }
-  .hero { padding: 22px 18px 14px; position: sticky; top: 0; z-index: 5; background: rgba(255,248,246,.94); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
-  .eyebrow { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--soft); color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .02em; }
-  h1 { margin: 12px 0 6px; font-size: 30px; line-height: .98; letter-spacing: -.04em; }
-  .subhead { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.45; }
-  .public-shop-nav { margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .public-shop-link { color: var(--accent); background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; font-size: 11px; font-weight: 850; text-decoration: none; }
-  .public-shop-link.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-  .list { padding: 18px 18px 0; display: grid; grid-template-columns: 1fr; gap: 14px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; box-shadow: 0 10px 26px rgba(26,26,23,.07); display: flex; flex-direction: column; }
-  .img-wrap { width: 100%; aspect-ratio: 1/1; background: #f6f3ef; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-  .img-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .ph { font-size: 34px; opacity: .4; }
-  .body { padding: 13px 14px 14px; display: flex; flex-direction: column; gap: 7px; }
-  .meta { font-size: 10px; letter-spacing: .9px; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; font-weight: 800; }
-  .name { font-size: 15px; font-weight: 700; line-height: 1.3; }
-  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  .badge-retailer { font-size: 10px; line-height: 1; font-weight: 800; border-radius: 999px; padding: 6px 8px; }
-  .badge-retailer-walmart { color: var(--accent); background: var(--soft); }
-  .badge-retailer-amazon { color: #b35900; background: var(--amazon-soft); }
-  .badge-angle { font-size: 10px; line-height: 1; font-weight: 800; border-radius: 999px; padding: 6px 8px; color: #1a1a17; background: #fff7d6; }
-  .pill { font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 9px; color: var(--muted); background: #fff; }
-  .copy { font-size: 13px; color: var(--muted); line-height: 1.5; }
-  .actions { margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
-  .btn { text-decoration: none; font-size: 12px; border-radius: 12px; padding: 10px 14px; font-weight: 850; display: inline-flex; align-items: center; justify-content: center; }
-  .btn.primary { background: var(--accent); color: #fff; box-shadow: 0 7px 16px rgba(232,93,38,.22); }
-  .btn.primary.amazon { background: var(--amazon); color: #1a1a17; box-shadow: 0 7px 16px rgba(255,153,0,.22); }
-
-  .empty { margin: 22px 18px; padding: 18px; border: 1px dashed var(--line); border-radius: 20px; background: #fff; color: var(--muted); line-height: 1.45; }
-  @media (min-width: 560px) { .page { border-left: 1px solid var(--line); border-right: 1px solid var(--line); min-height: 100vh; } }
-
-  /* AI chat */
-  .lp-chat { padding: 22px 18px 0; }
-  .lp-chat-card { background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 12px; }
-  .lp-chat-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
-  .lp-chat-bubbles { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 2px; }
-  .lp-chat-row { display: flex; }
-  .lp-chat-row.user { justify-content: flex-end; }
-  .lp-chat-bubble { max-width: 84%; padding: 8px 10px; border-radius: 12px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
-  .lp-chat-bubble.bot { background: #f4f5f7; color: #1a1a17; border-top-left-radius: 4px; }
-  .lp-chat-bubble.user { background: var(--accent); color: #fff; border-top-right-radius: 4px; }
-  .lp-chat-products { margin-top: 8px; display: grid; gap: 8px; }
-  .lp-chat-product { border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; overflow: hidden; background: #fff; }
-  .lp-chat-product-body { display: flex; align-items: center; gap: 10px; padding: 10px; }
-  .lp-chat-product-img { width: 54px; height: 54px; border-radius: 8px; background: #f4f5f7; object-fit: cover; flex-shrink: 0; }
-  .lp-chat-product-ph { width: 54px; height: 54px; border-radius: 8px; background: #f4f5f7; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
-  .lp-chat-product-name { font-size: 12px; font-weight: 600; color: #1a1a17; line-height: 1.3; margin-bottom: 3px; }
-  .lp-chat-product-price { font-size: 12px; color: rgba(0,0,0,0.6); }
-  .lp-chat-product-btn { display: block; margin: 0 10px 10px; text-align: center; background: #1c5fa6; color: #fff; text-decoration: none; font-size: 12px; font-weight: 600; border-radius: 8px; padding: 8px; }
-  .lp-chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
-  .lp-chat-input { flex: 1; border: 1px solid rgba(0,0,0,0.15); border-radius: 10px; padding: 9px 10px; font-size: 12px; outline: none; font-family: inherit; }
-  .lp-chat-input:focus { border-color: var(--accent); }
-  .lp-chat-send { border: none; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; font-size: 12px; padding: 0 12px; cursor: pointer; }
-  .disclosure { padding: 14px 18px 24px; }
-  .disclosure-text { font-size: 11px; color: rgba(0,0,0,0.45); line-height: 1.5; }
-</style>
-{# P0.7 brand-vars partial: included AFTER the inline theme <style> so the
-   legacy-compat bridge (--accent/--soft sourced from brand.brand_primary)
-   wins over the theme.accent set above when the active creator has brand
-   colors. NULL creator colors → the bridge stays inert. #}
 {% include 'partials/_brand_vars.html' %}
+<style>
+  :root { --bg:#fbfaf7; --card:#fff; --ink:var(--brand-on-surface,#1a1a17); --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --primary:var(--brand-primary,#7C7D6A); --soft:var(--brand-primary-container,#F3E9E1); --warm:#f7e9e2; --price:#c43d16; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body { font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:linear-gradient(180deg,#fff 0%,var(--bg) 38%,#fff 100%); color:var(--ink); -webkit-font-smoothing:antialiased; }
+  .page { max-width:860px; margin:0 auto; min-height:100vh; border-left:1px solid var(--line); border-right:1px solid var(--line); background:rgba(255,255,255,.76); }
+  .shop-header { position:sticky; top:0; z-index:20; background:rgba(255,255,255,.94); backdrop-filter:blur(14px); border-bottom:1px solid var(--line); padding:18px 28px 14px; }
+  .brand-row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  .brand-lockup { display:flex; align-items:center; gap:14px; min-width:0; }
+  .brand-logo { width:58px; height:58px; border-radius:999px; border:1px solid color-mix(in srgb,var(--primary) 42%,#fff); display:grid; place-items:center; overflow:hidden; background:#fff; flex:0 0 auto; }
+  .brand-logo img { width:100%; height:100%; object-fit:cover; }
+  .brand-logo-fallback { width:28px; height:28px; border-radius:999px; border:2px solid var(--primary); }
+  .brand-name { font-family:Georgia, "Times New Roman", serif; font-size:30px; line-height:1.05; letter-spacing:-.045em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bookmark-top { width:46px; height:46px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--ink); font-size:22px; }
+  .public-shop-nav { display:flex; gap:10px; align-items:center; margin-top:20px; }
+  .public-shop-link { min-width:116px; text-align:center; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:999px; padding:10px 18px; font-size:16px; font-weight:650; text-decoration:none; }
+  .public-shop-link.active { color:var(--brand-on-primary,#fff); background:var(--primary); border-color:var(--primary); box-shadow:0 10px 24px rgba(124,125,106,.18); }
+  .intro { padding:38px 34px 18px; }
+  .intro h1 { margin:0; font-size:45px; line-height:1.02; letter-spacing:-.06em; }
+  .intro p { margin:12px 0 0; color:var(--muted); font-size:22px; line-height:1.35; }
+  .chips { display:flex; gap:10px; overflow-x:auto; padding:18px 34px 4px; -webkit-overflow-scrolling:touch; }
+  .chips::-webkit-scrollbar { display:none; }
+  .chip { flex:0 0 auto; border:1px solid var(--line); border-radius:999px; background:#fff; min-height:42px; padding:0 18px; font:inherit; font-size:15px; font-weight:700; }
+  .chip.active { background:var(--primary); border-color:var(--primary); color:var(--brand-on-primary,#fff); }
+  .feed { display:grid; gap:18px; padding:22px 30px 42px; }
+  .post-card { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); border:1px solid var(--line); border-radius:26px; background:#fff; overflow:hidden; box-shadow:0 18px 42px rgba(26,26,23,.07); }
+  .post-img { min-height:330px; background:#f7f4ef; display:grid; place-items:center; overflow:hidden; }
+  .post-img img { width:100%; height:100%; object-fit:cover; display:block; }
+  .post-img-empty { color:var(--muted); font-weight:750; }
+  .post-body { padding:24px 28px; display:flex; flex-direction:column; min-width:0; }
+  .post-top { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+  .retailer { display:inline-flex; align-items:center; min-height:36px; border:1px solid var(--line); border-radius:12px; padding:0 14px; background:#fff; font-size:18px; font-weight:900; }
+  .retailer.walmart { color:#bd6500; }
+  .retailer.amazon { color:#1a1a17; }
+  .heart { width:42px; height:42px; border:1px solid var(--line); border-radius:999px; background:#fff; font-size:22px; }
+  .brand { margin-top:24px; color:#7c6d62; text-transform:uppercase; font-size:13px; font-weight:900; letter-spacing:.12em; }
+  .name { margin-top:7px; font-size:27px; line-height:1.08; letter-spacing:-.035em; font-weight:900; }
+  .copy { margin:22px 0 0; padding-left:18px; border-left:4px solid #d59132; color:#6f4435; font-size:18px; line-height:1.42; }
+  .source { margin-top:18px; color:var(--muted); font-size:14px; }
+  .proof { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; color:var(--muted); font-size:13px; }
+  .proof span { border:1px solid var(--line); border-radius:999px; min-height:28px; display:inline-flex; align-items:center; padding:0 10px; background:#fff; }
+  .price { margin-top:auto; padding-top:18px; font-size:27px; font-weight:950; color:var(--price); }
+  .buy { margin-top:14px; min-height:52px; border-radius:15px; background:var(--primary); color:var(--brand-on-primary,#fff); display:flex; align-items:center; justify-content:center; gap:12px; text-decoration:none; font-size:18px; font-weight:900; }
+  .empty { margin:30px; padding:28px; border:1px dashed var(--line); border-radius:24px; color:var(--muted); background:#fff; }
+  .fine { padding:0 30px 36px; color:rgba(26,26,23,.48); font-size:12px; line-height:1.5; }
+  @media (max-width:720px) {
+    .page { border:0; }
+    .shop-header { padding:16px 24px 12px; }
+    .brand-name { font-size:25px; }
+    .brand-logo { width:52px; height:52px; }
+    .public-shop-link { min-width:auto; flex:1; padding:9px 10px; font-size:15px; }
+    .intro { padding:34px 30px 14px; }
+    .intro h1 { font-size:39px; }
+    .post-card { grid-template-columns:1fr; }
+    .post-img { min-height:330px; }
+    .feed { padding-left:24px; padding-right:24px; }
+    .chips { padding-left:24px; padding-right:24px; }
+  }
+</style>
 </head>
 <body>
 <main class="page">
-  <header class="hero">
-    {% include 'partials/_brand_logo.html' %}
-    <div class="eyebrow">✨ The Mommy &amp; Me Collective</div>
-    <h1>The Mommy &amp; Me Collective</h1>
-    <p class="subhead">Tap through to shop the products mentioned in our recent posts.</p>
+  <header class="shop-header">
+    <div class="brand-row">
+      <div class="brand-lockup">
+        <div class="brand-logo">
+          {% if brand and brand.logo_url %}<img src="{{ brand.logo_url }}" alt="{{ brand.shop_name or brand.brand_label or 'Shop' }}">{% else %}<div class="brand-logo-fallback"></div>{% endif %}
+        </div>
+        <div class="brand-name">{{ brand.shop_name or brand.brand_label or 'The Mommy & Me Collective' }}</div>
+      </div>
+      <button class="bookmark-top" type="button" aria-label="Saved picks">♡</button>
+    </div>
     {% include 'partials/public_shop_nav.html' %}
   </header>
 
+  <section class="intro">
+    <h1>Steph's latest picks</h1>
+    <p>Shop the products I just shared in posts and stories.</p>
+  </section>
+  <div class="chips" role="group" aria-label="Post filters">
+    <button class="chip active" type="button" data-filter="all" onclick="setPostFilter(this)">All</button>
+    <button class="chip" type="button" data-filter="home" onclick="setPostFilter(this)">Home</button>
+    <button class="chip" type="button" data-filter="kids" onclick="setPostFilter(this)">Kids</button>
+    <button class="chip" type="button" data-filter="mom" onclick="setPostFilter(this)">Mom life</button>
+  </div>
+
   {% if items %}
-  <div class="list">
+  <section class="feed" id="postFeed">
     {% for it in items %}
-    <article class="card">
-      <div class="img-wrap">
-        {% if it.product_image %}
-        <img src="{{ it.product_image }}" alt="{{ it.product_name }}" loading="lazy" onerror="this.style.display='none'">
-        {% else %}
-        <div class="ph">📦</div>
-        {% endif %}
+    {% set filter_text = (it.product_name ~ ' ' ~ it.product_brand ~ ' ' ~ it.angle_label ~ ' ' ~ it.copy_excerpt)|lower %}
+    {% set cat = 'kids' if 'kid' in filter_text or 'toy' in filter_text or 'baby' in filter_text else ('home' if 'home' in filter_text or 'kitchen' in filter_text or 'room' in filter_text else 'mom') %}
+    <article class="post-card" data-category="{{ cat }}">
+      <div class="post-img">
+        {% if it.product_image %}<img src="{{ it.product_image }}" alt="{{ it.product_name }}" loading="lazy" onerror="this.style.display='none'">{% else %}<div class="post-img-empty">Image coming soon</div>{% endif %}
       </div>
-      <div class="body">
-        <div class="meta">
-          <span>{{ it.creator_handle }}</span>
-          <span>{{ it.posted_at or it.created_at }}</span>
+      <div class="post-body">
+        <div class="post-top">
+          {% if it.retailer_label %}<div class="retailer {{ 'amazon' if it.network == 'amazon' else 'walmart' }}">{{ it.retailer_label }}</div>{% endif %}
+          <button class="heart" type="button" aria-label="Save {{ it.product_name }}">♡</button>
         </div>
+        {% if it.product_brand %}<div class="brand">{{ it.product_brand }}</div>{% endif %}
         <div class="name">{{ it.product_name }}</div>
-        <div class="row">
-          {% if it.retailer_label %}
-          <span class="badge-retailer badge-retailer-{{ 'amazon' if it.network == 'amazon' else 'walmart' }}">{{ it.retailer_label }}</span>
-          {% endif %}
-          {% if it.angle_label %}<span class="badge-angle">{{ it.angle_label }}</span>{% endif %}
-          {% if it.product_brand %}<span class="pill">{{ it.product_brand }}</span>{% endif %}
-          {% if it.product_price %}<span class="pill">{{ it.product_price }}</span>{% endif %}
-          {% if it.product_availability %}<span class="pill">{{ it.product_availability }}</span>{% endif %}
-          {% if it.product_rating %}<span class="pill">★ {{ it.product_rating }}</span>{% endif %}
-          {% if it.product_review_count %}<span class="pill">{{ it.product_review_count }} reviews</span>{% endif %}
-        </div>
         {% if it.copy_excerpt %}<div class="copy">{{ it.copy_excerpt }}</div>{% endif %}
-        <div class="actions">
-          {% if it.cta_url %}
-          <a class="btn primary {% if it.network == 'amazon' and not it.collection_slug %}amazon{% endif %}" href="{{ it.cta_url }}" target="_blank" rel="noopener">{{ it.cta_label }} →</a>
-          {% endif %}
+        <div class="source">From {{ it.posted_at or it.created_at or 'a recent post' }}</div>
+        <div class="proof">
+          {% if it.product_availability %}<span>{{ it.product_availability }}</span>{% endif %}
+          {% if it.product_rating %}<span>{{ it.product_rating }} rating</span>{% endif %}
+          {% if it.product_review_count %}<span>{{ it.product_review_count }} reviews</span>{% endif %}
         </div>
+        {% if it.product_price %}<div class="price">{{ it.product_price }}</div>{% endif %}
+        {% if it.cta_url %}<a class="buy" href="{{ it.cta_url }}" target="_blank" rel="noopener nofollow sponsored">Buy Now <span aria-hidden="true">-></span></a>{% endif %}
       </div>
     </article>
     {% endfor %}
-  </div>
+  </section>
   {% else %}
-  <div class="empty">No social posts available yet.</div>
+  <div class="empty">No published post picks yet.</div>
   {% endif %}
-
-  <div class="lp-chat">
-    <div class="lp-chat-card">
-      <div class="lp-chat-title">Ask for more picks 💬</div>
-      <div class="lp-chat-bubbles" id="lpChatBubbles">
-        <div class="lp-chat-row">
-          <div class="lp-chat-bubble bot">Hi! Tell me what you're looking for — I can recommend products from our posts, collections, and trending finds.</div>
-        </div>
-      </div>
-      <div class="lp-chat-input-row">
-        <input id="lpChatInput" class="lp-chat-input" placeholder="Example: gifts under $25" onkeydown="if(event.key==='Enter') sendLandingChat()">
-        <button class="lp-chat-send" onclick="sendLandingChat()">Send</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="disclosure">
-    <div class="disclosure-text">
-      As an affiliate, I may earn a commission on purchases made through links on this page at no extra cost to you.
-    </div>
-  </div>
+  <p class="fine">As an affiliate, I may earn a commission on purchases made through links on this page at no extra cost to you.</p>
 </main>
-
 <script>
-function _appendLandingBubble(text, who='bot') {
-  const wrap = document.getElementById('lpChatBubbles');
-  const row = document.createElement('div');
-  row.className = `lp-chat-row ${who === 'user' ? 'user' : ''}`.trim();
-  const b = document.createElement('div');
-  b.className = `lp-chat-bubble ${who === 'user' ? 'user' : 'bot'}`;
-  b.textContent = text || '';
-  row.appendChild(b);
-  wrap.appendChild(row);
-  wrap.scrollTop = wrap.scrollHeight;
-}
-
-function _appendLandingProducts(products=[]) {
-  if (!products.length) return;
-  const wrap = document.getElementById('lpChatBubbles');
-  const row = document.createElement('div');
-  row.className = 'lp-chat-row';
-  const list = document.createElement('div');
-  list.className = 'lp-chat-products';
-  products.forEach(p => {
-    const card = document.createElement('div');
-    card.className = 'lp-chat-product';
-    const imgHtml = p.image
-      ? `<img class="lp-chat-product-img" src="${p.image}" alt="${p.name || ''}">`
-      : `<div class="lp-chat-product-ph">📦</div>`;
-    card.innerHTML = `
-      <div class="lp-chat-product-body">
-        ${imgHtml}
-        <div>
-          <div class="lp-chat-product-name">${p.name || 'Product'}</div>
-          <div class="lp-chat-product-price">${p.price || ''}</div>
-        </div>
-      </div>
-      <a class="lp-chat-product-btn" href="${p.link || '#'}" target="_blank" rel="noopener">View deal →</a>
-    `;
-    list.appendChild(card);
-  });
-  row.appendChild(list);
-  wrap.appendChild(row);
-  wrap.scrollTop = wrap.scrollHeight;
-}
-
-async function sendLandingChat() {
-  const input = document.getElementById('lpChatInput');
-  const msg = (input.value || '').trim();
-  if (!msg) return;
-  input.value = '';
-  _appendLandingBubble(msg, 'user');
-  const chatSessionKey = 'storefront_chat_session_posts_everydaywithsteph';
-  let chatSessionId = '';
-  try { chatSessionId = localStorage.getItem(chatSessionKey) || ''; } catch (e) {}
-
-  try {
-    const res = await fetch('/api/shop/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: msg,
-        creator_id: 'everydaywithsteph',
-        slug: 'posts',
-        session_id: chatSessionId,
-      }),
+  let activePostFilter = 'all';
+  function setPostFilter(btn) {
+    activePostFilter = btn.getAttribute('data-filter') || 'all';
+    document.querySelectorAll('.chip[data-filter]').forEach((chip) => chip.classList.toggle('active', chip === btn));
+    document.querySelectorAll('#postFeed .post-card').forEach((card) => {
+      const category = card.getAttribute('data-category') || 'all';
+      card.style.display = activePostFilter === 'all' || category === activePostFilter ? '' : 'none';
     });
-    const data = await res.json();
-    if (data.session_id) {
-      try { localStorage.setItem(chatSessionKey, data.session_id); } catch (e) {}
-    }
-    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-    _appendLandingBubble(data.reply || "Here are a few good picks for that.");
-    _appendLandingProducts(data.products || []);
-  } catch (e) {
-    _appendLandingBubble("Sorry—chat is having trouble right now. Please try again in a moment.", 'bot');
   }
-}
 </script>
-
 </body>
 </html>

@@ -1,0 +1,23 @@
+{% set _active_nav = active_nav if active_nav is defined else (active if active is defined else '') %}
+<nav class="mc-bottom-nav" aria-label="Creator workspace navigation">
+  <a href="/hub" class="mc-bottom-nav__item focus-ring creator-bottom-nav__item{% if _active_nav == 'home' %} active{% endif %}" {% if _active_nav == 'home' %}aria-current="page"{% endif %}>
+    <span class="nav-ico" aria-hidden="true">⌂</span>
+    <span>Home</span>
+  </a>
+  <a href="/walmart/trending-now?admin=1" class="mc-bottom-nav__item focus-ring creator-bottom-nav__item{% if _active_nav == 'create' %} active{% endif %}" {% if _active_nav == 'create' %}aria-current="page"{% endif %}>
+    <span class="nav-ico" aria-hidden="true">＋</span>
+    <span>Create</span>
+  </a>
+  <a href="/archer/posts/manage" class="mc-bottom-nav__item focus-ring creator-bottom-nav__item{% if _active_nav == 'manage' %} active{% endif %}" {% if _active_nav == 'manage' %}aria-current="page"{% endif %}>
+    <span class="nav-ico" aria-hidden="true">▦</span>
+    <span>Manage</span>
+  </a>
+  <a href="/chat" class="mc-bottom-nav__item focus-ring creator-bottom-nav__item{% if _active_nav == 'chat' %} active{% endif %}" {% if _active_nav == 'chat' %}aria-current="page"{% endif %}>
+    <span class="nav-ico" aria-hidden="true">□</span>
+    <span>Chat</span>
+  </a>
+  <a href="/insights" class="mc-bottom-nav__item focus-ring creator-bottom-nav__item{% if _active_nav == 'insights' %} active{% endif %}" {% if _active_nav == 'insights' %}aria-current="page"{% endif %}>
+    <span class="nav-ico" aria-hidden="true">▥</span>
+    <span>Insights</span>
+  </a>
+</nav>

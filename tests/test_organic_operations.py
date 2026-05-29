@@ -90,7 +90,7 @@ class OrganicOperationsTestCase(unittest.TestCase):
         resp = self.client.get("/shop/posts")
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
-        self.assertIn("Shop Amazon", html)
+        self.assertIn("Buy Now", html)
         self.assertIn("https://www.amazon.com/dp/B0CQMZFP4H?tag=mommymedeals-20", html)
         self.assertEqual(html.count("This is the post copy."), 1)
 
@@ -101,7 +101,7 @@ class OrganicOperationsTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
         html = self.client.get("/shop/posts").get_data(as_text=True)
-        self.assertIn("Shop Amazon", html)
+        self.assertIn("Buy Now", html)
         self.assertIn(smart, html)
 
     # test_organic_nav_and_manage_routes_are_available removed in the
@@ -124,7 +124,7 @@ class OrganicOperationsTestCase(unittest.TestCase):
         resp = self.client.get("/archer/posts/manage")
         self.assertEqual(resp.status_code, 200)
         html = resp.get_data(as_text=True)
-        self.assertIn("Saved Posts & Collections", html)
+        self.assertIn("Manage collections", html)
         self.assertIn("Dinosaur Toys Magnetic Tiles", html)
         # Post-redesign (cherry-pick a052459): the manage page provides a
         # primary "Create" CTA that routes to the Trending Now flow instead

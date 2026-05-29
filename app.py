@@ -503,8 +503,125 @@ def _public_shop_nav(active: str = '') -> list[dict]:
     return [
         {'key': 'collections', 'label': 'Collections', 'href': '/collections'},
         {'key': 'trends', 'label': 'Trends', 'href': '/trends'},
-        {'key': 'posts', 'label': 'Social Posts', 'href': '/posts'},
+        {'key': 'posts', 'label': 'Posts', 'href': '/posts'},
     ]
+
+
+def _product_preview(product: dict | None) -> dict:
+    """Return a template-friendly product preview without mutating source data."""
+    p = product or {}
+    raw_retailer = str(
+        p.get('retailer') or p.get('network') or p.get('retailer_name') or ''
+    ).strip().lower()
+    if raw_retailer not in ('walmart', 'amazon'):
+        url_blob = str(
+            p.get('attribution_link') or p.get('shop_url') or p.get('smart_link') or ''
+        ).lower()
+        raw_retailer = 'amazon' if 'amazon.' in url_blob else ('walmart' if 'walmart.' in url_blob or 'goto.walmart' in url_blob else '')
+    retailer_label = 'Amazon' if raw_retailer == 'amazon' else ('Walmart' if raw_retailer == 'walmart' else '')
+    image = (
+        p.get('image_encoded_string') or p.get('image_url') or p.get('product_image')
+        or p.get('imageUrl') or p.get('fallback_image_url') or ''
+    )
+    title = p.get('product_name') or p.get('title') or p.get('name') or p.get('item_name') or p.get('asin') or p.get('sku') or 'Product'
+    price = _format_display_price(p.get('price_display') or p.get('product_price') or p.get('price') or p.get('current_price') or '')
+    return {
+        'title': title,
+        'brand': p.get('brand') or p.get('product_brand') or p.get('company_name') or '',
+        'price': price,
+        'image': image,
+        'retailer': raw_retailer,
+        'retailer_label': retailer_label,
+        'url': p.get('attribution_link') or p.get('shop_url') or p.get('smart_link') or '',
+        'category': p.get('category') or p.get('angle') or '',
+        'rank': p.get('rank') or p.get('source_rank') or '',
+    }
+
+
+def _collection_category(title: str, subtitle: str = '') -> str:
+    text = f"{title} {subtitle}".lower()
+    if any(word in text for word in ('kid', 'toy', 'room', 'splash', 'pool', 'outdoor', 'backyard', 'sleepover')):
+        return 'kids'
+    if any(word in text for word in ('home', 'kitchen', 'patio', 'organize', 'decor')):
+        return 'home'
+    if any(word in text for word in ('mom', 'beauty', 'care', 'hair')):
+        return 'mom-life'
+    return 'all'
+
+
+def _decorate_collection_for_ui(row: dict) -> dict:
+    products = row.get('products_preview') or row.get('products') or []
+    title = row.get('hero_title') or (row.get('slug') or '').replace('-', ' ').title()
+    subtitle = row.get('hero_subtitle') or row.get('caption') or row.get('subtitle') or ''
+    previews = [_product_preview(p) for p in products[:8] if isinstance(p, dict)]
+    return {
+        **row,
+        'title': title,
+        'subtitle': subtitle,
+        'category': _collection_category(title, subtitle),
+        'product_previews': previews,
+        'cover_image': row.get('cover_image') or (previews[0]['image'] if previews else ''),
+    }
+
+
+def _build_hub_dashboard() -> dict:
+    """Best-effort dashboard summary for the admin hub."""
+    dashboard = {
+        'published_count': 0,
+        'draft_count': 0,
+        'total_count': 0,
+        'attention': [],
+        'recent': [],
+    }
+    try:
+        import collection_service
+        collages = collection_service.list_collages(status='all', limit=100)
+    except Exception as exc:
+        logging.warning("[HUB] failed to load collages: %s", exc)
+        collages = []
+
+    for c in collages:
+        status = c.get('status') or 'published'
+        if status == 'published':
+            dashboard['published_count'] += 1
+        elif status == 'draft':
+            dashboard['draft_count'] += 1
+        if status != 'archived':
+            dashboard['total_count'] += 1
+        decorated = _decorate_collection_for_ui(c)
+        dashboard['recent'].append(decorated)
+        if status == 'draft':
+            dashboard['attention'].append({
+                'title': decorated['title'],
+                'meta': 'Draft collection',
+                'count': decorated.get('product_count') or 0,
+                'image': decorated.get('cover_image'),
+                'href': f"/collections/{decorated.get('slug')}/edit",
+            })
+
+    try:
+        conn = db_schema._connect()
+        try:
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM walmart_products "
+                "WHERE COALESCE(price_display,'') = '' OR COALESCE(image_url,'') = ''"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        if pending:
+            dashboard['attention'].append({
+                'title': 'Products pending enrichment',
+                'meta': 'Missing prices or images',
+                'count': pending,
+                'image': '',
+                'href': '/walmart/trending-now?admin=1',
+            })
+    except Exception:
+        pass
+
+    dashboard['recent'] = dashboard['recent'][:4]
+    dashboard['attention'] = dashboard['attention'][:8]
+    return dashboard
 
 
 @app.before_request
@@ -821,7 +938,7 @@ def hub():
     guard = _require_admin_page()
     if guard:
         return guard
-    return render_template('hub.html', shop_subdomain=SHOP_SUBDOMAIN)
+    return render_template('hub.html', shop_subdomain=SHOP_SUBDOMAIN, dashboard=_build_hub_dashboard())
 
 # ARCHIVED — see /archive/routes/
 
@@ -1450,12 +1567,15 @@ def shop_directory():
             retailer_chip = ''
             retailer_label_value = ''
         creator = creators_by_id.get(r['creator_id'] or 'everydaywithsteph', {})
+        product_previews = [_product_preview(p) for p in products[:8] if isinstance(p, dict)]
+        title = r['hero_title'] or (r['slug'] or '').replace('-', ' ').title()
+        subtitle = r['hero_subtitle'] or (r['caption'] or '')[:160]
         items.append({
             'slug':          r['slug'],
-            'title':         r['hero_title'] or (r['slug'] or '').replace('-', ' ').title(),
-            'subtitle':      r['hero_subtitle'] or (r['caption'] or '')[:160],
+            'title':         title,
+            'subtitle':      subtitle,
             'theme':         r['theme'],
-            'cover_image':   cover_img,
+            'cover_image':   cover_img or (product_previews[0]['image'] if product_previews else ''),
             'product_count': len(products),
             'click_count':   r['click_count'] or 0,
             'created_at':    _fmt_date(r['created_at']),
@@ -1464,6 +1584,8 @@ def shop_directory():
             'creator_name':   creator.get('display_name') or 'Creator',
             'retailer':       retailer_chip,
             'retailer_label': retailer_label_value,
+            'category':       _collection_category(title, subtitle),
+            'product_previews': product_previews,
         })
 
     return render_template(
@@ -2841,6 +2963,7 @@ def archer_posts_manage_page():
     creator_id = request.args.get('creator_id', 'everydaywithsteph')
     rows = _posts.list_posts(creator_id=creator_id, limit=300)
     collages = collection_service.list_collages(status='all', limit=100)
+    collages = [_decorate_collection_for_ui(c) for c in collages]
     return render_template(
         'organic_posts_manage.html',
         posts=rows,
@@ -2930,23 +3053,7 @@ def archer_image_proxy():
 @app.route('/chat')
 @require_admin_page
 def chat_placeholder():
-    return render_template_string(
-        """{% extends 'partials/_mobile_chrome.html' %}
-{% set active_nav = 'chat' %}
-{% block title %}Chat — EchoTribe{% endblock %}
-{% block header_title %}Chat{% endblock %}
-{% block content %}
-<div style="max-width:520px;margin:0 auto;padding:48px 24px;text-align:center;">
-  <div style="font-size:48px;line-height:1;margin-bottom:16px;">💬</div>
-  <h2 style="font-family:Inter,sans-serif;font-size:18px;font-weight:700;margin:0 0 8px;color:var(--ink,#1a1a17);">
-    Coming soon
-  </h2>
-  <p style="font-family:Inter,sans-serif;font-size:14px;line-height:1.5;color:var(--muted,rgba(26,26,23,.62));margin:0;">
-    EchoAgent chat lands in Phase 2.5.
-  </p>
-</div>
-{% endblock %}"""
-    )
+    return render_template('echoagent_chat.html')
 
 
 # ── INSIGHTS: clicks × earnings × paid attribution ──────────────────────────

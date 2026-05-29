@@ -184,12 +184,12 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
 
         collections = self.client.get("/collections", headers={"Host": "shop.echotribe.ai"})
         self.assertEqual(collections.status_code, 200)
-        self.assertIn("Shop The Mommy &amp; Me Collective", collections.get_data(as_text=True))
+        self.assertIn("Shop Steph's collections", collections.get_data(as_text=True))
 
         with patch("walmart_trends.get_trending_page_data", return_value={"last_refreshed": "Today", "collections": []}):
             trends = self.client.get("/trends", headers={"Host": "shop.echotribe.ai"})
         self.assertEqual(trends.status_code, 200)
-        self.assertIn("What’s Trending Now", trends.get_data(as_text=True))
+        self.assertIn("Trending with Steph", trends.get_data(as_text=True))
 
     def test_trends_cards_never_render_contaminated_walmart_brand(self):
         import walmart_trends
@@ -233,12 +233,12 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
         self.assertIn('href="/hub" class="tb-link active"', hub_html)
         self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link"', hub_html)
         self.assertIn('href="/archer/posts/manage" class="tb-link"', hub_html)
-        self.assertIn("Content Hub", hub_html)
+        self.assertIn("Hi Steph", hub_html)
 
         with patch("walmart_trends.get_trending_page_data", return_value={"last_refreshed": "Today", "collections": []}):
             create_html = self.client.get("/walmart/trending-now?admin=1").get_data(as_text=True)
-        self.assertIn('href="/hub" class="tb-link active"', create_html)
-        self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link"', create_html)
+        self.assertIn('href="/hub" class="tb-link"', create_html)
+        self.assertIn('href="/walmart/trending-now?admin=1" class="tb-link active"', create_html)
         self.assertIn('href="/archer/posts/manage" class="tb-link"', create_html)
 
     def test_collection_editor_renders_mobile_publishing_workflow(self):
@@ -257,7 +257,7 @@ class WalmartStorefrontCleanupTestCase(unittest.TestCase):
             editor = self.client.get("/collections/walmart-kids-room-character-favorites/edit")
         self.assertEqual(editor.status_code, 200)
         html = editor.get_data(as_text=True)
-        self.assertIn("Edit Page", html)
+        self.assertIn("Edit collection", html)
         self.assertIn("Quick actions", html)
         self.assertIn("Publishing", html)
         self.assertIn("Save changes", html)

@@ -5,14 +5,22 @@
 {% set _page_title = page_title if page_title is defined else '' %}
 {% set _create_slug = current_slug if current_slug is defined and current_slug else '' %}
 {% set _create_href = ('/collections/' ~ _create_slug ~ '/create-post') if _create_slug else '/walmart/trending-now?admin=1' %}
+{% set _minimal = admin_header_minimal if admin_header_minimal is defined else false %}
 <div class="topbar">
-  <div class="dot"></div>
-  <strong>EchoTribe</strong>
+  <div class="topbar-brand">
+    <div class="dot"></div>
+    <div>
+      <strong>EchoTribe</strong>
+      {% if brand and brand.shop_name %}<span class="topbar-shop">{{ brand.shop_name }}</span>{% endif %}
+    </div>
+  </div>
   {% if _page_title %}<span class="topbar-title">{{ _page_title }}</span>{% endif %}
   <nav class="tb-right" aria-label="Admin navigation">
+    {% if not _minimal %}
     <a href="/hub" class="tb-link{% if _active == 'home' %} active{% endif %}">Home</a>
     <a href="{{ _create_href }}" class="tb-link{% if _active == 'create' %} active{% endif %}">Create</a>
     <a href="/archer/posts/manage" class="tb-link{% if _active == 'manage' %} active{% endif %}">Manage</a>
+    {% endif %}
     <a href="/admin/logout" class="tb-link" title="Sign out">Sign out</a>
   </nav>
 </div>

@@ -1,282 +1,183 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shop · The Mommy &amp; Me Collective</title>
-<meta name="description" content="Curated shoppable collections from The Mommy &amp; Me Collective — daily deals, gift guides, and mom-tested recommendations.">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shop Collections · {{ brand.shop_name or 'The Mommy &amp; Me Collective' }}</title>
+<meta name="description" content="Curated shoppable collections from {{ brand.shop_name or 'The Mommy &amp; Me Collective' }}.">
 <link rel="canonical" href="{{ canonical_url }}">
-
 <meta property="og:type" content="website">
-<meta property="og:title" content="Shop - The Mommy &amp; Me Collective">
-<meta property="og:description" content="Curated shoppable collections from The Mommy &amp; Me Collective — daily deals, gift guides, and mom-tested recommendations.">
+<meta property="og:title" content="Shop Collections - {{ brand.shop_name or 'The Mommy &amp; Me Collective' }}">
+<meta property="og:description" content="Hand-picked product recommendations, collection shelves, and creator-loved finds.">
 <meta property="og:url" content="{{ canonical_url }}">
 <meta property="og:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
-<meta property="og:image:width" content="1731">
-<meta property="og:image:height" content="909">
-
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Shop - The Mommy &amp; Me Collective">
-<meta name="twitter:description" content="Curated shoppable collections from The Mommy &amp; Me Collective — daily deals, gift guides, and mom-tested recommendations.">
-<meta name="twitter:image" content="{{ request.url_root }}static/images/mmc-og-preview.png">
-
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg: #fff8f6;
-    --surface: #fff;
-    --border: rgba(26,26,23,.10);
-    --text: #1a1a17;
-    --text2: #4a4a45;
-    --text3: rgba(26,26,23,.62);
-    --text4: rgba(26,26,23,.42);
-    --accent: #e85d26;
-    --accent-light: #ffe9df;
-    --soft: #ffe9df;
-    --green: #0a6b52;
-    --green-light: #e8f4ec;
-    --blue: #1c5fa6;
-    --blue-light: #e8f0f8;
-    --amazon: #ff9900;
-    --amazon-soft: #fff4e0;
-    --r: 12px;
-    --rlg: 20px;
-    --mono: ui-monospace, 'SF Mono', Menlo, monospace;
-  }
-  body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: linear-gradient(180deg, var(--bg), #fff 42%); color: var(--text); -webkit-font-smoothing: antialiased; min-height: 100vh; }
-
-  .header { border-bottom: 1px solid var(--border); padding: 20px 18px 14px; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: rgba(255,248,246,.94); }
-  .header-inner { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .brand { font-size: 18px; font-weight: 700; }
-  .brand-sub { font-size: 12px; color: var(--text3); margin-top: 1px; }
-  .eyebrow { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--soft); color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .02em; margin-bottom: 6px; }
-  .top-nav { display:flex; gap:10px; align-items:center; }
-  .top-link { font-size:12px; color:var(--accent); text-decoration:none; font-weight:800; }
-  .public-shop-nav { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
-  .public-shop-link { font-size:11px; color:var(--accent); text-decoration:none; font-weight:850; border:1px solid var(--border); border-radius:999px; padding:7px 10px; background:#fff; }
-  .public-shop-link.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-
-  .hero { max-width: 1100px; margin: 0 auto; padding: 22px 18px 14px; }
-  .h1 { font-size: 30px; font-weight: 700; line-height: 1; letter-spacing: -.03em; margin-bottom: 6px; }
-  .h-sub { font-size: 14px; color: var(--text3); line-height: 1.45; }
-
-  .grid { max-width: 1100px; margin: 0 auto; padding: 14px 18px 60px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--rlg); overflow: hidden; transition: transform 0.15s, box-shadow 0.15s; text-decoration: none; color: inherit; display: flex; flex-direction: column; box-shadow: 0 10px 26px rgba(26,26,23,.07); }
-  .card:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(26,26,23,.10); }
-
-  .card-img { width: 100%; aspect-ratio: 1/1; background: #f6f3ef; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-  .card-img img { width: 100%; height: 100%; object-fit: cover; }
-  .card-img-placeholder { font-size: 36px; opacity: 0.4; }
-
-  .card-body { padding: 14px 16px 16px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
-  .card-creator { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); font-weight: 800; }
-  .card-title { font-size: 16px; font-weight: 700; line-height: 1.3; }
-  .card-sub { font-size: 13px; color: var(--text3); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .badge-retailer { display: inline-flex; align-items: center; width: fit-content; font-size: 10px; line-height: 1; font-weight: 800; border-radius: 999px; padding: 5px 8px; }
-  .badge-retailer-walmart { color: var(--accent); background: var(--soft); }
-  .badge-retailer-amazon { color: #b35900; background: var(--amazon-soft); }
-  .card-meta { display: flex; gap: 10px; align-items: center; font-size: 11px; color: var(--text4); margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); font-weight: 700; }
-  .card-meta span { display: flex; align-items: center; gap: 3px; }
-
-  .empty { max-width: 600px; margin: 80px auto; text-align: center; padding: 40px 24px; }
-  .empty-emoji { font-size: 48px; margin-bottom: 16px; }
-  .empty-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
-  .empty-sub { font-size: 14px; color: var(--text3); }
-
-  .footer { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; text-align: center; border-top: 0.5px solid var(--border); }
-  .footer-text { font-size: 12px; color: var(--text4); }
-  .footer-link { color: var(--accent); text-decoration: none; }
-
-  /* Landing chat parity */
-  .lp-chat { max-width: 560px; margin: 0 auto 18px; padding: 0 20px; }
-  .lp-chat-card { background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 12px; }
-  .lp-chat-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
-  .lp-chat-bubbles { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 2px; }
-  .lp-chat-row { display: flex; }
-  .lp-chat-row.user { justify-content: flex-end; }
-  .lp-chat-bubble { max-width: 84%; padding: 8px 10px; border-radius: 12px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
-  .lp-chat-bubble.bot { background: #f4f5f7; color: #1a1a17; border-top-left-radius: 4px; }
-  .lp-chat-bubble.user { background: var(--accent); color: #fff; border-top-right-radius: 4px; }
-  .lp-chat-products { margin-top: 8px; display: grid; gap: 8px; }
-  .lp-chat-product { border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; overflow: hidden; background: #fff; }
-  .lp-chat-product-body { display: flex; align-items: center; gap: 10px; padding: 10px; }
-  .lp-chat-product-img { width: 54px; height: 54px; border-radius: 8px; background: #f4f5f7; object-fit: cover; flex-shrink: 0; }
-  .lp-chat-product-ph { width: 54px; height: 54px; border-radius: 8px; background: #f4f5f7; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
-  .lp-chat-product-name { font-size: 12px; font-weight: 600; color: #1a1a17; line-height: 1.3; margin-bottom: 3px; }
-  .lp-chat-product-price { font-size: 12px; color: rgba(0,0,0,0.6); }
-  .lp-chat-product-btn { display: block; margin: 0 10px 10px; text-align: center; background: var(--blue); color: #fff; text-decoration: none; font-size: 12px; font-weight: 600; border-radius: 8px; padding: 8px; }
-  .lp-chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
-  .lp-chat-input { flex: 1; border: 1px solid rgba(0,0,0,0.15); border-radius: 10px; padding: 9px 10px; font-size: 12px; outline: none; }
-  .lp-chat-input:focus { border-color: var(--accent); }
-  .lp-chat-send { border: none; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; font-size: 12px; padding: 0 12px; cursor: pointer; }
-  .disclosure { max-width: 560px; margin: 0 auto; padding: 0 20px 24px; }
-  .disclosure-text { font-size: 11px; color: rgba(0,0,0,0.45); line-height: 1.5; }
-</style>
-{# P0.7 brand-vars partial: included AFTER the inline theme <style> so the
-   legacy-compat bridge (--accent/--soft sourced from brand.brand_primary)
-   wins over the theme.accent set above when the active creator has brand
-   colors. NULL creator colors → the bridge stays inert. #}
 {% include 'partials/_brand_vars.html' %}
+<style>
+  :root {
+    --shop-bg:#fbfaf7; --shop-card:#fff; --shop-ink:var(--brand-on-surface,#1a1a17);
+    --shop-muted:rgba(26,26,23,.62); --shop-line:rgba(26,26,23,.10);
+    --shop-primary:var(--brand-primary,#7C7D6A); --shop-soft:var(--brand-primary-container,#F3E9E1);
+    --shop-warm:#f7e9e2; --amazon:#ff9900; --walmart:#f5a400;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; }
+  body { font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:linear-gradient(180deg,#fff 0%,var(--shop-bg) 34%,#fff 100%); color:var(--shop-ink); -webkit-font-smoothing:antialiased; }
+  .page { max-width:860px; margin:0 auto; min-height:100vh; border-left:1px solid var(--shop-line); border-right:1px solid var(--shop-line); background:rgba(255,255,255,.72); overflow:hidden; }
+  .shop-header { position:sticky; top:0; z-index:20; background:rgba(255,255,255,.94); backdrop-filter:blur(14px); border-bottom:1px solid var(--shop-line); padding:18px 28px 14px; }
+  .brand-row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  .brand-lockup { display:flex; align-items:center; gap:14px; min-width:0; }
+  .brand-logo { width:58px; height:58px; border-radius:999px; border:1px solid color-mix(in srgb,var(--shop-primary) 42%,#fff); display:grid; place-items:center; overflow:hidden; background:#fff; flex:0 0 auto; }
+  .brand-logo img { width:100%; height:100%; object-fit:cover; }
+  .brand-logo-fallback { width:28px; height:28px; border-radius:999px; border:2px solid var(--shop-primary); }
+  .brand-name { font-family:Georgia, "Times New Roman", serif; font-size:30px; line-height:1.05; letter-spacing:-.045em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bookmark { width:46px; height:46px; border:1px solid var(--shop-line); border-radius:999px; background:#fff; color:var(--shop-ink); font-size:22px; }
+  .public-shop-nav { display:flex; gap:10px; align-items:center; margin-top:20px; }
+  .public-shop-link { min-width:116px; text-align:center; color:var(--shop-ink); background:#fff; border:1px solid var(--shop-line); border-radius:999px; padding:10px 18px; font-size:16px; font-weight:650; text-decoration:none; }
+  .public-shop-link.active { color:var(--brand-on-primary,#fff); background:var(--shop-primary); border-color:var(--shop-primary); box-shadow:0 10px 24px rgba(124,125,106,.18); }
+  .hero { position:relative; padding:44px 34px 28px; overflow:hidden; border-bottom:1px solid var(--shop-line); }
+  .hero:after { content:""; position:absolute; right:-50px; top:8px; width:360px; height:260px; background:radial-gradient(circle at 45% 44%,rgba(124,125,106,.18),transparent 62%); pointer-events:none; }
+  .hero h1 { position:relative; z-index:1; max-width:560px; margin:0; font-family:Georgia, "Times New Roman", serif; font-size:50px; line-height:1.02; letter-spacing:-.06em; }
+  .hero p { position:relative; z-index:1; max-width:460px; margin:18px 0 0; color:var(--shop-muted); font-size:24px; line-height:1.35; letter-spacing:-.02em; }
+  .filters { padding:24px 30px 8px; display:grid; gap:16px; }
+  .search { display:flex; align-items:center; gap:12px; min-height:58px; border:1px solid var(--shop-line); border-radius:22px; padding:0 18px; background:#fff; box-shadow:0 14px 30px rgba(26,26,23,.05); }
+  .search span { color:var(--shop-muted); font-size:24px; }
+  .search input { width:100%; border:0; outline:0; font:inherit; font-size:18px; background:transparent; color:var(--shop-ink); }
+  .chips { display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; }
+  .chips::-webkit-scrollbar { display:none; }
+  .chip { flex:0 0 auto; min-height:42px; border:1px solid var(--shop-line); border-radius:999px; background:#fff; color:var(--shop-ink); padding:0 18px; font:inherit; font-size:15px; font-weight:650; }
+  .chip.active { background:var(--shop-primary); border-color:var(--shop-primary); color:var(--brand-on-primary,#fff); }
+  .collection-list { display:grid; gap:16px; padding:18px 30px 42px; }
+  .shelf { border:1px solid var(--shop-line); border-radius:28px; background:rgba(255,255,255,.92); box-shadow:0 18px 42px rgba(26,26,23,.07); overflow:hidden; }
+  .shelf-head { padding:24px 26px 14px; }
+  .shelf h2 { margin:0; font-family:Georgia, "Times New Roman", serif; font-size:31px; line-height:1.05; letter-spacing:-.04em; }
+  .shelf-note { margin:9px 0 0; color:var(--shop-muted); font-size:16px; line-height:1.45; max-width:600px; }
+  .shelf-meta { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; color:var(--shop-muted); font-size:13px; }
+  .meta-pill { display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:0 10px; border-radius:999px; background:#faf7f3; border:1px solid var(--shop-line); }
+  .rail { display:flex; gap:14px; overflow-x:auto; padding:0 20px 18px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; }
+  .rail::-webkit-scrollbar { display:none; }
+  .product-card { flex:0 0 218px; scroll-snap-align:start; border:1px solid var(--shop-line); border-radius:22px; background:#fff; overflow:hidden; box-shadow:0 10px 24px rgba(26,26,23,.06); }
+  .product-img { position:relative; aspect-ratio:1/1; background:#f7f4ef; display:grid; place-items:center; overflow:hidden; }
+  .product-img img { width:100%; height:100%; object-fit:cover; display:block; }
+  .product-img-empty { color:var(--shop-muted); font-size:13px; font-weight:750; }
+  .save-btn { position:absolute; right:10px; top:10px; width:38px; height:38px; border-radius:999px; border:1px solid var(--shop-line); background:rgba(255,255,255,.92); font-size:18px; }
+  .retailer { display:inline-flex; align-items:center; gap:6px; margin-bottom:8px; min-height:28px; border-radius:999px; padding:0 10px; background:#fff8ed; font-size:12px; font-weight:850; color:#b45c00; }
+  .retailer.walmart { color:#bd6500; }
+  .retailer.amazon { color:#1a1a17; }
+  .product-body { padding:14px; }
+  .brand { min-height:16px; color:var(--shop-muted); text-transform:uppercase; font-size:11px; font-weight:850; letter-spacing:.08em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .product-name { margin-top:5px; min-height:44px; font-size:16px; line-height:1.24; font-weight:800; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .price { margin-top:12px; color:#c43d16; font-size:18px; font-weight:900; }
+  .buy { margin-top:12px; display:flex; justify-content:center; align-items:center; min-height:44px; border-radius:13px; background:var(--shop-primary); color:var(--brand-on-primary,#fff); font-size:15px; font-weight:850; text-decoration:none; }
+  .shelf-action { display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:56px; margin:0 20px 20px; padding:0 18px; border-radius:16px; background:linear-gradient(90deg,var(--shop-warm),#fff7f2); color:#6b4d3f; text-decoration:none; font-weight:800; }
+  .empty { margin:30px; padding:28px; border:1px dashed var(--shop-line); border-radius:24px; color:var(--shop-muted); background:#fff; }
+  .fine { padding:0 30px 36px; color:rgba(26,26,23,.48); font-size:12px; line-height:1.5; }
+  @media (max-width:620px) {
+    .page { border:0; }
+    .shop-header { padding:16px 24px 12px; }
+    .brand-name { font-size:25px; }
+    .brand-logo { width:52px; height:52px; }
+    .public-shop-link { min-width:auto; flex:1; padding:9px 10px; font-size:15px; }
+    .hero { padding:34px 28px 24px; }
+    .hero h1 { font-size:43px; }
+    .hero p { font-size:21px; }
+    .filters, .collection-list { padding-left:24px; padding-right:24px; }
+    .product-card { flex-basis:206px; }
+  }
+</style>
 </head>
 <body>
-
-<div class="header">
-  <div class="header-inner">
-    {% include 'partials/_brand_logo.html' %}
-    <div>
-      <div class="brand">The Mommy &amp; Me Collective 🛍️</div>
-      <div class="brand-sub">Mom-tested deals &amp; trusted picks</div>
+<main class="page">
+  <header class="shop-header">
+    <div class="brand-row">
+      <div class="brand-lockup">
+        <div class="brand-logo">
+          {% if brand and brand.logo_url %}<img src="{{ brand.logo_url }}" alt="{{ brand.shop_name or brand.brand_label or 'Shop' }}">{% else %}<div class="brand-logo-fallback"></div>{% endif %}
+        </div>
+        <div class="brand-name">{{ brand.shop_name or brand.brand_label or 'The Mommy & Me Collective' }}</div>
+      </div>
+      <button class="bookmark" type="button" aria-label="Saved picks">♡</button>
     </div>
     {% include 'partials/public_shop_nav.html' %}
-  </div>
-</div>
+  </header>
 
-<div class="hero">
-  <div class="eyebrow">🛍️ The Mommy &amp; Me Collective</div>
-  <div class="h1">Shop The Mommy &amp; Me Collective</div>
-  <div class="h-sub">Hand-picked products, mom-tested deals, and trusted recommendations from The Mommy &amp; Me Collective.</div>
-</div>
+  <section class="hero">
+    <h1>Shop Steph's collections</h1>
+    <p>Hand-picked finds for playful days, cozy homes, and mom life.</p>
+  </section>
 
-{% if items %}
-<div class="grid">
-  {% for it in items %}
-  <a href="/{{ it.slug }}" class="card">
-    <div class="card-img">
-      {% if it.cover_image %}
-      <img src="{{ it.cover_image }}" alt="{{ it.title }}" loading="lazy" onerror="this.style.display='none'">
-      {% else %}
-      <div class="card-img-placeholder">📦</div>
-      {% endif %}
+  <section class="filters" aria-label="Collection filters">
+    <label class="search">
+      <span aria-hidden="true">⌕</span>
+      <input id="collectionSearch" type="search" placeholder="Search collections" oninput="filterCollections()">
+    </label>
+    <div class="chips" role="group" aria-label="Filter by category">
+      <button class="chip active" type="button" data-filter="all" onclick="setCollectionFilter(this)">All</button>
+      <button class="chip" type="button" data-filter="kids" onclick="setCollectionFilter(this)">Kids</button>
+      <button class="chip" type="button" data-filter="home" onclick="setCollectionFilter(this)">Home</button>
+      <button class="chip" type="button" data-filter="mom-life" onclick="setCollectionFilter(this)">Mom life</button>
     </div>
-    <div class="card-body">
-      <div class="card-creator">{{ it.creator_handle }}</div>
-      {% if it.retailer_label %}
-      <div class="badge-retailer badge-retailer-{{ it.retailer }}">{{ it.retailer_label }}</div>
-      {% endif %}
-      <div class="card-title">{{ it.title }}</div>
-      {% if it.subtitle %}<div class="card-sub">{{ it.subtitle }}</div>{% endif %}
-      <div class="card-meta">
-        <span>📦 {{ it.product_count }}</span>
-        <span>👁 {{ it.click_count }}</span>
-        <span style="margin-left:auto;">{{ it.created_at }}</span>
-      </div>
-    </div>
-  </a>
-  {% endfor %}
-</div>
-{% else %}
-<div class="empty">
-  <div class="empty-emoji">🛍️</div>
-  <div class="empty-title">No published collections yet</div>
-  <div class="empty-sub">We're curating new collections — check back soon.</div>
-</div>
-{% endif %}
+  </section>
 
-<div class="lp-chat">
-  <div class="lp-chat-card">
-    <div class="lp-chat-title">Ask for more deals 💬</div>
-    <div class="lp-chat-bubbles" id="lpChatBubbles">
-      <div class="lp-chat-row">
-        <div class="lp-chat-bubble bot">Tell me what you need (budget, age, category, vibe) and I’ll suggest more picks from The Mommy &amp; Me Collective’s collections + posts.</div>
-      </div>
-    </div>
-    <div class="lp-chat-input-row">
-      <input id="lpChatInput" class="lp-chat-input" placeholder="Example: gifts under $25" onkeydown="if(event.key==='Enter') sendLandingChat()">
-      <button class="lp-chat-send" onclick="sendLandingChat()">Send</button>
-    </div>
-  </div>
-</div>
-
-<div class="disclosure">
-  <div class="disclosure-text">
-    As an affiliate, I may earn a commission on purchases made through links on this page at no extra cost to you.
-  </div>
-</div>
-
-<div class="footer">
-  <div class="footer-text">
-    Powered by <a class="footer-link" href="https://echotribe.ai" target="_blank" rel="noopener">EchoTribe</a> ·
-    <a class="footer-link" href="/sitemap.xml">Sitemap</a>
-  </div>
-</div>
-
-<script>
-function _appendLandingBubble(text, who='bot') {
-  const wrap = document.getElementById('lpChatBubbles');
-  const row = document.createElement('div');
-  row.className = `lp-chat-row ${who === 'user' ? 'user' : ''}`.trim();
-  const b = document.createElement('div');
-  b.className = `lp-chat-bubble ${who === 'user' ? 'user' : 'bot'}`;
-  b.textContent = text || '';
-  row.appendChild(b);
-  wrap.appendChild(row);
-  wrap.scrollTop = wrap.scrollHeight;
-}
-
-function _appendLandingProducts(products=[]) {
-  if (!products.length) return;
-  const wrap = document.getElementById('lpChatBubbles');
-  const row = document.createElement('div');
-  row.className = 'lp-chat-row';
-  const list = document.createElement('div');
-  list.className = 'lp-chat-products';
-  products.forEach(p => {
-    const card = document.createElement('div');
-    card.className = 'lp-chat-product';
-    const imgHtml = p.image
-      ? `<img class="lp-chat-product-img" src="${p.image}" alt="${p.name || ''}">`
-      : `<div class="lp-chat-product-ph">📦</div>`;
-    card.innerHTML = `
-      <div class="lp-chat-product-body">
-        ${imgHtml}
-        <div>
-          <div class="lp-chat-product-name">${p.name || 'Product'}</div>
-          <div class="lp-chat-product-price">${p.price || ''}</div>
+  {% if items %}
+  <section class="collection-list" id="collectionList">
+    {% for it in items %}
+    <article class="shelf" data-category="{{ it.category }}" data-search="{{ (it.title ~ ' ' ~ it.subtitle ~ ' ' ~ it.creator_name)|lower|e }}">
+      <div class="shelf-head">
+        <h2>{{ it.title }}</h2>
+        {% if it.subtitle %}<p class="shelf-note">{{ it.subtitle }}</p>{% endif %}
+        <div class="shelf-meta">
+          <span class="meta-pill">{{ it.product_count }} products</span>
+          <span class="meta-pill">Curated by {{ it.creator_name }}</span>
+          {% if it.created_at %}<span class="meta-pill">Updated {{ it.created_at }}</span>{% endif %}
         </div>
       </div>
-      <a class="lp-chat-product-btn" href="${p.link || '#'}" target="_blank" rel="noopener">View deal →</a>
-    `;
-    list.appendChild(card);
-  });
-  row.appendChild(list);
-  wrap.appendChild(row);
-  wrap.scrollTop = wrap.scrollHeight;
-}
+      {% if it.product_previews %}
+      <div class="rail" aria-label="{{ it.title }} products">
+        {% for p in it.product_previews %}
+        <article class="product-card">
+          <div class="product-img">
+            {% if p.image %}<img src="{{ p.image }}" alt="{{ p.title }}" loading="lazy" onerror="this.style.display='none'">{% else %}<div class="product-img-empty">Image coming soon</div>{% endif %}
+            <button class="save-btn" type="button" aria-label="Save {{ p.title }}">♡</button>
+          </div>
+          <div class="product-body">
+            {% if p.retailer_label %}<div class="retailer {{ p.retailer }}">{{ p.retailer_label }}</div>{% endif %}
+            <div class="brand">{{ p.brand }}</div>
+            <div class="product-name">{{ p.title }}</div>
+            {% if p.price %}<div class="price">{{ p.price }}</div>{% endif %}
+            <a class="buy" href="{{ p.url or ('/' ~ it.slug) }}" target="{% if p.url %}_blank{% else %}_self{% endif %}" rel="nofollow noopener sponsored">Buy Now</a>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <a class="shelf-action" href="/{{ it.slug }}"><span>View collection</span><span aria-hidden="true">-></span></a>
+    </article>
+    {% endfor %}
+  </section>
+  {% else %}
+  <div class="empty">No published collections yet. New shelves are being curated.</div>
+  {% endif %}
 
-async function sendLandingChat() {
-  const input = document.getElementById('lpChatInput');
-  const msg = (input.value || '').trim();
-  if (!msg) return;
-  input.value = '';
-  _appendLandingBubble(msg, 'user');
-  const chatSessionKey = 'storefront_chat_session_everydaywithsteph';
-  let chatSessionId = '';
-  try { chatSessionId = localStorage.getItem(chatSessionKey) || ''; } catch (e) {}
-
-  try {
-    const res = await fetch('/api/shop/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: msg,
-        creator_id: 'everydaywithsteph',
-        slug: 'shop-home',
-        session_id: chatSessionId,
-      }),
-    });
-    const data = await res.json();
-    if (data.session_id) {
-      try { localStorage.setItem(chatSessionKey, data.session_id); } catch (e) {}
-    }
-    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-    _appendLandingBubble(data.reply || "Here are a few good picks for that.");
-    _appendLandingProducts(data.products || []);
-  } catch (e) {
-    _appendLandingBubble("Sorry—chat is having trouble right now. Please try again in a moment.", 'bot');
+  <p class="fine">As an affiliate, I may earn a commission on purchases made through links on this page at no extra cost to you.</p>
+</main>
+<script>
+  let activeCollectionFilter = 'all';
+  function setCollectionFilter(btn) {
+    activeCollectionFilter = btn.getAttribute('data-filter') || 'all';
+    document.querySelectorAll('.chip[data-filter]').forEach((chip) => chip.classList.toggle('active', chip === btn));
+    filterCollections();
   }
-}
+  function filterCollections() {
+    const q = (document.getElementById('collectionSearch')?.value || '').trim().toLowerCase();
+    document.querySelectorAll('#collectionList .shelf').forEach((shelf) => {
+      const category = shelf.getAttribute('data-category') || 'all';
+      const search = shelf.getAttribute('data-search') || '';
+      const categoryMatch = activeCollectionFilter === 'all' || category === activeCollectionFilter;
+      const searchMatch = !q || search.includes(q);
+      shelf.style.display = categoryMatch && searchMatch ? '' : 'none';
+    });
+  }
 </script>
-
 </body>
 </html>

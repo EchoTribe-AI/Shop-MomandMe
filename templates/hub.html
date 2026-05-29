@@ -1,242 +1,145 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Content Hub · {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</title>
-  <style>
-    :root {
-      --bg: #fff8f6;
-      --ink: #1a1a17;
-      --muted: rgba(26,26,23,.6);
-      --line: rgba(26,26,23,.10);
-      --accent: #e85d26;
-      --soft: #ffe9df;
-      --card: #fff;
-      --green: #0a6b52;
-      --green-soft: #e6f4eb;
-      --r: 18px;
-    }
-    * { box-sizing: border-box; }
-    {% include 'partials/admin_header_styles.html' %}
-    body {
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--ink);
-      font-size: 15px;
-      line-height: 1.5;
-    }
-
-    /* ── Page layout ── */
-    .page { max-width: 520px; margin: 0 auto; padding: 28px 18px 60px; }
-
-    /* ── Hero ── */
-    .hero { margin-bottom: 28px; }
-    .eyebrow {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: var(--soft); color: var(--accent);
-      font-size: 11px; font-weight: 800; letter-spacing: .04em;
-      padding: 5px 10px; border-radius: 999px; margin-bottom: 10px;
-    }
-    .hero h1 {
-      font-size: 28px; font-weight: 800; letter-spacing: -.03em;
-      line-height: 1.1; margin: 0 0 8px;
-    }
-    .hero p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
-
-    /* ── Section label ── */
-    .section-label {
-      font-size: 10px; font-weight: 800; letter-spacing: .1em;
-      text-transform: uppercase; color: var(--muted);
-      margin: 0 0 10px;
-    }
-
-    /* ── Action cards ── */
-    .cards { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: var(--r);
-      padding: 18px;
-      box-shadow: 0 4px 18px rgba(26,26,23,.06);
-      text-decoration: none;
-      display: block;
-      transition: box-shadow .15s, transform .15s;
-    }
-    .card:active { transform: scale(.99); }
-    .card-icon { font-size: 28px; margin-bottom: 10px; }
-    .card-title { font-size: 17px; font-weight: 800; color: var(--ink); margin-bottom: 4px; }
-    .card-desc { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 14px; }
-    .card-steps { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 6px; }
-    .card-step {
-      display: flex; gap: 9px; align-items: flex-start;
-      font-size: 13px; color: var(--muted); line-height: 1.4;
-    }
-    .card-step-num {
-      flex-shrink: 0;
-      width: 20px; height: 20px;
-      border-radius: 50%;
-      background: var(--soft);
-      color: var(--accent);
-      font-size: 11px; font-weight: 900;
-      display: flex; align-items: center; justify-content: center;
-      margin-top: 1px;
-    }
-    .card-step strong { color: var(--ink); font-weight: 700; }
-    .card-btn {
-      display: flex; align-items: center; justify-content: space-between;
-      background: var(--accent); color: var(--brand-on-primary, #fff);
-      border-radius: 12px; padding: 11px 14px;
-      font-size: 13px; font-weight: 800;
-      text-decoration: none;
-    }
-    .card-btn-arrow { font-size: 16px; opacity: .8; }
-
-    /* ── Live shop links ── */
-    .shop-links { display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px; }
-    .shop-link {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 12px;
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 13px;
-      padding: 13px 16px;
-      text-decoration: none;
-      box-shadow: 0 2px 8px rgba(26,26,23,.05);
-      transition: background .12s;
-    }
-    .shop-link:active { background: var(--bg); }
-    .shop-link-left { display: flex; align-items: center; gap: 10px; }
-    .shop-link-icon { font-size: 20px; }
-    .shop-link-name { font-size: 14px; font-weight: 700; color: var(--ink); }
-    .shop-link-url { font-size: 11px; color: var(--muted); margin-top: 1px; }
-    .shop-link-arrow { font-size: 18px; color: var(--muted); flex-shrink: 0; }
-
-    /* ── Footer ── */
-    .footer { text-align: center; color: var(--muted); font-size: 11px; padding-top: 20px; border-top: 1px solid var(--line); }
-
-    @media (min-width: 560px) {
-      .page { border-left: 1px solid var(--line); border-right: 1px solid var(--line); min-height: 100vh; }
-    }
-  </style>
-  {# Brand-vars partial: included AFTER the inline theme <style> so the
-     legacy-compat bridge (--accent/--soft/--bg sourced from the active
-     creator row) wins over the static fallbacks above. NULL creator
-     colors → the bridge stays inert and the static palette renders. #}
-  {% include 'partials/_brand_vars.html' %}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Admin Hub · {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</title>
+{% include 'partials/_brand_vars.html' %}
+<style>
+  :root { --bg:#fbfaf7; --card:#fff; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --primary:var(--brand-primary,#7C7D6A); --soft:var(--brand-primary-container,#F3E9E1); --success:#0a6b52; --warning:#b85c00; --danger:#ba1a1a; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body { font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:linear-gradient(180deg,#fff 0%,var(--bg) 40%,#fff 100%); color:var(--ink); -webkit-font-smoothing:antialiased; }
+  {% include 'partials/admin_header_styles.html' %}
+  {% include 'partials/admin_mobile_nav_styles.html' %}
+  .page { max-width:860px; margin:0 auto; padding:34px 30px 112px; }
+  .hero h1 { margin:0; font-size:44px; line-height:1.04; letter-spacing:-.06em; }
+  .hero p { margin:8px 0 0; color:var(--muted); font-size:19px; line-height:1.4; }
+  .jump { margin-top:24px; min-height:70px; border:1px solid #f0c5b8; border-radius:22px; background:linear-gradient(90deg,#fff8f5,#fff); display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 22px; color:var(--ink); text-decoration:none; box-shadow:0 12px 30px rgba(186,70,26,.06); }
+  .jump-left { display:flex; align-items:center; gap:14px; }
+  .alert-ico { width:42px; height:42px; border-radius:999px; border:2px solid #c64623; color:#c64623; display:grid; place-items:center; font-size:26px; font-weight:900; }
+  .jump-title { font-size:18px; font-weight:900; }
+  .jump-count { display:inline-flex; align-items:center; justify-content:center; min-width:34px; height:34px; border-radius:999px; background:#f7dfd6; color:#b53617; font-weight:900; margin-left:6px; }
+  .metrics { margin-top:26px; display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .metric { min-height:154px; border:1px solid var(--line); border-radius:24px; background:#fff; padding:22px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; box-shadow:0 16px 36px rgba(26,26,23,.06); }
+  .metric-num { font-size:42px; font-weight:950; line-height:1; color:var(--primary); }
+  .metric-label { margin-top:10px; font-weight:900; font-size:16px; }
+  .metric-note { margin-top:6px; color:var(--muted); font-size:14px; }
+  .manage-card { margin-top:28px; border:1px solid var(--line); border-radius:28px; background:linear-gradient(110deg,#fff,rgba(124,125,106,.10)); box-shadow:0 18px 42px rgba(26,26,23,.07); overflow:hidden; display:grid; grid-template-columns:minmax(0,1fr) 330px; }
+  .manage-copy { padding:30px; }
+  .manage-copy h2 { margin:0; font-family:Georgia, "Times New Roman", serif; font-size:33px; line-height:1.05; letter-spacing:-.04em; }
+  .manage-copy p { margin:12px 0 22px; color:var(--muted); font-size:18px; line-height:1.4; }
+  .btn { min-height:50px; border:1px solid var(--line); border-radius:16px; background:#fff; color:var(--ink); text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px; padding:0 22px; font-weight:900; }
+  .btn.primary { color:var(--brand-on-primary,#fff); background:var(--primary); border-color:var(--primary); }
+  .mini-stack { display:flex; align-items:end; gap:0; padding:28px 20px; overflow:hidden; }
+  .mini-card { width:138px; min-width:138px; border:1px solid var(--line); border-radius:18px; background:#fff; overflow:hidden; box-shadow:0 12px 25px rgba(26,26,23,.10); margin-left:-30px; }
+  .mini-card:first-child { margin-left:0; }
+  .mini-img { aspect-ratio:1.15/1; background:#f6f3ef; display:grid; place-items:center; color:var(--muted); overflow:hidden; }
+  .mini-img img { width:100%; height:100%; object-fit:cover; }
+  .mini-body { padding:10px; font-size:12px; font-weight:850; line-height:1.2; }
+  .quick { margin-top:32px; }
+  .quick h2, .attention h2 { margin:0; font-size:25px; letter-spacing:-.03em; }
+  .quick p { margin:4px 0 16px; color:var(--muted); }
+  .quick-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .quick-card { border:1px solid var(--line); border-radius:22px; background:#fff; padding:20px; text-decoration:none; color:var(--ink); box-shadow:0 12px 28px rgba(26,26,23,.05); }
+  .quick-icon { width:48px; height:48px; border-radius:16px; display:grid; place-items:center; background:rgba(124,125,106,.12); color:var(--primary); font-size:25px; font-weight:900; }
+  .quick-title { margin-top:18px; font-size:18px; font-weight:900; }
+  .quick-desc { margin-top:5px; color:var(--muted); line-height:1.35; }
+  .attention { margin-top:34px; border:1px solid #efc7bb; border-radius:28px; background:linear-gradient(180deg,#fff8f5,#fff); padding:20px; box-shadow:0 16px 36px rgba(186,70,26,.06); }
+  .attention-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+  .attention-list { border:1px solid var(--line); border-radius:22px; overflow:hidden; background:#fff; }
+  .attention-row { min-height:86px; display:grid; grid-template-columns:72px minmax(0,1fr) auto; align-items:center; gap:16px; padding:12px 16px; border-top:1px solid var(--line); text-decoration:none; color:var(--ink); }
+  .attention-row:first-child { border-top:0; }
+  .att-img { width:62px; height:62px; border-radius:14px; background:#f6f3ef; display:grid; place-items:center; color:var(--muted); overflow:hidden; }
+  .att-img img { width:100%; height:100%; object-fit:cover; }
+  .att-title { font-weight:900; line-height:1.25; }
+  .att-meta { margin-top:4px; color:var(--warning); font-size:14px; }
+  .att-count { min-width:34px; height:34px; border-radius:999px; background:#f7dfd6; color:#b53617; display:grid; place-items:center; font-weight:900; }
+  @media (max-width:720px) {
+    .page { padding:30px 24px 112px; }
+    .metrics { grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+    .metric { min-height:130px; padding:15px 8px; }
+    .metric-num { font-size:34px; }
+    .metric-label { font-size:13px; }
+    .metric-note { font-size:12px; }
+    .manage-card { grid-template-columns:1fr; }
+    .mini-stack { padding-top:0; }
+    .quick-grid { grid-template-columns:1fr; }
+    .attention-row { grid-template-columns:58px minmax(0,1fr) auto; gap:10px; padding:12px; }
+    .att-img { width:52px; height:52px; }
+  }
+</style>
 </head>
 <body>
-
 {% set active = 'home' %}
-{% set page_title = 'Content Hub' %}
+{% set page_title = 'Admin Hub' %}
 {% include 'partials/admin_header.html' %}
-
 <main class="page">
+  <section class="hero">
+    <h1>Hi Steph</h1>
+    <p>Here's what's happening with your shop today.</p>
+  </section>
 
-  <div class="hero">
-    <div class="eyebrow">✦ {{ brand.shop_name or brand.brand_label or 'EchoTribe' }}</div>
-    <h1>Content Hub</h1>
-    <p>Your starting point for building and publishing collection pages to the live shop.</p>
-  </div>
+  <a class="jump" href="#needs-attention">
+    <span class="jump-left">
+      <span class="alert-ico" aria-hidden="true">!</span>
+      <span><span class="jump-title">Needs your attention</span><span class="jump-count">{{ dashboard.attention|length }}</span></span>
+    </span>
+    <span>Jump to list ↓</span>
+  </a>
 
-  <!-- ── Content Hub ── -->
-  <div class="section-label">Content Hub</div>
-  <div class="cards">
+  <section class="metrics" aria-label="Today's snapshot">
+    <div class="metric"><div class="metric-num">{{ dashboard.published_count }}</div><div class="metric-label">Published</div><div class="metric-note">Live on your shop</div></div>
+    <div class="metric"><div class="metric-num" style="color:#b85c00;">{{ dashboard.draft_count }}</div><div class="metric-label">Drafts</div><div class="metric-note">Not yet published</div></div>
+    <div class="metric"><div class="metric-num" style="color:#706f62;">{{ dashboard.total_count }}</div><div class="metric-label">Total</div><div class="metric-note">Across all statuses</div></div>
+  </section>
 
-    <!-- Build A Collection -->
-    <div>
-      <div class="card-icon">🔥</div>
-      <div class="card-title">Build A Collection</div>
-      <div class="card-desc">Browse what's trending at Walmart and Amazon, then turn any section into a published shop page.</div>
-      <ol class="card-steps">
-        <li class="card-step">
-          <div class="card-step-num">1</div>
-          <span>Browse pre-curated trending sections — products are already organized for you.</span>
-        </li>
-        <li class="card-step">
-          <div class="card-step-num">2</div>
-          <span>Click <strong>Create post</strong> on any section you want to publish.</span>
-        </li>
-        <li class="card-step">
-          <div class="card-step-num">3</div>
-          <span>Record your voice or paste notes, hit <strong>Generate post</strong>, then <strong>Publish page</strong>.</span>
-        </li>
-      </ol>
-      <a class="card-btn" href="/walmart/trending-now?admin=1">
-        Go to Trending Now <span class="card-btn-arrow">→</span>
-      </a>
+  <section class="manage-card">
+    <div class="manage-copy">
+      <h2>Manage your collections</h2>
+      <p>Edit, publish, archive, and review what's live in your shop.</p>
+      <a class="btn primary" href="/archer/posts/manage">View all collections -></a>
     </div>
-
-    <!-- Manage Collections -->
-    <div>
-      <div class="card-icon">📋</div>
-      <div class="card-title">Manage Collections</div>
-      <div class="card-desc">See every collection you've saved, published, or drafted. Edit, publish, or archive from one place.</div>
-      <ol class="card-steps">
-        <li class="card-step">
-          <div class="card-step-num">1</div>
-          <span><strong>Published</strong> collections are live on the shop. <strong>Draft</strong> collections are saved but hidden.</span>
-        </li>
-        <li class="card-step">
-          <div class="card-step-num">2</div>
-          <span>Click <strong>Edit</strong> to reopen a draft and finish it, or update a published page.</span>
-        </li>
-        <li class="card-step">
-          <div class="card-step-num">3</div>
-          <span>Click <strong>Archive</strong> to remove a collection from the shop (can be re-published later).</span>
-        </li>
-      </ol>
-      <a class="card-btn" href="/archer/posts/manage">
-        Go to Manage <span class="card-btn-arrow">→</span>
-      </a>
+    <div class="mini-stack" aria-label="Recent collection previews">
+      {% for c in dashboard.recent[:3] %}
+      <div class="mini-card">
+        <div class="mini-img">{% if c.cover_image %}<img src="{{ c.cover_image }}" alt="{{ c.title }}">{% else %}{{ loop.index }}{% endif %}</div>
+        <div class="mini-body">{{ c.title }}</div>
+      </div>
+      {% endfor %}
     </div>
+  </section>
 
-  </div>
+  <section class="quick">
+    <h2>Quick actions</h2>
+    <p>Jump into what you need most.</p>
+    <div class="quick-grid">
+      <a class="quick-card" href="/walmart/trending-now?admin=1"><div class="quick-icon">↗</div><div class="quick-title">Find trends</div><div class="quick-desc">See what's trending at Walmart and Amazon.</div></a>
+      <a class="quick-card" href="/walmart/trending-now?admin=1"><div class="quick-icon">+</div><div class="quick-title">Create collection</div><div class="quick-desc">Build and publish a new collection.</div></a>
+      <a class="quick-card" href="/chat"><div class="quick-icon">□</div><div class="quick-title">Ask EchoAgent</div><div class="quick-desc">Get help with copy, ideas, and more.</div></a>
+    </div>
+  </section>
 
-  <!-- ── Live Shop ── -->
-  <div class="section-label">Live Shop — Verify Your Published Work</div>
-  <div class="shop-links">
-
-    <a class="shop-link" href="https://{{ shop_subdomain }}/collections" target="_blank" rel="noopener">
-      <div class="shop-link-left">
-        <div class="shop-link-icon">🗂</div>
-        <div>
-          <div class="shop-link-name">View Collections</div>
-          <div class="shop-link-url">{{ shop_subdomain }}/collections</div>
-        </div>
-      </div>
-      <div class="shop-link-arrow">↗</div>
-    </a>
-
-    <a class="shop-link" href="https://{{ shop_subdomain }}/trends" target="_blank" rel="noopener">
-      <div class="shop-link-left">
-        <div class="shop-link-icon">🔥</div>
-        <div>
-          <div class="shop-link-name">View Trends</div>
-          <div class="shop-link-url">{{ shop_subdomain }}/trends</div>
-        </div>
-      </div>
-      <div class="shop-link-arrow">↗</div>
-    </a>
-
-    {# View Posts — hidden for now, uncomment when ready
-    <a class="shop-link" href="https://{{ shop_subdomain }}/posts" target="_blank" rel="noopener">
-      <div class="shop-link-left">
-        <div class="shop-link-icon">📝</div>
-        <div>
-          <div class="shop-link-name">View Posts</div>
-          <div class="shop-link-url">{{ shop_subdomain }}/posts</div>
-        </div>
-      </div>
-      <div class="shop-link-arrow">↗</div>
-    </a>
-    #}
-
-  </div>
-
-  <div class="footer">{{ brand.shop_name or brand.brand_label or 'EchoTribe' }} Content Hub · For internal use</div>
-
+  <section class="attention" id="needs-attention">
+    <div class="attention-head">
+      <h2>Needs your attention <span class="jump-count">{{ dashboard.attention|length }}</span></h2>
+      <a class="btn" href="/archer/posts/manage">View all</a>
+    </div>
+    {% if dashboard.attention %}
+    <div class="attention-list">
+      {% for item in dashboard.attention %}
+      <a class="attention-row" href="{{ item.href }}">
+        <div class="att-img">{% if item.image %}<img src="{{ item.image }}" alt="{{ item.title }}">{% else %}!{% endif %}</div>
+        <div><div class="att-title">{{ item.title }}</div><div class="att-meta">{{ item.meta }}</div></div>
+        <div class="att-count">{{ item.count }}</div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="attention-list"><div class="attention-row"><div class="att-img">✓</div><div><div class="att-title">Nothing needs review right now</div><div class="att-meta" style="color:var(--muted);">You're caught up.</div></div></div></div>
+    {% endif %}
+  </section>
 </main>
+{% include 'partials/admin_mobile_nav.html' %}
 </body>
 </html>

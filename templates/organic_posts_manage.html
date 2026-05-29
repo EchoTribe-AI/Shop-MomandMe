@@ -1,98 +1,151 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Organic Operations · EchoTribe</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Manage Collections · EchoTribe</title>
+{% include 'partials/_brand_vars.html' %}
 <style>
-  *, *::before, *::after { box-sizing: border-box; }
-  :root { --bg:#f7f7f5; --surface:#fff; --surface2:#f2f2ef; --border:rgba(0,0,0,.12); --text:#1a1a17; --text3:#606058; --text4:#999890; --archer:#e85d26; --green:#27693a; --green-light:#e6f4eb; --amber:#8a5510; --amber-light:#fbeedd; --red:#a02828; --blue:#1c5fa6; --blue-light:#e8f2fc; --r:8px; --mono:'SF Mono','Fira Mono',monospace; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
+  :root { --bg:#fbfaf7; --card:#fff; --ink:#1a1a17; --muted:rgba(26,26,23,.62); --line:rgba(26,26,23,.10); --primary:var(--brand-primary,#7C7D6A); --soft:var(--brand-primary-container,#F3E9E1); --success:#0a6b52; --warning:#b85c00; --danger:#ba1a1a; --r:22px; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body { font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:linear-gradient(180deg,#fff 0%,var(--bg) 42%,#fff 100%); color:var(--ink); -webkit-font-smoothing:antialiased; }
   {% include 'partials/admin_header_styles.html' %}
-  .page { max-width:1160px; margin:0 auto; padding:24px; }
-  .btn { font-size:12px; color:var(--text3); text-decoration:none; padding:6px 10px; border:.5px solid var(--border); border-radius:var(--r); background:var(--surface); cursor:pointer; }
-  .btn.primary { color:#fff; background:var(--archer); border-color:var(--archer); }
-  .btn.green { color:var(--green); background:var(--green-light); border-color:rgba(39,105,58,.25); }
-  .btn.blue { color:var(--blue); background:var(--blue-light); border-color:rgba(28,95,166,.25); }
-  .btn.red { color:var(--red); }
-  .h1 { font-size:24px; font-weight:700; }
-  .sub { color:var(--text3); margin-top:4px; }
-  .search-panel { margin-top:18px; background:var(--surface); border:.5px solid var(--border); border-radius:10px; padding:12px; display:flex; align-items:center; gap:10px; }
-  .search-input { flex:1; min-width:0; border:.5px solid var(--border); border-radius:var(--r); padding:10px 12px; font:inherit; background:#fff; color:var(--text); outline:none; }
-  .search-input:focus { border-color:var(--archer); box-shadow:0 0 0 3px rgba(232,93,38,.10); }
-  .search-meta { color:var(--text4); font-size:12px; margin-top:8px; }
-  .section { margin-top:24px; }
-  .section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; }
-  .label { font-family:var(--mono); color:var(--text4); letter-spacing:1px; text-transform:uppercase; font-size:10px; }
-  .table { background:var(--surface); border:.5px solid var(--border); border-radius:10px; overflow:hidden; }
-  .row { display:grid; gap:12px; padding:10px 12px; border-top:.5px solid var(--border); align-items:center; }
-  .post-row { grid-template-columns: 80px 1.2fr 1fr 110px 260px; }
-  .collection-row { grid-template-columns: 110px 1.4fr 100px 140px 260px; }
-  .header-row { border-top:none; background:var(--surface2); font-family:var(--mono); color:var(--text4); font-size:10px; text-transform:uppercase; letter-spacing:.8px; }
-  .cell { min-width:0; }
-  .cell::before { display:none; }
-  .name { font-weight:600; line-height:1.3; }
-  .meta { color:var(--text4); font-family:var(--mono); font-size:10px; margin-top:2px; }
-  .pill { display:inline-flex; font-family:var(--mono); font-size:10px; padding:3px 7px; border-radius:999px; background:var(--surface2); color:var(--text3); }
-  .pill.approved, .pill.published { color:var(--green); background:var(--green-light); }
-  .pill.draft { color:var(--amber); background:var(--amber-light); }
-  .actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
-  .empty { padding:28px; color:var(--text4); text-align:center; }
-  @media (max-width:900px) {
-    .search-panel { align-items:stretch; flex-direction:column; }
-    .row { grid-template-columns:1fr; gap:8px; padding:12px; }
-    .header-row { display:none; }
-    .cell { display:grid; grid-template-columns:82px minmax(0,1fr); gap:10px; align-items:start; }
-    .cell::before { display:block; content:attr(data-label); font-family:var(--mono); color:var(--text4); letter-spacing:.8px; text-transform:uppercase; font-size:10px; padding-top:2px; }
-    .actions { justify-content:flex-start; }
+  {% include 'partials/admin_mobile_nav_styles.html' %}
+  .page { max-width:860px; margin:0 auto; padding:34px 30px 110px; }
+  .hero h1 { margin:0; font-family:Georgia, "Times New Roman", serif; font-size:47px; line-height:1.02; letter-spacing:-.06em; }
+  .hero p { margin:10px 0 0; color:var(--muted); font-size:20px; line-height:1.35; }
+  .tools { margin-top:28px; display:grid; grid-template-columns:minmax(0,1fr) 72px; gap:14px; }
+  .search { min-height:64px; border:1px solid var(--line); border-radius:20px; background:#fff; display:flex; align-items:center; gap:12px; padding:0 18px; box-shadow:0 12px 28px rgba(26,26,23,.05); }
+  .search span { font-size:26px; color:var(--muted); }
+  .search input { width:100%; border:0; outline:0; font:inherit; font-size:18px; background:transparent; }
+  .filter-btn { border:1px solid var(--line); border-radius:20px; background:#fff; font-size:26px; color:var(--ink); }
+  .tabs { margin-top:18px; display:grid; grid-template-columns:repeat(4,1fr); border:1px solid var(--line); border-radius:999px; background:#fff; padding:6px; }
+  .tab { border:0; border-radius:999px; background:transparent; min-height:48px; font:inherit; font-weight:750; color:var(--muted); }
+  .tab.active { background:var(--primary); color:var(--brand-on-primary,#fff); box-shadow:0 10px 22px rgba(124,125,106,.18); }
+  .section-head { margin:34px 0 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  .section-head h2 { margin:0; font-family:Georgia, "Times New Roman", serif; font-size:32px; line-height:1; letter-spacing:-.04em; }
+  .btn { min-height:44px; border:1px solid var(--line); border-radius:15px; background:#fff; color:var(--ink); text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:0 16px; font:inherit; font-weight:800; cursor:pointer; }
+  .btn.primary { background:var(--primary); color:var(--brand-on-primary,#fff); border-color:var(--primary); }
+  .btn.danger { color:var(--danger); background:#fff8f6; }
+  .btn.success { color:var(--success); background:#f1f8f4; }
+  .cards { display:grid; gap:18px; }
+  .collection-card { border:1px solid var(--line); border-radius:28px; background:#fff; box-shadow:0 18px 42px rgba(26,26,23,.07); padding:22px; }
+  .collection-grid { display:grid; grid-template-columns:260px minmax(0,1fr); gap:24px; }
+  .cover { border-radius:22px; overflow:hidden; aspect-ratio:1.25/1; background:#f6f3ef; display:grid; place-items:center; color:var(--muted); font-weight:800; }
+  .cover img { width:100%; height:100%; object-fit:cover; display:block; }
+  .collection-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .collection-title { margin:0; font-family:Georgia, "Times New Roman", serif; font-size:31px; line-height:1.06; letter-spacing:-.04em; }
+  .menu { border:0; background:transparent; color:var(--muted); font-size:28px; line-height:1; }
+  .status { display:inline-flex; align-items:center; gap:7px; width:max-content; min-height:32px; padding:0 12px; border-radius:999px; font-size:13px; font-weight:850; margin-top:12px; }
+  .status.published { color:var(--success); background:rgba(10,107,82,.10); }
+  .status.draft { color:var(--warning); background:rgba(184,92,0,.10); }
+  .status.archived { color:var(--danger); background:rgba(186,26,26,.10); }
+  .desc { margin:12px 0 0; color:var(--muted); font-size:16px; line-height:1.42; }
+  .meta { margin-top:16px; display:flex; flex-wrap:wrap; gap:12px; color:var(--muted); font-size:14px; }
+  .peek-row { margin-top:18px; display:flex; gap:10px; overflow:hidden; }
+  .peek { width:76px; height:76px; border:1px solid var(--line); border-radius:14px; background:#f6f3ef; display:grid; place-items:center; flex:0 0 auto; color:var(--muted); font-weight:800; overflow:hidden; }
+  .peek img { width:100%; height:100%; object-fit:cover; display:block; }
+  .actions { margin-top:20px; display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:12px; }
+  .post-list { border:1px solid var(--line); border-radius:24px; overflow:hidden; background:#fff; box-shadow:0 12px 30px rgba(26,26,23,.05); }
+  .post-row { display:grid; grid-template-columns:92px minmax(0,1fr) auto; gap:16px; align-items:center; padding:16px; border-top:1px solid var(--line); }
+  .post-row:first-child { border-top:0; }
+  .post-img { width:92px; height:92px; border-radius:16px; background:#f6f3ef; overflow:hidden; display:grid; place-items:center; color:var(--muted); }
+  .post-img img { width:100%; height:100%; object-fit:cover; display:block; }
+  .post-title { font-weight:850; font-size:17px; line-height:1.25; }
+  .post-copy { margin-top:4px; color:var(--muted); font-size:14px; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .post-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .empty { padding:26px; color:var(--muted); border:1px dashed var(--line); border-radius:22px; background:#fff; }
+  @media (max-width:720px) {
+    .page { padding:30px 24px 112px; }
+    .hero h1 { font-size:42px; }
+    .tools { grid-template-columns:1fr 62px; }
+    .collection-grid { grid-template-columns:1fr; }
+    .cover { aspect-ratio:1.55/1; }
+    .actions { grid-template-columns:1fr; }
+    .post-row { grid-template-columns:74px minmax(0,1fr); }
+    .post-actions { grid-column:1/-1; justify-content:stretch; }
+    .post-actions .btn { flex:1; }
+    .tabs { grid-template-columns:repeat(2,1fr); border-radius:22px; }
   }
 </style>
 </head>
 <body>
 {% set active = 'manage' %}
-{% set page_title = 'Organic Operations' %}
+{% set page_title = 'Manage' %}
 {% include 'partials/admin_header.html' %}
 <main class="page">
-  <div class="h1">Saved Posts & Collections</div>
-  <div class="sub">Edit posts without touching the build queue. Manage collection drafts and published pages from the same Organic operations surface.</div>
+  <section class="hero">
+    <h1>Manage collections</h1>
+    <p>Edit, publish, archive, and review what is live.</p>
+  </section>
 
-  <div class="search-panel" role="search">
-    <input id="manageSearch" class="search-input" type="search" placeholder="Search collections, products, statuses, post copy, or keywords..." oninput="filterManageRows()">
-    <button class="btn" type="button" onclick="clearManageSearch()">Clear</button>
+  <section class="tools" role="search">
+    <label class="search">
+      <span aria-hidden="true">⌕</span>
+      <input id="manageSearch" type="search" placeholder="Search collections and posts" oninput="filterManageRows()">
+    </label>
+    <button class="filter-btn" type="button" onclick="clearManageSearch()" aria-label="Clear filters">≡</button>
+  </section>
+  <div class="tabs" role="group" aria-label="Manage filters">
+    <button class="tab active" type="button" data-status="all" onclick="setManageTab(this)">All</button>
+    <button class="tab" type="button" data-status="published" onclick="setManageTab(this)">Published</button>
+    <button class="tab" type="button" data-status="draft" onclick="setManageTab(this)">Drafts</button>
+    <button class="tab" type="button" data-status="posts" onclick="setManageTab(this)">Posts</button>
   </div>
-  <div class="search-meta" id="manageSearchMeta">Showing all saved items.</div>
 
-  <section class="section" data-section>
+  <section data-section="collections">
     <div class="section-head">
-      <div class="label">Collections</div>
-      <a class="btn primary" href="/walmart/trending-now?admin=1">Create</a>
+      <h2>Collections</h2>
+      <a class="btn primary" href="/walmart/trending-now?admin=1">+ New collection</a>
     </div>
-    <div class="table">
-      <div class="row collection-row header-row"><div>Status</div><div>Collection</div><div>Products</div><div>Created</div><div>Actions</div></div>
+    <div class="cards">
       {% for c in collages %}
       {% set is_draft = (c.status or 'published') != 'published' %}
       {% set is_archived = (c.status or 'published') == 'archived' %}
       {% set campaign_text = (c.campaign_types or [])|join(' ') %}
-      <div class="row collection-row searchable-row" data-search="{{ (c.slug ~ ' ' ~ (c.theme or '') ~ ' ' ~ (c.status or 'published') ~ ' ' ~ campaign_text ~ ' ' ~ (c.created_at or ''))|lower|e }}">
-        <div class="cell" data-label="Status"><span class="pill {{ c.status or 'published' }}">{{ c.status or 'published' }}</span></div>
-        <div class="cell" data-label="Collection"><div class="name">{{ c.slug }}</div><div class="meta">{{ c.theme }}{% if campaign_text %} · {{ (c.campaign_types or [])|join(', ') }}{% endif %}</div></div>
-        <div class="cell" data-label="Products">{{ c.product_count }} products</div>
-        <div class="cell" data-label="Created">{{ c.created_at }}</div>
-        <div class="cell actions" data-label="Actions">
-          {% if 'walmart_trend' in (c.campaign_types or []) or 'amazon_trend' in (c.campaign_types or []) %}
-          <a class="btn primary" href="/collections/{{ c.slug }}/edit">Edit</a>
-          {% else %}
-          <a class="btn primary" href="/archer/collage?collection={{ c.slug }}">Edit</a>
-          {% endif %}
-          <a class="btn" href="/shop/{{ c.slug }}{% if is_draft %}?preview=1{% endif %}" target="_blank">{% if is_draft %}Preview{% else %}View{% endif %}</a>
-          {% if is_archived %}
-          <button class="btn green" onclick="restoreCollection('{{ c.slug }}', this)">Restore</button>
-          {% else %}
-          {% if is_draft %}<button class="btn green" onclick="publishCollection('{{ c.slug }}', this)">Publish</button>{% endif %}
-          <button class="btn red" onclick="archiveCollection('{{ c.slug }}', this)">Archive</button>
-          {% endif %}
+      <article class="collection-card searchable-row" data-kind="collection" data-status="{{ c.status or 'published' }}" data-search="{{ (c.slug ~ ' ' ~ c.title ~ ' ' ~ c.subtitle ~ ' ' ~ (c.status or 'published') ~ ' ' ~ campaign_text ~ ' ' ~ (c.created_at or ''))|lower|e }}">
+        <div class="collection-grid">
+          <div class="cover">
+            {% if c.cover_image %}<img src="{{ c.cover_image }}" alt="{{ c.title }}" loading="lazy" onerror="this.style.display='none'">{% else %}Collection{% endif %}
+          </div>
+          <div>
+            <div class="collection-top">
+              <div>
+                <h3 class="collection-title">{{ c.title }}</h3>
+                <span class="status {{ c.status or 'published' }}">{{ c.status or 'published' }}</span>
+              </div>
+              <button class="menu" type="button" aria-label="More actions">...</button>
+            </div>
+            {% if c.subtitle %}<p class="desc">{{ c.subtitle }}</p>{% endif %}
+            <div class="meta">
+              <span>{{ c.product_count }} products</span>
+              {% if c.created_at %}<span>Edited {{ c.created_at }}</span>{% endif %}
+            </div>
+            <div class="peek-row" aria-label="{{ c.title }} product preview">
+              {% for p in c.product_previews[:5] %}
+              <div class="peek">{% if p.image %}<img src="{{ p.image }}" alt="{{ p.title }}" loading="lazy" onerror="this.style.display='none'">{% else %}{{ loop.index }}{% endif %}</div>
+              {% endfor %}
+              {% if c.product_count > 5 %}<div class="peek">+{{ c.product_count - 5 }}</div>{% endif %}
+            </div>
+            <div class="actions">
+              {% if 'walmart_trend' in (c.campaign_types or []) or 'amazon_trend' in (c.campaign_types or []) %}
+              <a class="btn primary" href="/collections/{{ c.slug }}/edit">Edit</a>
+              {% else %}
+              <a class="btn primary" href="/archer/collage?collection={{ c.slug }}">Edit</a>
+              {% endif %}
+              <a class="btn" href="/shop/{{ c.slug }}{% if is_draft %}?preview=1{% endif %}" target="_blank">{% if is_draft %}Preview{% else %}Preview{% endif %}</a>
+              {% if is_archived %}
+              <button class="btn success" onclick="restoreCollection('{{ c.slug }}', this)">Restore</button>
+              {% elif is_draft %}
+              <button class="btn success" onclick="publishCollection('{{ c.slug }}', this)">Publish</button>
+              {% else %}
+              <button class="btn danger" onclick="archiveCollection('{{ c.slug }}', this)">Archive</button>
+              {% endif %}
+            </div>
+          </div>
         </div>
-      </div>
+      </article>
       {% else %}
       <div class="empty">No collections yet.</div>
       {% endfor %}
@@ -100,26 +153,27 @@
     </div>
   </section>
 
-  <section class="section" data-section>
+  <section data-section="posts">
     <div class="section-head">
-      <div class="label">Saved Organic Posts</div>
+      <h2>Recent posts</h2>
       <a class="btn" href="/archer/posts/export.csv?creator_id={{ creator_id }}">Export CSV</a>
     </div>
-    <div class="table">
-      <div class="row post-row header-row"><div>ID</div><div>Product</div><div>Post</div><div>Status</div><div>Actions</div></div>
+    <div class="post-list">
       {% for p in posts %}
-      <div class="row post-row searchable-row" id="post-row-{{ p['id'] }}" data-search="{{ (p['id'] ~ ' ' ~ (p['product_name'] or '') ~ ' ' ~ (p['product_brand'] or '') ~ ' ' ~ (p['asin'] or '') ~ ' ' ~ (p['copy'] or '') ~ ' ' ~ (p['angle'] or '') ~ ' ' ~ (p['status'] or 'draft') ~ ' ' ~ (p['collection_slug'] or '') ~ ' ' ~ (p['created_at'] or ''))|lower|e }}">
-        <div class="cell" data-label="ID"><strong>#{{ p['id'] }}</strong><div class="meta">{{ p['created_at'][:10] if p['created_at'] else '' }}</div></div>
-        <div class="cell" data-label="Product"><div class="name">{{ p['product_name'] or p['asin'] }}</div><div class="meta">{{ p['product_brand'] or 'Amazon' }} · {{ p['asin'] }}</div></div>
-        <div class="cell" data-label="Post"><div>{{ (p['copy'] or '')[:110] }}{% if (p['copy'] or '')|length > 110 %}...{% endif %}</div><div class="meta">{{ p['angle'] or 'organic' }}</div></div>
-        <div class="cell" data-label="Status"><span class="pill {{ p['status'] or 'draft' }}" id="status-{{ p['id'] }}">{{ p['status'] or 'draft' }}</span></div>
-        <div class="cell actions" data-label="Actions">
-          <a class="btn primary" href="/archer/posts/{{ p['id'] }}/edit">Edit</a>
-          <button class="btn green" onclick="setPostStatus({{ p['id'] }}, 'approved')">Approve</button>
-          <button class="btn blue" onclick="setPostStatus({{ p['id'] }}, 'posted')">Posted</button>
-          <button class="btn red" onclick="setPostStatus({{ p['id'] }}, 'archived')">Archive</button>
+      <article class="post-row searchable-row" id="post-row-{{ p['id'] }}" data-kind="post" data-status="posts" data-search="{{ (p['id'] ~ ' ' ~ (p['product_name'] or '') ~ ' ' ~ (p['product_brand'] or '') ~ ' ' ~ (p['copy'] or '') ~ ' ' ~ (p['angle'] or '') ~ ' ' ~ (p['status'] or 'draft') ~ ' ' ~ (p['created_at'] or ''))|lower|e }}">
+        <div class="post-img">{% if p['product_image'] %}<img src="{{ p['product_image'] }}" alt="{{ p['product_name'] or p['asin'] }}" loading="lazy">{% else %}Post{% endif %}</div>
+        <div>
+          <div class="post-title">{{ p['product_name'] or p['asin'] }}</div>
+          <div class="meta"><span class="status {{ p['status'] or 'draft' }}" id="status-{{ p['id'] }}">{{ p['status'] or 'draft' }}</span> <span>{{ p['created_at'][:10] if p['created_at'] else '' }}</span></div>
+          {% if p['copy'] %}<div class="post-copy">{{ p['copy'] }}</div>{% endif %}
         </div>
-      </div>
+        <div class="post-actions">
+          <a class="btn primary" href="/archer/posts/{{ p['id'] }}/edit">Edit</a>
+          <button class="btn success" onclick="setPostStatus({{ p['id'] }}, 'approved')">Approve</button>
+          <button class="btn" onclick="setPostStatus({{ p['id'] }}, 'posted')">Posted</button>
+          <button class="btn danger" onclick="setPostStatus({{ p['id'] }}, 'archived')">Archive</button>
+        </div>
+      </article>
       {% else %}
       <div class="empty">No saved posts yet.</div>
       {% endfor %}
@@ -127,31 +181,39 @@
     </div>
   </section>
 </main>
+{% include 'partials/admin_mobile_nav.html' %}
 <script>
+let activeManageTab = 'all';
+function setManageTab(btn) {
+  activeManageTab = btn.getAttribute('data-status') || 'all';
+  document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab === btn));
+  filterManageRows();
+}
 function filterManageRows() {
   const input = document.getElementById('manageSearch');
-  const meta = document.getElementById('manageSearchMeta');
   const query = (input?.value || '').trim().toLowerCase();
-  let total = 0;
-  let visible = 0;
   document.querySelectorAll('[data-section]').forEach((section) => {
     const rows = Array.from(section.querySelectorAll('.searchable-row'));
     let sectionVisible = 0;
     rows.forEach((row) => {
-      total += 1;
       const text = row.getAttribute('data-search') || row.textContent.toLowerCase();
-      const match = !query || text.includes(query);
+      const status = row.getAttribute('data-status') || '';
+      const kind = row.getAttribute('data-kind') || '';
+      const tabMatch = activeManageTab === 'all' || status === activeManageTab || (activeManageTab === 'posts' && kind === 'post');
+      const match = tabMatch && (!query || text.includes(query));
       row.style.display = match ? '' : 'none';
-      if (match) { visible += 1; sectionVisible += 1; }
+      if (match) sectionVisible += 1;
     });
     const empty = section.querySelector('.search-empty');
     if (empty) empty.style.display = query && rows.length && !sectionVisible ? 'block' : 'none';
+    section.style.display = activeManageTab === 'posts' && section.getAttribute('data-section') !== 'posts' ? 'none' : '';
   });
-  if (meta) meta.textContent = query ? `Showing ${visible} of ${total} saved items.` : 'Showing all saved items.';
 }
 function clearManageSearch() {
   const input = document.getElementById('manageSearch');
   if (input) input.value = '';
+  activeManageTab = 'all';
+  document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.getAttribute('data-status') === 'all'));
   filterManageRows();
   input?.focus();
 }
@@ -163,7 +225,7 @@ async function setPostStatus(id, status) {
   });
   if (!res.ok) { alert('Status update failed'); return; }
   const pill = document.getElementById(`status-${id}`);
-  if (pill) { pill.textContent = status; pill.className = `pill ${status}`; }
+  if (pill) { pill.textContent = status; pill.className = `status ${status}`; }
   if (status === 'archived') {
     document.getElementById(`post-row-${id}`)?.remove();
     filterManageRows();
@@ -195,7 +257,7 @@ async function archiveCollection(slug, btn) {
     alert('Archive failed: ' + (d.error || res.status));
     btn.disabled = false; btn.textContent = old;
   } else {
-    btn.closest('.row').remove();
+    btn.closest('.collection-card').remove();
     filterManageRows();
   }
 }
