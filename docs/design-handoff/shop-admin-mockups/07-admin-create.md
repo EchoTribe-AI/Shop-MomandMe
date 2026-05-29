@@ -4,6 +4,8 @@
 
 ![Admin Create mockup](./mockups/admin-create.png)
 
+Layout contract: mobile canonical, desktop adaptive. Validate the 390px phone layout first; wider layouts may expand spacing and columns but must preserve the mobile hierarchy.
+
 ## Screen Role
 
 This is the collection editor and publishing workflow. It keeps the selected Content / Design / Preview structure while making the page feel more visual and less like a long form dump.

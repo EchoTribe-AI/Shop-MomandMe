@@ -4,6 +4,8 @@
 
 ![Admin Trends Workspace mockup](./mockups/admin-trends-workspace.png)
 
+Layout contract: mobile canonical, desktop adaptive. Validate the 390px phone layout first; wider layouts may expand spacing and columns but must preserve the mobile hierarchy.
+
 ## Screen Role
 
 This is the creator's visual trend workspace. It helps Steph browse trend products and turn selected products into a custom collection.

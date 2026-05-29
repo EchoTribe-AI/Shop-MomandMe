@@ -4,6 +4,8 @@
 
 ![Shop Collections mockup](./mockups/shop-collections.png)
 
+Layout contract: mobile canonical, desktop adaptive. Validate the 390px phone layout first; wider layouts may expand spacing and columns but must preserve the mobile hierarchy.
+
 ## Screen Role
 
 This is the public landing page for Steph's curated collections. It should make collections feel like editorial shopping shelves rather than generic cards or database rows.

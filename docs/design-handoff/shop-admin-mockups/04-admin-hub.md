@@ -4,6 +4,8 @@
 
 ![Admin Hub mockup](./mockups/admin-hub.png)
 
+Layout contract: mobile canonical, desktop adaptive. Validate the 390px phone layout first; wider layouts may expand spacing and columns but must preserve the mobile hierarchy.
+
 ## Screen Role
 
 This is the Creator Workspace home screen. It keeps the selected V1-B urgency-first intent while using the more polished admin system from Admin Manage.

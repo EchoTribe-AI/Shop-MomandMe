@@ -4,6 +4,8 @@
 
 ![EchoAgent Chat mockup](./mockups/echoagent-chat.png)
 
+Layout contract: mobile canonical, desktop adaptive. Validate the 390px phone layout first; wider layouts may expand spacing and columns but must preserve the mobile hierarchy.
+
 ## Screen Role
 
 This is the AI collaborator surface inside the Creator Workspace. It should help Steph turn trends into collections and content without leaving the connected admin system.

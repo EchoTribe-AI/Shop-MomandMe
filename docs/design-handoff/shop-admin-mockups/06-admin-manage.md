@@ -4,6 +4,8 @@
 
 ![Admin Manage mockup](./mockups/admin-manage.png)
 
+Layout contract: mobile canonical, desktop adaptive. Validate the 390px phone layout first; wider layouts may expand spacing and columns but must preserve the mobile hierarchy.
+
 ## Screen Role
 
 This is the approved admin template reference. It is the strongest current example of how the Creator Workspace should look and behave across the management pages.

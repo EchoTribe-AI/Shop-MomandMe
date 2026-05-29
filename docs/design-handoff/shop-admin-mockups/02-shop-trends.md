@@ -4,6 +4,8 @@
 
 ![Shop Trends mockup](./mockups/shop-trends.png)
 
+Layout contract: mobile canonical, desktop adaptive. Validate the 390px phone layout first; wider layouts may expand spacing and columns but must preserve the mobile hierarchy.
+
 ## Screen Role
 
 This public page turns trend data into an audience-friendly shopping surface. It needs to separate high-momentum individual products from creator-friendly themed collections built from trends.

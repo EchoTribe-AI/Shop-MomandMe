@@ -4,6 +4,8 @@
 
 ![Shop Posts mockup](./mockups/shop-posts.png)
 
+Layout contract: mobile canonical, desktop adaptive. Validate the 390px phone layout first; wider layouts may expand spacing and columns but must preserve the mobile hierarchy.
+
 ## Screen Role
 
 This public page is a creator recommendation feed. It should feel closer to shopping Steph's shared picks than browsing a standard ecommerce catalog.

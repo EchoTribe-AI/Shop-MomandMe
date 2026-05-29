@@ -4,6 +4,14 @@ This handoff packages eight mobile-first reference mockups for the next Shop and
 
 The public pages should feel like a polished influencer recommendation experience. The admin pages should feel like one connected operations product. Use the Admin Manage mockup as the approved admin shell reference for header treatment, bottom navigation, spacing, visual status badges, and collection-first cards.
 
+## Layout Contract
+
+- Mobile is canonical. Design, review, and QA the 390px phone viewport first.
+- Desktop and tablet are adaptive expansions of the mobile layout, not the source layout.
+- Product rails may scroll horizontally, but the page itself must not create horizontal overflow.
+- All genuine interactive controls must have at least a 44px by 44px tap target.
+- Verified mobile screenshots and audit output live in `mobile-audit/`.
+
 ## Visual Direction
 
 - Use the earlier theme picker concept as the north star: light neutral canvas, Sage Forward accents, refined controls, and strong product imagery.

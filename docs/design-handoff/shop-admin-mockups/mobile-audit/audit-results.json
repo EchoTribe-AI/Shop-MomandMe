@@ -1,0 +1,236 @@
+{
+  "shop-collections": {
+    "390x844": {
+      "docScrollW": 390,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/collections"
+    },
+    "393x852": {
+      "docScrollW": 393,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/collections"
+    },
+    "430x932": {
+      "docScrollW": 430,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/collections"
+    }
+  },
+  "shop-trends": {
+    "390x844": {
+      "docScrollW": 390,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/trends"
+    },
+    "393x852": {
+      "docScrollW": 393,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/trends"
+    },
+    "430x932": {
+      "docScrollW": 430,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/trends"
+    }
+  },
+  "shop-posts": {
+    "390x844": {
+      "docScrollW": 390,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/shop/posts"
+    },
+    "393x852": {
+      "docScrollW": 393,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/shop/posts"
+    },
+    "430x932": {
+      "docScrollW": 430,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/shop/posts"
+    }
+  },
+  "admin-hub": {
+    "390x844": {
+      "docScrollW": 390,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/hub"
+    },
+    "393x852": {
+      "docScrollW": 393,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/hub"
+    },
+    "430x932": {
+      "docScrollW": 430,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/hub"
+    }
+  },
+  "admin-trending": {
+    "390x844": {
+      "docScrollW": 390,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/walmart/trending-now?admin=1"
+    },
+    "393x852": {
+      "docScrollW": 393,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/walmart/trending-now?admin=1"
+    },
+    "430x932": {
+      "docScrollW": 430,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/walmart/trending-now?admin=1"
+    }
+  },
+  "admin-manage": {
+    "390x844": {
+      "docScrollW": 390,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/archer/posts/manage"
+    },
+    "393x852": {
+      "docScrollW": 393,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/archer/posts/manage"
+    },
+    "430x932": {
+      "docScrollW": 430,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/archer/posts/manage"
+    }
+  },
+  "admin-create": {
+    "390x844": {
+      "docScrollW": 390,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/collections/walmart-kids-room/edit"
+    },
+    "393x852": {
+      "docScrollW": 393,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/collections/walmart-kids-room/edit"
+    },
+    "430x932": {
+      "docScrollW": 430,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/collections/walmart-kids-room/edit"
+    }
+  },
+  "echoagent-chat": {
+    "390x844": {
+      "docScrollW": 390,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/chat"
+    },
+    "393x852": {
+      "docScrollW": 393,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/chat"
+    },
+    "430x932": {
+      "docScrollW": 430,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/chat"
+    }
+  },
+  "shop-collection-detail": {
+    "390x844": {
+      "docScrollW": 390,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/shop/walmart-kids-room"
+    },
+    "393x852": {
+      "docScrollW": 393,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/shop/walmart-kids-room"
+    },
+    "430x932": {
+      "docScrollW": 430,
+      "overflowX": false,
+      "smallCount": 0,
+      "small": [],
+      "status": 200,
+      "path": "/shop/walmart-kids-room"
+    }
+  }
+}
