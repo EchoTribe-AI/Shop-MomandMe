@@ -13,8 +13,8 @@
   {% include 'partials/admin_header_styles.html' %}
   {% include 'partials/admin_mobile_nav_styles.html' %}
   .page { max-width:860px; margin:0 auto; padding:34px 30px 112px; }
-  .hero h1 { margin:0; font-size:44px; line-height:1.04; letter-spacing:-.06em; }
-  .hero p { margin:8px 0 0; color:var(--muted); font-size:19px; line-height:1.4; }
+  .hero h1 { margin:0; font-size:34px; line-height:1.06; letter-spacing:-.045em; }
+  .hero p { margin:8px 0 0; color:var(--muted); font-size:16px; line-height:1.42; }
   .jump { margin-top:24px; min-height:70px; border:1px solid #f0c5b8; border-radius:22px; background:linear-gradient(90deg,#fff8f5,#fff); display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 22px; color:var(--ink); text-decoration:none; box-shadow:0 12px 30px rgba(186,70,26,.06); }
   .jump-left { display:flex; align-items:center; gap:14px; }
   .alert-ico { width:42px; height:42px; border-radius:999px; border:2px solid #c64623; color:#c64623; display:grid; place-items:center; font-size:26px; font-weight:900; }
@@ -22,13 +22,13 @@
   .jump-count { display:inline-flex; align-items:center; justify-content:center; min-width:34px; height:34px; border-radius:999px; background:#f7dfd6; color:#b53617; font-weight:900; margin-left:6px; }
   .metrics { margin-top:26px; display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
   .metric { min-height:154px; border:1px solid var(--line); border-radius:24px; background:#fff; padding:22px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; box-shadow:0 16px 36px rgba(26,26,23,.06); }
-  .metric-num { font-size:42px; font-weight:950; line-height:1; color:var(--primary); }
+  .metric-num { font-size:32px; font-weight:950; line-height:1; color:var(--primary); }
   .metric-label { margin-top:10px; font-weight:900; font-size:16px; }
   .metric-note { margin-top:6px; color:var(--muted); font-size:14px; }
   .manage-card { margin-top:28px; border:1px solid var(--line); border-radius:28px; background:linear-gradient(110deg,#fff,rgba(124,125,106,.10)); box-shadow:0 18px 42px rgba(26,26,23,.07); overflow:hidden; display:grid; grid-template-columns:minmax(0,1fr) 330px; }
   .manage-copy { padding:30px; }
-  .manage-copy h2 { margin:0; font-family:Georgia, "Times New Roman", serif; font-size:33px; line-height:1.05; letter-spacing:-.04em; }
-  .manage-copy p { margin:12px 0 22px; color:var(--muted); font-size:18px; line-height:1.4; }
+  .manage-copy h2 { margin:0; font-family:Georgia, "Times New Roman", serif; font-size:25px; line-height:1.08; letter-spacing:-.035em; }
+  .manage-copy p { margin:10px 0 18px; color:var(--muted); font-size:16px; line-height:1.42; }
   .btn { min-height:50px; border:1px solid var(--line); border-radius:16px; background:#fff; color:var(--ink); text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px; padding:0 22px; font-weight:900; }
   .btn.primary { color:var(--brand-on-primary,#fff); background:var(--primary); border-color:var(--primary); }
   .mini-stack { display:flex; align-items:end; gap:0; padding:28px 20px; overflow:hidden; }
@@ -38,7 +38,7 @@
   .mini-img img { width:100%; height:100%; object-fit:cover; }
   .mini-body { padding:10px; font-size:12px; font-weight:850; line-height:1.2; }
   .quick { margin-top:32px; }
-  .quick h2, .attention h2 { margin:0; font-size:25px; letter-spacing:-.03em; }
+  .quick h2, .attention h2 { margin:0; font-size:22px; letter-spacing:-.025em; }
   .quick p { margin:4px 0 16px; color:var(--muted); }
   .quick-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
   .quick-card { border:1px solid var(--line); border-radius:22px; background:#fff; padding:20px; text-decoration:none; color:var(--ink); box-shadow:0 12px 28px rgba(26,26,23,.05); }
@@ -59,7 +59,7 @@
     .page { padding:30px 24px 112px; }
     .metrics { grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
     .metric { min-height:130px; padding:15px 8px; }
-    .metric-num { font-size:34px; }
+    .metric-num { font-size:32px; }
     .metric-label { font-size:13px; }
     .metric-note { font-size:12px; }
     .manage-card { grid-template-columns:1fr; }
@@ -67,6 +67,14 @@
     .quick-grid { grid-template-columns:1fr; }
     .attention-row { grid-template-columns:58px minmax(0,1fr) auto; gap:10px; padding:12px; }
     .att-img { width:52px; height:52px; }
+  }
+  @media (min-width:768px) {
+    .hero h1 { font-size:44px; letter-spacing:-.06em; }
+    .hero p { font-size:19px; line-height:1.4; }
+    .metric-num { font-size:42px; }
+    .manage-copy h2 { font-size:33px; }
+    .manage-copy p { font-size:18px; line-height:1.4; }
+    .quick h2, .attention h2 { font-size:25px; }
   }
 </style>
 </head>

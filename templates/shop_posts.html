@@ -31,8 +31,8 @@
   .public-shop-link { min-width:116px; min-height:44px; text-align:center; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:999px; padding:10px 18px; font-size:16px; font-weight:650; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
   .public-shop-link.active { color:var(--brand-on-primary,#fff); background:var(--primary); border-color:var(--primary); box-shadow:0 10px 24px rgba(124,125,106,.18); }
   .intro { padding:38px 34px 18px; }
-  .intro h1 { margin:0; font-size:45px; line-height:1.02; letter-spacing:-.06em; }
-  .intro p { margin:12px 0 0; color:var(--muted); font-size:22px; line-height:1.35; }
+  .intro h1 { margin:0; font-size:32px; line-height:1.06; letter-spacing:-.04em; }
+  .intro p { margin:10px 0 0; color:var(--muted); font-size:16px; line-height:1.42; }
   .chips { display:flex; gap:10px; overflow-x:auto; padding:18px 34px 4px; -webkit-overflow-scrolling:touch; }
   .chips::-webkit-scrollbar { display:none; }
   .chip { flex:0 0 auto; border:1px solid var(--line); border-radius:999px; background:#fff; min-height:44px; padding:0 18px; font:inherit; font-size:15px; font-weight:700; }
@@ -49,12 +49,12 @@
   .retailer.amazon { color:#1a1a17; }
   .heart { width:44px; height:44px; border:1px solid var(--line); border-radius:999px; background:#fff; font-size:22px; }
   .brand { margin-top:24px; color:#7c6d62; text-transform:uppercase; font-size:13px; font-weight:900; letter-spacing:.12em; }
-  .name { margin-top:7px; font-size:27px; line-height:1.08; letter-spacing:-.035em; font-weight:900; }
-  .copy { margin:22px 0 0; padding-left:18px; border-left:4px solid #d59132; color:#6f4435; font-size:18px; line-height:1.42; }
+  .name { margin-top:7px; font-size:22px; line-height:1.12; letter-spacing:-.025em; font-weight:900; }
+  .copy { margin:18px 0 0; padding-left:16px; border-left:4px solid #d59132; color:#6f4435; font-size:16px; line-height:1.42; }
   .source { margin-top:18px; color:var(--muted); font-size:14px; }
   .proof { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; color:var(--muted); font-size:13px; }
   .proof span { border:1px solid var(--line); border-radius:999px; min-height:44px; display:inline-flex; align-items:center; padding:0 10px; background:#fff; }
-  .price { margin-top:auto; padding-top:18px; font-size:27px; font-weight:950; color:var(--price); }
+  .price { margin-top:auto; padding-top:18px; font-size:22px; font-weight:950; color:var(--price); }
   .buy { margin-top:14px; min-height:52px; border-radius:15px; background:var(--primary); color:var(--brand-on-primary,#fff); display:flex; align-items:center; justify-content:center; gap:12px; text-decoration:none; font-size:18px; font-weight:900; }
   .empty { margin:30px; padding:28px; border:1px dashed var(--line); border-radius:24px; color:var(--muted); background:#fff; }
   .fine { padding:0 30px 36px; color:rgba(26,26,23,.48); font-size:12px; line-height:1.5; }
@@ -65,11 +65,18 @@
     .brand-logo { width:52px; height:52px; }
     .public-shop-link { min-width:auto; flex:1; min-height:44px; padding:9px 10px; font-size:15px; }
     .intro { padding:34px 30px 14px; }
-    .intro h1 { font-size:39px; }
+    .intro h1 { font-size:32px; }
     .post-card { grid-template-columns:1fr; }
     .post-img { min-height:330px; }
     .feed { padding-left:24px; padding-right:24px; }
     .chips { padding-left:24px; padding-right:24px; }
+  }
+  @media (min-width:768px) {
+    .intro h1 { font-size:45px; line-height:1.02; letter-spacing:-.06em; }
+    .intro p { font-size:22px; line-height:1.35; }
+    .name { font-size:27px; line-height:1.08; letter-spacing:-.035em; }
+    .copy { margin-top:22px; font-size:18px; }
+    .price { font-size:27px; }
   }
 </style>
 </head>
